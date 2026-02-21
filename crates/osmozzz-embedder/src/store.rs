@@ -1,0 +1,264 @@
+use std::sync::Arc;
+
+use arrow_array::{
+    Array, ArrayRef, FixedSizeListArray, Float32Array, Int32Array, Int64Array, RecordBatch,
+    RecordBatchIterator, StringArray,
+};
+use arrow_schema::{ArrowError, DataType, Field, Schema};
+use futures::TryStreamExt;
+use lancedb::{
+    connect,
+    query::{ExecutableQuery, QueryBase},
+    Connection, Table,
+};
+use osmozzz_core::{Document, OsmozzError, Result, SearchResult};
+use tracing::debug;
+
+const TABLE_NAME: &str = "documents";
+const EMBEDDING_DIM: i32 = 384;
+
+pub struct VectorStore {
+    conn: Connection,
+    table: Arc<tokio::sync::RwLock<Option<Table>>>,
+}
+
+impl VectorStore {
+    pub async fn open(db_path: &str) -> Result<Self> {
+        std::fs::create_dir_all(db_path)
+            .map_err(|e| OsmozzError::Storage(format!("Create DB dir: {}", e)))?;
+
+        let conn = connect(db_path)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("LanceDB connect: {}", e)))?;
+
+        let store = Self {
+            conn,
+            table: Arc::new(tokio::sync::RwLock::new(None)),
+        };
+        store.ensure_table().await?;
+        Ok(store)
+    }
+
+    fn schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("source", DataType::Utf8, false),
+            Field::new("url", DataType::Utf8, false),
+            Field::new("title", DataType::Utf8, true),
+            Field::new("content", DataType::Utf8, false),
+            Field::new("checksum", DataType::Utf8, false),
+            Field::new("harvested_at", DataType::Int64, false),
+            Field::new("source_ts", DataType::Int64, true),
+            Field::new("chunk_index", DataType::Int32, true),
+            Field::new("chunk_total", DataType::Int32, true),
+            Field::new(
+                "embedding",
+                DataType::FixedSizeList(
+                    Arc::new(Field::new("item", DataType::Float32, true)),
+                    EMBEDDING_DIM,
+                ),
+                false,
+            ),
+        ]))
+    }
+
+    async fn ensure_table(&self) -> Result<()> {
+        let existing = self
+            .conn
+            .table_names()
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("List tables: {}", e)))?;
+
+        let schema = Self::schema();
+
+        let table = if existing.contains(&TABLE_NAME.to_string()) {
+            self.conn
+                .open_table(TABLE_NAME)
+                .execute()
+                .await
+                .map_err(|e| OsmozzError::Storage(format!("Open table: {}", e)))?
+        } else {
+            let empty = RecordBatch::new_empty(schema.clone());
+            let reader = RecordBatchIterator::new(
+                vec![Ok::<RecordBatch, ArrowError>(empty)].into_iter(),
+                schema,
+            );
+            self.conn
+                .create_table(TABLE_NAME, reader)
+                .execute()
+                .await
+                .map_err(|e| OsmozzError::Storage(format!("Create table: {}", e)))?
+        };
+
+        *self.table.write().await = Some(table);
+        Ok(())
+    }
+
+    async fn get_table(&self) -> Result<Table> {
+        self.table
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| OsmozzError::NotInitialized("Vector store table".to_string()))
+    }
+
+    pub async fn upsert(&self, doc: &Document, embedding: Vec<f32>) -> Result<()> {
+        let table = self.get_table().await?;
+        let schema = Self::schema();
+
+        let ids = StringArray::from(vec![doc.id.to_string()]);
+        let sources = StringArray::from(vec![doc.source.to_string()]);
+        let urls = StringArray::from(vec![doc.url.clone()]);
+        let titles = StringArray::from(vec![doc.title.clone()]);
+        let contents = StringArray::from(vec![doc.content.clone()]);
+        let checksums = StringArray::from(vec![doc.checksum.clone()]);
+        let harvested_at = Int64Array::from(vec![doc.harvested_at.timestamp()]);
+        let source_ts = Int64Array::from(vec![doc.source_ts.map(|t| t.timestamp())]);
+        let chunk_index = Int32Array::from(vec![doc.chunk_index.map(|x| x as i32)]);
+        let chunk_total = Int32Array::from(vec![doc.chunk_total.map(|x| x as i32)]);
+
+        let float_values = Float32Array::from(embedding);
+        let embedding_col = FixedSizeListArray::try_new(
+            Arc::new(Field::new("item", DataType::Float32, true)),
+            EMBEDDING_DIM,
+            Arc::new(float_values) as ArrayRef,
+            None,
+        )
+        .map_err(|e| OsmozzError::Storage(format!("Build embedding: {}", e)))?;
+
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(ids) as ArrayRef,
+                Arc::new(sources) as ArrayRef,
+                Arc::new(urls) as ArrayRef,
+                Arc::new(titles) as ArrayRef,
+                Arc::new(contents) as ArrayRef,
+                Arc::new(checksums) as ArrayRef,
+                Arc::new(harvested_at) as ArrayRef,
+                Arc::new(source_ts) as ArrayRef,
+                Arc::new(chunk_index) as ArrayRef,
+                Arc::new(chunk_total) as ArrayRef,
+                Arc::new(embedding_col) as ArrayRef,
+            ],
+        )
+        .map_err(|e| OsmozzError::Storage(format!("Build batch: {}", e)))?;
+
+        let reader = RecordBatchIterator::new(
+            vec![Ok::<RecordBatch, ArrowError>(batch)].into_iter(),
+            schema,
+        );
+        table
+            .add(reader)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Add row: {}", e)))?;
+
+        debug!("Stored doc: {} chunk {:?}/{:?}", doc.id, doc.chunk_index, doc.chunk_total);
+        Ok(())
+    }
+
+    pub async fn exists(&self, checksum: &str) -> Result<bool> {
+        let table = self.get_table().await?;
+        let results = table
+            .query()
+            .only_if(format!("checksum = '{}'", checksum))
+            .limit(1)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Exists query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Exists collect: {}", e)))?;
+        Ok(results.iter().any(|b| b.num_rows() > 0))
+    }
+
+    pub async fn search(&self, query_embedding: Vec<f32>, limit: usize) -> Result<Vec<SearchResult>> {
+        let table = self.get_table().await?;
+
+        let batches = table
+            .query()
+            .nearest_to(query_embedding)
+            .map_err(|e| OsmozzError::Storage(format!("Nearest-to: {}", e)))?
+            .limit(limit)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Search execute: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Search collect: {}", e)))?;
+
+        let mut results = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            macro_rules! str_col {
+                ($name:expr) => {
+                    batch.column_by_name($name)
+                        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                };
+            }
+            macro_rules! i32_col {
+                ($name:expr) => {
+                    batch.column_by_name($name)
+                        .and_then(|c| c.as_any().downcast_ref::<Int32Array>())
+                };
+            }
+
+            let id_col      = str_col!("id");
+            let source_col  = str_col!("source");
+            let url_col     = str_col!("url");
+            let title_col   = str_col!("title");
+            let content_col = str_col!("content");
+            let chunk_idx   = i32_col!("chunk_index");
+            let chunk_tot   = i32_col!("chunk_total");
+            let score_col   = batch
+                .column_by_name("_distance")
+                .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
+
+            for i in 0..nrows {
+                let dist = score_col.map(|c| c.value(i)).unwrap_or(1.0);
+                let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
+
+                let title = title_col.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i).to_string()) }
+                });
+
+                let content = content_col.map(|c| {
+                    let s = c.value(i);
+                    if s.len() > 300 { format!("{}…", &s[..300]) } else { s.to_string() }
+                }).unwrap_or_default();
+
+                let chunk_index = chunk_idx.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i) as u32) }
+                });
+                let chunk_total = chunk_tot.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i) as u32) }
+                });
+
+                results.push(SearchResult {
+                    id: id_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    score,
+                    source: source_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    url: url_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    title,
+                    content,
+                    chunk_index,
+                    chunk_total,
+                });
+            }
+        }
+        Ok(results)
+    }
+
+    pub async fn count(&self) -> Result<usize> {
+        let table = self.get_table().await?;
+        table.count_rows(None)
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Count: {}", e)))
+    }
+}

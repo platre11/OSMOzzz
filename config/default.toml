@@ -1,0 +1,38 @@
+[storage]
+# Base directory for all OSMOzzz data
+data_dir = "~/.osmozzz"
+
+# LanceDB database path (relative to data_dir)
+db_path = "vault"
+
+[model]
+# Path to ONNX model (relative to project root, or absolute)
+onnx_path = "models/all-MiniLM-L6-v2.onnx"
+tokenizer_path = "models/tokenizer.json"
+
+# Embedding dimensions for all-MiniLM-L6-v2
+embedding_dim = 384
+
+[harvester]
+# Chrome history database path (macOS default)
+chrome_history_path = "~/Library/Application Support/Google/Chrome/Default/History"
+
+# Max URL content length to index
+max_content_length = 8192
+
+# Batch size for indexing
+batch_size = 100
+
+[bridge]
+# Unix domain socket path
+socket_path = "~/.osmozzz/osmozzz.sock"
+
+# Max concurrent connections
+max_connections = 10
+
+[search]
+# Default result limit
+default_limit = 5
+
+# Minimum similarity score (0.0 - 1.0)
+min_score = 0.3

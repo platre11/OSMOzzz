@@ -1,0 +1,8 @@
+[build]
+target-dir = "target"
+
+# macOS: use the system linker by default (lld not required)
+# Uncomment below if you have lld installed and want faster linking:
+# [target.aarch64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]

@@ -1,0 +1,22 @@
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Model files (large, download separately)
+/models/*.onnx
+/models/*.json
+/models/*.txt
+
+# Data
+~/.osmozzz/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

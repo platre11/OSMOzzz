@@ -1,0 +1,56 @@
+[workspace]
+members = [
+    "crates/osmozzz-core",
+    "crates/osmozzz-harvester",
+    "crates/osmozzz-embedder",
+    "crates/osmozzz-bridge",
+    "crates/osmozzz-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["OSMOzzz"]
+license = "MIT"
+
+[workspace.dependencies]
+# Shared
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Harvester
+rusqlite = { version = "0.31", features = ["bundled"] }
+tempfile = "3"
+walkdir = "2"
+sha2 = "0.10"
+hex = "0.4"
+pdf-extract = "0.7"
+notify = "6"
+
+# Embedder
+ort = { version = "2.0.0-rc.11", features = ["load-dynamic"] }
+tokenizers = { version = "0.19", default-features = false, features = ["onig"] }
+lancedb = "0.14"
+arrow-array = "53"
+arrow-schema = "53"
+ndarray = "0.16"
+futures = "0.3"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+dirs-next = "2"
+shellexpand = "3"
+
+# Core
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,21 @@
+[package]
+name = "osmozzz-harvester"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+osmozzz-core = { path = "../osmozzz-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+rusqlite = { workspace = true }
+tempfile = { workspace = true }
+walkdir = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+dirs-next = { workspace = true }
+pdf-extract = { workspace = true }
+notify = { workspace = true }
