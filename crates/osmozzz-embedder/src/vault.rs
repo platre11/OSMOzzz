@@ -28,6 +28,13 @@ impl Vault {
     }
 }
 
+impl Vault {
+    /// Expose l'embedding brut pour le scoring à la volée (fetch intelligent).
+    pub fn embed_raw(&self, text: &str) -> osmozzz_core::Result<Vec<f32>> {
+        self.embedder.embed(text)
+    }
+}
+
 impl Embedder for Vault {
     async fn upsert(&self, doc: &Document) -> Result<()> {
         let embedding = self.embedder.embed(&doc.content)?;

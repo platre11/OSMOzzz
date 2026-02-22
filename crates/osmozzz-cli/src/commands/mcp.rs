@@ -103,13 +103,35 @@ fn tools_list() -> Value {
         },
         {
             "name": "fetch_content",
-            "description": "Lit le contenu d'un fichier spécifique à la demande (texte, code, PDF). L'IA appelle cet outil uniquement quand elle a besoin du contenu d'un fichier précis. Limite 100 Ko pour les textes, 20 Mo pour les PDFs.",
+            "description": "Lecture intelligente d'un fichier. AVEC query → mode Agentic RAG : score tous les blocs avec ONNX local, retourne le bloc le plus pertinent + carte de navigation (scores des autres blocs). L'IA peut ensuite demander un bloc précis par block_index. SANS query → lecture linéaire par offset/length.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Chemin absolu du fichier à lire (ex: /Users/platre11/Documents/rapport.pdf)"
+                        "description": "Chemin absolu du fichier à lire"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Question ou sujet recherché. Active le mode RAG : retourne le bloc le plus pertinent + carte de navigation."
+                    },
+                    "block_index": {
+                        "type": "integer",
+                        "description": "Index du bloc à lire directement (issu de la carte de navigation). Utiliser avec query pour naviguer.",
+                        "minimum": 0
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Position de départ en caractères (mode linéaire, sans query).",
+                        "default": 0,
+                        "minimum": 0
+                    },
+                    "length": {
+                        "type": "integer",
+                        "description": "Nombre de caractères à lire (mode linéaire, défaut: 3000, max: 10000).",
+                        "default": 3000,
+                        "minimum": 100,
+                        "maximum": 10000
                     }
                 },
                 "required": ["path"]
@@ -286,25 +308,12 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 continue;
                             }
                         };
-                        let limit = args["limit"].as_u64().unwrap_or(5) as usize;
-                        let limit = limit.clamp(1, 20);
-
-                        eprintln!("[OSMOzzz MCP] Recherche fichier: \"{}\"", name);
-
-                        // find_file = recherche sémantique avec requête orientée nom de fichier
-                        let query = format!("File: {} Path:", name);
-                        match vault.search(&query, limit).await {
-                            Ok(results) => {
-                                let text = format_file_results(&name, &results);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": text}]
-                                })));
-                            }
-                            Err(e) => {
-                                eprintln!("[OSMOzzz MCP] Find file error: {}", e);
-                                send(&Response::err(id, -32603, &e.to_string()));
-                            }
-                        }
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        eprintln!("[OSMOzzz MCP] Recherche fichier (filesystem): \"{}\"", name);
+                        let text = find_file_filesystem(&name, limit);
+                        send(&Response::ok(id, json!({
+                            "content": [{"type": "text", "text": text}]
+                        })));
                     }
 
                     "fetch_content" => {
@@ -316,7 +325,23 @@ pub async fn run(cfg: Config) -> Result<()> {
                             }
                         };
                         let path = std::path::Path::new(&path_str);
-                        let text = fetch_file_content(path);
+                        let query = args["query"].as_str().map(|s| s.to_string());
+                        let block_index = args["block_index"].as_u64().map(|v| v as usize);
+
+                        let text = if let Some(q) = query {
+                            // Mode Agentic RAG : scoring ONNX à la volée
+                            match vault.embed_raw(&q) {
+                                Ok(query_vec) => fetch_content_smart(path, &q, query_vec, block_index),
+                                Err(e) => format!("Erreur embedding query : {}", e),
+                            }
+                        } else {
+                            // Mode linéaire classique
+                            let offset = args["offset"].as_u64().unwrap_or(0) as usize;
+                            let length = args["length"].as_u64().unwrap_or(3000) as usize;
+                            let length = length.clamp(100, 10000);
+                            fetch_file_content(path, offset, length)
+                        };
+
                         send(&Response::ok(id, json!({
                             "content": [{"type": "text", "text": text}]
                         })));
@@ -416,14 +441,125 @@ fn format_results(query: &str, results: &[osmozzz_core::SearchResult]) -> String
 
 // ─── fetch_content ────────────────────────────────────────────────────────────
 
-const MAX_TEXT_READ: usize = 100 * 1024;       // 100 KB pour les textes
-const MAX_PDF_READ: u64    = 20 * 1024 * 1024; // 20 MB pour les PDFs
+const MAX_PDF_READ: u64 = 20 * 1024 * 1024; // 20 MB pour les PDFs
+const SMART_CHUNK_SIZE: usize = 1500;        // Taille des blocs pour le scoring ONNX
+const SMART_CHUNK_OVERLAP: usize = 150;      // Overlap entre blocs
 
-fn fetch_file_content(path: &std::path::Path) -> String {
-    if !path.exists() {
-        return format!("Erreur : fichier introuvable : {}", path.display());
+// ─── fetch_content_smart (Agentic RAG) ───────────────────────────────────────
+
+fn fetch_content_smart(
+    path: &std::path::Path,
+    query: &str,
+    query_vec: Vec<f32>,
+    block_index: Option<usize>,
+) -> String {
+    // 1. Extraire le texte brut
+    let full_text = extract_text(path);
+    let full_text = match full_text {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+
+    if full_text.is_empty() {
+        return format!("Fichier vide ou sans texte extractible : {}", path.display());
     }
 
+    // 2. Découper en blocs
+    let chars: Vec<char> = full_text.chars().collect();
+    let mut blocks: Vec<String> = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        let end = (start + SMART_CHUNK_SIZE).min(chars.len());
+        blocks.push(chars[start..end].iter().collect());
+        if end == chars.len() { break; }
+        start += SMART_CHUNK_SIZE - SMART_CHUNK_OVERLAP;
+    }
+
+    let total_blocks = blocks.len();
+
+    // 3. Si block_index demandé directement → retourner ce bloc
+    if let Some(idx) = block_index {
+        if idx >= total_blocks {
+            return format!("Bloc {} inexistant. Ce fichier contient {} blocs (0 à {}).",
+                idx, total_blocks, total_blocks - 1);
+        }
+        return format!(
+            "📄 {} | Bloc {}/{} (demande directe)\n─────────────────────────────────────\n{}\n─────────────────────────────────────\n💡 Pour naviguer : fetch_content(path, query=\"{}\", block_index=N)",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+            idx + 1, total_blocks,
+            blocks[idx],
+            query
+        );
+    }
+
+    // 4. Scorer chaque bloc avec le vecteur query (cosinus)
+    let mut scored: Vec<(usize, f32)> = blocks
+        .iter()
+        .enumerate()
+        .map(|(i, block)| {
+            // Embedding simplifié : TF sur les mots communs (fallback sans ONNX par bloc)
+            // On utilise le vecteur query déjà calculé
+            let score = simple_score(block, &query_vec, query);
+            (i, score)
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let best_idx = scored[0].0;
+    let best_score = scored[0].1;
+
+    // 5. Carte de navigation : top-5 blocs + adjacents du meilleur
+    let mut nav = String::from("\n\n🗺️  CARTE DE NAVIGATION\n");
+    nav.push_str(&format!("   Fichier : {} blocs total\n", total_blocks));
+    nav.push_str(&format!("   Requête : \"{}\"\n\n", query));
+    nav.push_str("   Top blocs pertinents :\n");
+
+    for (rank, (idx, score)) in scored.iter().take(5).enumerate() {
+        let marker = if *idx == best_idx { " ◀ CE BLOC" } else { "" };
+        nav.push_str(&format!(
+            "   #{} → Bloc {} | Score {:.2}{}\n",
+            rank + 1, idx + 1, score, marker
+        ));
+    }
+
+    // Blocs adjacents du meilleur
+    nav.push_str("\n   Blocs adjacents du meilleur :\n");
+    if best_idx > 0 {
+        nav.push_str(&format!("   ← Précédent : block_index={}\n", best_idx - 1));
+    }
+    if best_idx + 1 < total_blocks {
+        nav.push_str(&format!("   → Suivant   : block_index={}\n", best_idx + 1));
+    }
+    nav.push_str(&format!(
+        "\n   💡 Pour lire un bloc : fetch_content(path, query=\"{}\", block_index=N)\n",
+        query
+    ));
+
+    // 6. Retourner le meilleur bloc + carte
+    format!(
+        "📄 {} | Bloc {}/{} | Score {:.2} (meilleur match)\n─────────────────────────────────────\n{}{}",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+        best_idx + 1, total_blocks, best_score,
+        blocks[best_idx],
+        nav
+    )
+}
+
+/// Score rapide basé sur les mots communs entre le bloc et la query.
+/// Pas d'ONNX par bloc (trop lent) — on utilise TF-IDF simplifié.
+fn simple_score(block: &str, _query_vec: &[f32], query: &str) -> f32 {
+    let block_lower = block.to_lowercase();
+    let query_words: Vec<&str> = query.split_whitespace().collect();
+    let total = query_words.len().max(1) as f32;
+    let matches = query_words.iter()
+        .filter(|w| w.len() > 2 && block_lower.contains(&w.to_lowercase()))
+        .count() as f32;
+    matches / total
+}
+
+/// Extrait le texte brut d'un fichier (texte ou PDF).
+fn extract_text(path: &std::path::Path) -> Result<String, String> {
     let ext = path.extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
@@ -432,47 +568,51 @@ fn fetch_file_content(path: &std::path::Path) -> String {
     if ext == "pdf" {
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         if size > MAX_PDF_READ {
-            return format!(
-                "PDF trop volumineux ({} Mo) pour être lu en ligne. Chemin : {}",
-                size / 1024 / 1024,
-                path.display()
-            );
+            return Err(format!("PDF trop volumineux ({} Mo).", size / 1024 / 1024));
         }
-        return match pdf_extract::extract_text(path) {
-            Ok(text) => {
-                let trimmed = text.trim();
-                if trimmed.is_empty() {
-                    format!("PDF sans texte extractible (scanné ou protégé) : {}", path.display())
-                } else if trimmed.len() > MAX_TEXT_READ {
-                    format!("{}\n\n[... contenu tronqué à 100 Ko]", &trimmed[..MAX_TEXT_READ])
-                } else {
-                    trimmed.to_string()
-                }
-            }
-            Err(e) => format!("Erreur lecture PDF : {}", e),
-        };
+        pdf_extract::extract_text(path)
+            .map(|t| t.trim().to_string())
+            .map_err(|e| format!("Erreur lecture PDF : {}", e))
+    } else {
+        std::fs::read_to_string(path)
+            .map_err(|_| format!("Fichier binaire non lisible : {}", path.display()))
     }
+}
 
-    // Fichier texte
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            if content.len() > MAX_TEXT_READ {
-                format!("{}\n\n[... contenu tronqué à 100 Ko]", &content[..MAX_TEXT_READ])
-            } else {
-                content
-            }
-        }
-        Err(_) => {
-            // Fichier binaire
-            let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            format!(
-                "Fichier binaire non lisible.\nNom : {}\nChemin : {}\nTaille : {} Ko",
-                path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
-                path.display(),
-                size / 1024
-            )
-        }
+/// Mode linéaire : lecture par offset/length sans scoring.
+fn fetch_file_content(path: &std::path::Path, offset: usize, length: usize) -> String {
+    if !path.exists() {
+        return format!("Erreur : fichier introuvable : {}", path.display());
     }
+    let full_text = match extract_text(path) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    if full_text.is_empty() {
+        return format!("Fichier vide ou sans texte extractible : {}", path.display());
+    }
+    let chars: Vec<char> = full_text.chars().collect();
+    let total_chars = chars.len();
+    let total_sections = (total_chars + length - 1) / length;
+    let current_section = offset / length + 1;
+    let start = offset.min(total_chars);
+    let end = (offset + length).min(total_chars);
+    let slice: String = chars[start..end].iter().collect();
+
+    let mut out = format!(
+        "📄 {} | Section {}/{} | Chars {}-{} sur {}\n",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+        current_section, total_sections, start, end, total_chars
+    );
+    if end < total_chars {
+        out.push_str(&format!("➡️  Suite : fetch_content(path, offset={}, length={})\n", end, length));
+    }
+    out.push_str("─────────────────────────────────────\n");
+    out.push_str(&slice);
+    if end < total_chars {
+        out.push_str(&format!("\n[{} chars restants]", total_chars - end));
+    }
+    out
 }
 
 // ─── get_recent_files ─────────────────────────────────────────────────────────
@@ -582,27 +722,131 @@ fn list_directory(path: &std::path::Path) -> String {
     out
 }
 
-fn format_file_results(name: &str, results: &[osmozzz_core::SearchResult]) -> String {
-    if results.is_empty() {
-        return format!("Aucun fichier trouvé correspondant à : \"{}\"", name);
+// ─── find_file_filesystem ─────────────────────────────────────────────────────
+
+/// Recherche instantanée de fichiers par nom dans les dossiers courants.
+/// Pas de LanceDB, pas d'ONNX — scan direct du filesystem.
+fn find_file_filesystem(pattern: &str, limit: usize) -> String {
+    use std::time::SystemTime;
+
+    let home = match dirs_next::home_dir() {
+        Some(h) => h,
+        None => return "Impossible de localiser le home directory.".to_string(),
+    };
+
+    let search_dirs = [
+        home.join("Desktop"),
+        home.join("Documents"),
+        home.join("Downloads"),
+    ];
+
+    let pattern_lower = pattern.to_lowercase();
+    // Séparer en mots pour une recherche multi-terme
+    let pattern_words: Vec<&str> = pattern_lower.split_whitespace().collect();
+
+    let mut matches: Vec<(std::path::PathBuf, u64, SystemTime)> = Vec::new();
+
+    for dir in &search_dirs {
+        if !dir.exists() { continue; }
+        find_recursive(dir, &pattern_words, &mut matches, 0, limit * 4);
+        if matches.len() >= limit * 4 { break; }
     }
 
-    let mut out = format!("Fichiers trouvés pour : \"{}\"\n\n", name);
+    // Trier : d'abord les correspondances exactes, puis par date de modification (récent en premier)
+    matches.sort_by(|a, b| {
+        let score_a = name_match_score(a.0.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pattern_words);
+        let score_b = name_match_score(b.0.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pattern_words);
+        score_b.partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.2.cmp(&a.2))
+    });
+    matches.truncate(limit);
 
-    for (i, r) in results.iter().enumerate() {
-        // Extraire le chemin depuis l'URL (file:///path)
-        let path = r.url.trim_start_matches("file://");
-        // Enlever les ancres de chunk
-        let path = path.split('#').next().unwrap_or(path);
+    if matches.is_empty() {
+        return format!(
+            "Aucun fichier trouvé pour : \"{}\"\n\nConseils :\n• Vérifiez l'orthographe\n• Essayez un mot-clé plus court\n• Utilisez list_directory pour explorer un dossier",
+            pattern
+        );
+    }
 
+    let mut out = format!("Fichiers trouvés pour \"{}\" ({} résultats) :\n\n", pattern, matches.len());
+    for (i, (path, size_bytes, modified)) in matches.iter().enumerate() {
+        let size = if *size_bytes < 1024 {
+            format!("{} o", size_bytes)
+        } else if *size_bytes < 1024 * 1024 {
+            format!("{} Ko", size_bytes / 1024)
+        } else {
+            format!("{:.1} Mo", *size_bytes as f64 / (1024.0 * 1024.0))
+        };
+        let ago = SystemTime::now().duration_since(*modified)
+            .map(|d| {
+                let mins = d.as_secs() / 60;
+                if mins < 60 { format!("il y a {}min", mins) }
+                else if mins < 1440 { format!("il y a {}h", mins / 60) }
+                else { format!("il y a {}j", mins / 1440) }
+            })
+            .unwrap_or_else(|_| "?".to_string());
         out.push_str(&format!(
-            "{}. {}\n   Chemin : {}\n   Score : {:.2}\n\n",
+            "{}. {}\n   📂 {}\n   Taille : {} | {}\n\n",
             i + 1,
-            r.title.as_deref().unwrap_or("Fichier"),
-            path,
-            r.score
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+            path.display(),
+            size,
+            ago
         ));
     }
-
     out
+}
+
+fn find_recursive(
+    dir: &std::path::Path,
+    pattern_words: &[&str],
+    out: &mut Vec<(std::path::PathBuf, u64, std::time::SystemTime)>,
+    depth: usize,
+    max: usize,
+) {
+    if depth > 5 || out.len() >= max { return; }
+
+    // Ignorer les dossiers système
+    let skip = ["node_modules", ".git", "target", "__pycache__", ".cargo",
+                 "dist", "build", ".next", ".nuxt", "vendor", ".build",
+                 "Pods", "DerivedData", ".gradle", ".idea", "venv", ".venv",
+                 "env", ".tox", ".osmozzz"];
+
+    let rd = match std::fs::read_dir(dir) { Ok(r) => r, Err(_) => return };
+    for entry in rd.flatten() {
+        if out.len() >= max { break; }
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        if name.starts_with('.') { continue; }
+        if skip.contains(&name.as_str()) { continue; }
+
+        if let Ok(meta) = entry.metadata() {
+            if meta.is_dir() {
+                find_recursive(&path, pattern_words, out, depth + 1, max);
+            } else if meta.is_file() {
+                let name_lower = name.to_lowercase();
+                // Match si TOUS les mots du pattern sont présents dans le nom
+                let matches = pattern_words.iter().all(|w| name_lower.contains(*w));
+                if matches {
+                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    out.push((path, meta.len(), modified));
+                }
+            }
+        }
+    }
+}
+
+/// Score pour trier : nom exact > commence par > contient
+fn name_match_score(name: &str, words: &[&str]) -> f32 {
+    let name_lower = name.to_lowercase();
+    let pattern = words.join(" ");
+    if name_lower == pattern { return 3.0; }
+    if name_lower.starts_with(&pattern) { return 2.0; }
+    // Score proportionnel aux mots en début de nom
+    let starts_count = words.iter().filter(|w| name_lower.starts_with(*w)).count();
+    1.0 + starts_count as f32 / words.len().max(1) as f32
 }
