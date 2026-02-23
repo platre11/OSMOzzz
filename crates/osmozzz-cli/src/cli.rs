@@ -34,6 +34,11 @@ pub enum Commands {
     /// and indexes them silently into LanceDB.
     /// Run this once at login; MCP and other tools share the same DB.
     Daemon,
+    /// Compact the vector database to restore fast search
+    ///
+    /// Run this after bulk indexing (Gmail, Chrome, files).
+    /// Merges thousands of tiny fragment files into one and prunes old versions.
+    Compact,
 }
 
 #[derive(Args)]
@@ -49,6 +54,10 @@ pub struct IndexArgs {
     /// Batch size for embedding (default: 100)
     #[arg(short, long, default_value = "100")]
     pub batch: usize,
+
+    /// Delete all existing docs for this source before re-indexing
+    #[arg(long)]
+    pub reset: bool,
 }
 
 #[derive(Args)]
@@ -63,6 +72,10 @@ pub struct SearchArgs {
     /// Output format: text | json
     #[arg(short, long, default_value = "text")]
     pub format: String,
+
+    /// Filter results by source type: chrome | email | file | markdown | pdf
+    #[arg(long)]
+    pub source: Option<String>,
 }
 
 #[derive(Args)]

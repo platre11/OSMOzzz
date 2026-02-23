@@ -10,7 +10,6 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use osmozzz_core::Embedder;
 use osmozzz_embedder::Vault;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -61,7 +60,7 @@ fn tools_list() -> Value {
     json!([
         {
             "name": "search_memory",
-            "description": "Recherche sémantique dans ta mémoire personnelle locale (historique Chrome, PDFs, code source, fichiers texte, logs, config). Renvoie les extraits les plus pertinents avec leur source. Tout est 100% local, rien ne sort du Mac.",
+            "description": "Recherche sémantique dans ta mémoire personnelle locale : emails Gmail (indexés via IMAP directement, sans navigateur), historique Chrome, fichiers texte, PDFs, code source. Renvoie les extraits les plus pertinents avec leur source (EMAIL, CHROME, FILE…). Tout est 100% local, rien ne sort du Mac. Pour chercher des emails : utilise des mots-clés du sujet, expéditeur ou contenu.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -156,6 +155,22 @@ fn tools_list() -> Value {
                         "default": 20,
                         "minimum": 1,
                         "maximum": 100
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_recent_emails",
+            "description": "Liste les derniers emails reçus dans la boîte Gmail, triés par date (du plus récent au plus ancien). Utilise l'index IMAP local. Idéal pour répondre à 'quel est mon dernier email ?' ou 'qu'est-ce que j'ai reçu récemment ?'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre d'emails à retourner (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
                     }
                 }
             }
@@ -286,8 +301,24 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] Recherche: \"{}\" (limit={})", query, limit);
 
-                        match vault.search(&query, limit).await {
-                            Ok(results) => {
+                        // Blended search: global top results + guaranteed email results
+                        let global_fut = vault.search_filtered(&query, limit, None);
+                        let email_fut  = vault.search_filtered(&query, 3, Some("email"));
+
+                        match tokio::try_join!(global_fut, email_fut) {
+                            Ok((mut results, email_results)) => {
+                                // Append email results not already in global results
+                                let seen: std::collections::HashSet<String> =
+                                    results.iter().map(|r| r.id.clone()).collect();
+                                for r in email_results {
+                                    if !seen.contains(&r.id) {
+                                        results.push(r);
+                                    }
+                                }
+                                // Sort by score descending
+                                results.sort_by(|a, b| b.score.partial_cmp(&a.score)
+                                    .unwrap_or(std::cmp::Ordering::Equal));
+
                                 let text = format_results(&query, &results);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": text}]
@@ -345,6 +376,23 @@ pub async fn run(cfg: Config) -> Result<()> {
                         send(&Response::ok(id, json!({
                             "content": [{"type": "text", "text": text}]
                         })));
+                    }
+
+                    "get_recent_emails" => {
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        let limit = limit.clamp(1, 50);
+                        eprintln!("[OSMOzzz MCP] Emails récents (limit={})", limit);
+                        match vault.recent_emails(limit).await {
+                            Ok(results) => {
+                                let text = format_recent_emails(&results);
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": text}]
+                                })));
+                            }
+                            Err(e) => {
+                                send(&Response::err(id, -32603, &e.to_string()));
+                            }
+                        }
                     }
 
                     "get_recent_files" => {
@@ -436,6 +484,31 @@ fn format_results(query: &str, results: &[osmozzz_core::SearchResult]) -> String
         out.push_str(&format!("   Extrait : {}\n\n", r.content.replace('\n', " ")));
     }
 
+    out
+}
+
+// ─── format_recent_emails ─────────────────────────────────────────────────────
+
+fn format_recent_emails(results: &[osmozzz_core::SearchResult]) -> String {
+    if results.is_empty() {
+        return "Aucun email indexé. Lance 'osmozzz index --source gmail' pour indexer ta boîte.".to_string();
+    }
+
+    let mut out = format!("📬 {} derniers emails (IMAP Gmail, triés par date) :\n\n", results.len());
+    for (i, r) in results.iter().enumerate() {
+        let title = r.title.as_deref().unwrap_or("(sans objet)");
+        // Extract "De :" from content first line
+        let from_line = r.content.lines()
+            .find(|l| l.starts_with("De :"))
+            .unwrap_or("")
+            .trim_start_matches("De :").trim();
+
+        out.push_str(&format!("{}. {}\n", i + 1, title));
+        if !from_line.is_empty() {
+            out.push_str(&format!("   De : {}\n", from_line));
+        }
+        out.push_str(&format!("   ID : {}\n\n", r.url.trim_start_matches("gmail://message/")));
+    }
     out
 }
 

@@ -1,3 +1,4 @@
+pub mod compact;
 pub mod daemon;
 pub mod index;
 pub mod mcp;

@@ -9,6 +9,7 @@ use futures::TryStreamExt;
 use lancedb::{
     connect,
     query::{ExecutableQuery, QueryBase},
+    table::OptimizeAction,
     Connection, Table,
 };
 use osmozzz_core::{Document, OsmozzError, Result, SearchResult};
@@ -160,6 +161,96 @@ impl VectorStore {
         Ok(())
     }
 
+    pub async fn delete_by_source(&self, source: &str) -> Result<()> {
+        let table = self.get_table().await?;
+        table
+            .delete(&format!("source = '{}'", source))
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Delete by source: {}", e)))?;
+        Ok(())
+    }
+
+    /// Return the most recent docs for a given source, sorted by source_ts DESC.
+    pub async fn recent_by_source(&self, source: &str, limit: usize) -> Result<Vec<osmozzz_core::SearchResult>> {
+        let table = self.get_table().await?;
+        let batches = table
+            .query()
+            .only_if(format!("source = '{}'", source))
+            .limit(100_000) // fetch all, sort in memory
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Recent query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Recent collect: {}", e)))?;
+
+        let mut results: Vec<(i64, osmozzz_core::SearchResult)> = Vec::new();
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+            macro_rules! str_col {
+                ($name:expr) => {
+                    batch.column_by_name($name)
+                        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                };
+            }
+            macro_rules! i32_col {
+                ($name:expr) => {
+                    batch.column_by_name($name)
+                        .and_then(|c| c.as_any().downcast_ref::<Int32Array>())
+                };
+            }
+            let id_col      = str_col!("id");
+            let source_col  = str_col!("source");
+            let url_col     = str_col!("url");
+            let title_col   = str_col!("title");
+            let content_col = str_col!("content");
+            let chunk_idx   = i32_col!("chunk_index");
+            let chunk_tot   = i32_col!("chunk_total");
+            let source_ts_col = batch.column_by_name("source_ts")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                // Use source_ts (email date) for sorting; fall back to harvested_at only if NULL
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+
+                let title = title_col.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i).to_string()) }
+                });
+                let content = content_col.map(|c| {
+                    let s = c.value(i);
+                    if s.len() > 300 {
+                        let mut b = 300;
+                        while b > 0 && !s.is_char_boundary(b) { b -= 1; }
+                        format!("{}…", &s[..b])
+                    } else { s.to_string() }
+                }).unwrap_or_default();
+                let chunk_index = chunk_idx.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i) as u32) });
+                let chunk_total = chunk_tot.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i) as u32) });
+
+                results.push((ts, osmozzz_core::SearchResult {
+                    id: id_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    score: 1.0,
+                    source: source_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    url: url_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    title,
+                    content,
+                    chunk_index,
+                    chunk_total,
+                }));
+            }
+        }
+        // Sort by date descending
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, r)| r).collect())
+    }
+
     pub async fn exists(&self, checksum: &str) -> Result<bool> {
         let table = self.get_table().await?;
         let results = table
@@ -230,7 +321,13 @@ impl VectorStore {
 
                 let content = content_col.map(|c| {
                     let s = c.value(i);
-                    if s.len() > 300 { format!("{}…", &s[..300]) } else { s.to_string() }
+                    if s.len() > 300 {
+                        let mut b = 300;
+                        while b > 0 && !s.is_char_boundary(b) { b -= 1; }
+                        format!("{}…", &s[..b])
+                    } else {
+                        s.to_string()
+                    }
                 }).unwrap_or_default();
 
                 let chunk_index = chunk_idx.and_then(|c| {
@@ -260,5 +357,124 @@ impl VectorStore {
         table.count_rows(None)
             .await
             .map_err(|e| OsmozzError::Storage(format!("Count: {}", e)))
+    }
+
+    pub async fn count_source(&self, source: &str) -> Result<usize> {
+        let table = self.get_table().await?;
+        let results = table
+            .query()
+            .only_if(format!("source = '{}'", source))
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Count source query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Count source collect: {}", e)))?;
+        Ok(results.iter().map(|b| b.num_rows()).sum())
+    }
+
+    /// Search with an optional source filter (e.g. "email", "chrome").
+    pub async fn search_filtered(
+        &self,
+        query_embedding: Vec<f32>,
+        limit: usize,
+        source_filter: Option<&str>,
+    ) -> Result<Vec<SearchResult>> {
+        let table = self.get_table().await?;
+
+        let base = table.query().nearest_to(query_embedding)
+            .map_err(|e| OsmozzError::Storage(format!("Nearest-to: {}", e)))?
+            .limit(limit);
+
+        let query = if let Some(src) = source_filter {
+            base.only_if(format!("source = '{}'", src))
+        } else {
+            base
+        };
+
+        let batches = query
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Search execute: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Search collect: {}", e)))?;
+
+        let mut results = Vec::new();
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            macro_rules! str_col {
+                ($name:expr) => {
+                    batch.column_by_name($name)
+                        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                };
+            }
+            macro_rules! i32_col {
+                ($name:expr) => {
+                    batch.column_by_name($name)
+                        .and_then(|c| c.as_any().downcast_ref::<Int32Array>())
+                };
+            }
+
+            let id_col      = str_col!("id");
+            let source_col  = str_col!("source");
+            let url_col     = str_col!("url");
+            let title_col   = str_col!("title");
+            let content_col = str_col!("content");
+            let chunk_idx   = i32_col!("chunk_index");
+            let chunk_tot   = i32_col!("chunk_total");
+            let score_col   = batch
+                .column_by_name("_distance")
+                .and_then(|c| c.as_any().downcast_ref::<Float32Array>());
+
+            for i in 0..nrows {
+                let dist = score_col.map(|c| c.value(i)).unwrap_or(1.0);
+                let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
+                let title = title_col.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i).to_string()) }
+                });
+                let content = content_col.map(|c| {
+                    let s = c.value(i);
+                    if s.len() > 300 {
+                        let mut b = 300;
+                        while b > 0 && !s.is_char_boundary(b) { b -= 1; }
+                        format!("{}…", &s[..b])
+                    } else {
+                        s.to_string()
+                    }
+                }).unwrap_or_default();
+                let chunk_index = chunk_idx.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i) as u32) }
+                });
+                let chunk_total = chunk_tot.and_then(|c| {
+                    if c.is_null(i) { None } else { Some(c.value(i) as u32) }
+                });
+                results.push(SearchResult {
+                    id: id_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    score,
+                    source: source_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    url: url_col.map(|c| c.value(i).to_string()).unwrap_or_default(),
+                    title,
+                    content,
+                    chunk_index,
+                    chunk_total,
+                });
+            }
+        }
+        Ok(results)
+    }
+
+    /// Merge all fragment files into one and prune old versions.
+    /// Run this after bulk indexing to restore fast vector search.
+    pub async fn compact(&self) -> Result<()> {
+        let table = self.get_table().await?;
+        table
+            .optimize(OptimizeAction::All)
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Compact: {}", e)))?;
+        Ok(())
     }
 }

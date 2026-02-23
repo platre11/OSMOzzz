@@ -42,5 +42,6 @@ async fn main() -> Result<()> {
         Commands::Status => commands::status::run(cfg).await,
         Commands::Mcp => commands::mcp::run(cfg).await,
         Commands::Daemon => commands::daemon::run(cfg).await,
+        Commands::Compact => commands::compact::run(cfg).await,
     }
 }

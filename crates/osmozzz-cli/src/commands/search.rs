@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use osmozzz_core::Embedder;
 use osmozzz_embedder::Vault;
 
 use crate::cli::SearchArgs;
@@ -14,10 +13,27 @@ pub async fn run(args: SearchArgs, cfg: Config) -> Result<()> {
     .await
     .context("Failed to initialize vault")?;
 
-    let results = vault
-        .search(&args.query, args.limit)
-        .await
-        .context("Search failed")?;
+    let results = if args.source.is_none() {
+        // Blended: global top-N + guaranteed email results
+        let (mut global, emails) = tokio::try_join!(
+            vault.search_filtered(&args.query, args.limit, None),
+            vault.search_filtered(&args.query, 2, Some("email"))
+        ).context("Search failed")?;
+        let seen: std::collections::HashSet<String> =
+            global.iter().map(|r| r.id.clone()).collect();
+        for r in emails {
+            if !seen.contains(&r.id) {
+                global.push(r);
+            }
+        }
+        global.sort_by(|a, b| b.score.partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal));
+        global
+    } else {
+        vault.search_filtered(&args.query, args.limit, args.source.as_deref())
+            .await
+            .context("Search failed")?
+    };
 
     if results.is_empty() {
         println!("No results found for: {}", args.query);

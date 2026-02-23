@@ -19,3 +19,6 @@ chrono = { workspace = true }
 dirs-next = { workspace = true }
 pdf-extract = { workspace = true }
 notify = { workspace = true }
+imap = { workspace = true }
+native-tls = { workspace = true }
+mailparse = { workspace = true }

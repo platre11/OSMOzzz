@@ -46,7 +46,17 @@ impl OnnxEmbedder {
 
     /// Embed text → 384-dim L2-normalized vector (local inference, no network).
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        let text = &text[..text.len().min(512 * 4)];
+        let max_bytes = 512 * 4;
+        let text = if text.len() > max_bytes {
+            // Couper à la frontière de caractère UTF-8 la plus proche
+            let mut boundary = max_bytes;
+            while boundary > 0 && !text.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            &text[..boundary]
+        } else {
+            text
+        };
 
         let encoding = self
             .tokenizer

@@ -9,6 +9,7 @@ pub enum SourceType {
     File,
     Pdf,
     Markdown,
+    Email,
 }
 
 impl std::fmt::Display for SourceType {
@@ -18,6 +19,7 @@ impl std::fmt::Display for SourceType {
             SourceType::File => write!(f, "file"),
             SourceType::Pdf => write!(f, "pdf"),
             SourceType::Markdown => write!(f, "markdown"),
+            SourceType::Email => write!(f, "email"),
         }
     }
 }
@@ -30,6 +32,7 @@ impl std::str::FromStr for SourceType {
             "file" => Ok(SourceType::File),
             "pdf" => Ok(SourceType::Pdf),
             "markdown" => Ok(SourceType::Markdown),
+            "email" => Ok(SourceType::Email),
             other => Err(format!("Unknown source type: {}", other)),
         }
     }
