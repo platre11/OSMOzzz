@@ -21,7 +21,7 @@ use crate::checksum;
 
 const IMAP_SERVER: &str = "imap.gmail.com";
 const IMAP_PORT: u16 = 993;
-const MAX_BODY_CHARS: usize = 4_000;
+const MAX_BODY_CHARS: usize = 20_000;
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 

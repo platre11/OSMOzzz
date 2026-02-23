@@ -467,6 +467,128 @@ impl VectorStore {
         Ok(results)
     }
 
+    /// Get emails matching a sender pattern, sorted by date DESC, full content.
+    pub async fn get_emails_by_sender(&self, pattern: &str, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+        let pattern_lower = pattern.to_lowercase();
+
+        let batches = table
+            .query()
+            .only_if("source = 'email'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Sender query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Sender collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col   = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col     = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let content = match content_col { Some(c) => c.value(i), None => continue };
+                // Match only in the header (first 200 chars = "De :" line)
+                let header: String = content.chars().take(200).collect();
+                if !header.to_lowercase().contains(&pattern_lower) { continue; }
+
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+                let url   = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content.to_string()));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
+    }
+
+    /// Get recent emails with full content (no truncation), sorted by date DESC.
+    pub async fn recent_emails_full(&self, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+
+        let batches = table
+            .query()
+            .only_if("source = 'email'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Recent full query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Recent full collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col   = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col     = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col       = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                let title   = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+                let url     = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                let content = content_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
+    }
+
+    /// Fetch the full content of a document by its URL (no truncation).
+    pub async fn get_full_content_by_url(&self, url: &str) -> Result<Option<(Option<String>, String)>> {
+        let table = self.get_table().await?;
+        let safe_url = url.replace('\'', "''");
+        let batches = table
+            .query()
+            .only_if(format!("url = '{}'", safe_url))
+            .limit(1)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Get by url: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Get by url collect: {}", e)))?;
+
+        for batch in &batches {
+            if batch.num_rows() == 0 { continue; }
+            let title = batch.column_by_name("title")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .and_then(|c| if c.is_null(0) { None } else { Some(c.value(0).to_string()) });
+            let content = batch.column_by_name("content")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .map(|c| c.value(0).to_string())
+                .unwrap_or_default();
+            return Ok(Some((title, content)));
+        }
+        Ok(None)
+    }
+
     /// Merge all fragment files into one and prune old versions.
     /// Run this after bulk indexing to restore fast vector search.
     pub async fn compact(&self) -> Result<()> {

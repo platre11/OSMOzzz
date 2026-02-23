@@ -176,6 +176,41 @@ fn tools_list() -> Value {
             }
         },
         {
+            "name": "smart_email_search",
+            "description": "Recherche intelligente dans les emails uniquement. Détecte automatiquement l'intent : expéditeur ('mails de railway', 'dernier mail de codeur'), contenu ('mail qui parle de TVA', 'email sur le remboursement'), ou récents ('mes derniers mails'). Retourne le contenu COMPLET des emails trouvés en un seul appel. À utiliser en priorité pour toute question sur les emails.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "La demande en langage naturel : 'dernier mail de railway', 'emails de codeur.com', 'mail qui parle de facturation', 'mes 3 derniers mails', etc."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre d'emails à retourner (défaut: 3, max: 10)",
+                        "default": 3,
+                        "minimum": 1,
+                        "maximum": 10
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "get_email_full",
+            "description": "Retourne le contenu complet d'un email indexé (sans troncature). Utilise l'ID visible dans get_recent_emails ou search_memory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "L'ID du message (ex: '20260214005158.133e242c429fd22d@cio79999.news.railway.app') ou l'URL complète ('gmail://message/...')"
+                    }
+                },
+                "required": ["id"]
+            }
+        },
+        {
             "name": "list_directory",
             "description": "Liste le contenu d'un dossier (nom, type, taille, date de modification).",
             "inputSchema": {
@@ -395,6 +430,119 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
+                    "smart_email_search" => {
+                        let query = match args["query"].as_str() {
+                            Some(q) => q.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Missing required param: query"));
+                                continue;
+                            }
+                        };
+                        let limit = args["limit"].as_u64().unwrap_or(3) as usize;
+                        let limit = limit.clamp(1, 10);
+
+                        eprintln!("[OSMOzzz MCP] smart_email_search: \"{}\" (limit={})", query, limit);
+
+                        match detect_email_intent(&query) {
+                            EmailIntent::SenderSearch(sender) => {
+                                eprintln!("[OSMOzzz MCP] Intent: SenderSearch(\"{}\")", sender);
+                                match vault.get_emails_by_sender(&sender, limit).await {
+                                    Ok(results) if !results.is_empty() => {
+                                        send(&Response::ok(id, json!({
+                                            "content": [{"type": "text", "text": format_full_emails(&results)}]
+                                        })));
+                                    }
+                                    Ok(_) => {
+                                        // Sender not found → fallback semantic search on emails
+                                        eprintln!("[OSMOzzz MCP] Sender not found, fallback semantic");
+                                        match vault.search_filtered(&query, limit, Some("email")).await {
+                                            Ok(sem_results) => {
+                                                let mut full = Vec::new();
+                                                for r in &sem_results {
+                                                    if let Ok(Some((t, c))) = vault.get_full_content_by_url(&r.url).await {
+                                                        full.push((t, r.url.clone(), c));
+                                                    }
+                                                }
+                                                send(&Response::ok(id, json!({
+                                                    "content": [{"type": "text", "text": format_full_emails(&full)}]
+                                                })));
+                                            }
+                                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                                        }
+                                    }
+                                    Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                                }
+                            }
+                            EmailIntent::Recent => {
+                                eprintln!("[OSMOzzz MCP] Intent: Recent");
+                                match vault.recent_emails_full(limit).await {
+                                    Ok(results) => {
+                                        send(&Response::ok(id, json!({
+                                            "content": [{"type": "text", "text": format_full_emails(&results)}]
+                                        })));
+                                    }
+                                    Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                                }
+                            }
+                            EmailIntent::ContentSearch => {
+                                eprintln!("[OSMOzzz MCP] Intent: ContentSearch");
+                                match vault.search_filtered(&query, limit, Some("email")).await {
+                                    Ok(sem_results) => {
+                                        let mut full = Vec::new();
+                                        for r in &sem_results {
+                                            if let Ok(Some((t, c))) = vault.get_full_content_by_url(&r.url).await {
+                                                full.push((t, r.url.clone(), c));
+                                            }
+                                        }
+                                        send(&Response::ok(id, json!({
+                                            "content": [{"type": "text", "text": format_full_emails(&full)}]
+                                        })));
+                                    }
+                                    Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                                }
+                            }
+                        }
+                    }
+
+                    "get_email_full" => {
+                        let raw_id = match args["id"].as_str() {
+                            Some(i) => i.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Missing required param: id"));
+                                continue;
+                            }
+                        };
+                        // Accepte l'ID brut ou l'URL complète
+                        let url = if raw_id.starts_with("gmail://") {
+                            raw_id.clone()
+                        } else {
+                            format!("gmail://message/{}", raw_id)
+                        };
+                        eprintln!("[OSMOzzz MCP] Email complet: {}", url);
+                        match vault.get_full_content_by_url(&url).await {
+                            Ok(Some((title, content))) => {
+                                let mut out = String::new();
+                                if let Some(t) = title {
+                                    out.push_str(&format!("Objet : {}\n", t));
+                                }
+                                out.push_str(&format!("URL   : {}\n", url));
+                                out.push_str("\n─────────────────────────────────────\n");
+                                out.push_str(&content);
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": out}]
+                                })));
+                            }
+                            Ok(None) => {
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": format!("Email introuvable : {}\n\nL'email n'est peut-être pas indexé. Lance 'osmozzz index --source gmail' pour réindexer.", url)}]
+                                })));
+                            }
+                            Err(e) => {
+                                send(&Response::err(id, -32603, &e.to_string()));
+                            }
+                        }
+                    }
+
                     "get_recent_files" => {
                         let hours = args["hours"].as_u64().unwrap_or(24);
                         let limit = args["limit"].as_u64().unwrap_or(20) as usize;
@@ -448,6 +596,75 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz MCP] Connexion fermée.");
     Ok(())
+}
+
+// ─── Intent router ────────────────────────────────────────────────────────────
+
+enum EmailIntent {
+    SenderSearch(String),
+    Recent,
+    ContentSearch,
+}
+
+fn detect_email_intent(query: &str) -> EmailIntent {
+    let q = query.to_lowercase();
+
+    // Sender patterns — ordered by specificity
+    let sender_triggers = [
+        "mail de ", "mails de ", "email de ", "emails de ",
+        "mail d'", "mails d'", "email d'", "emails d'",
+        "from ", "de la part de ", "venant de ", "reçu de ",
+        "message de ", "messages de ", "courrier de ",
+    ];
+
+    for trigger in &sender_triggers {
+        if let Some(idx) = q.find(trigger) {
+            let rest = q[idx + trigger.len()..].trim();
+            let sender: String = rest.chars()
+                .take_while(|c| !matches!(c, ',' | '?' | '!' | '\n' | '(' | ')'))
+                .collect();
+            let sender = sender.trim().to_string();
+            if sender.len() > 1 {
+                return EmailIntent::SenderSearch(sender);
+            }
+        }
+    }
+
+    // Recent patterns (without specific sender)
+    let recent_triggers = [
+        "dernier mail", "derniers mails", "dernier email", "derniers emails",
+        "mes derniers", "mes mails", "mes emails", "nouveau mail", "nouveaux mails",
+        "reçu récemment", "reçus récemment", "boite mail", "boîte mail",
+    ];
+    for trigger in &recent_triggers {
+        if q.contains(trigger) {
+            return EmailIntent::Recent;
+        }
+    }
+
+    // Default: semantic content search
+    EmailIntent::ContentSearch
+}
+
+// ─── Formatter emails complets ────────────────────────────────────────────────
+
+fn format_full_emails(results: &[(Option<String>, String, String)]) -> String {
+    if results.is_empty() {
+        return "Aucun email trouvé.".to_string();
+    }
+    let mut out = String::new();
+    for (i, (title, url, content)) in results.iter().enumerate() {
+        out.push_str(&format!("📧 Email {}/{}\n", i + 1, results.len()));
+        if let Some(t) = title {
+            out.push_str(&format!("Objet : {}\n", t));
+        }
+        let msg_id = url.trim_start_matches("gmail://message/");
+        out.push_str(&format!("ID    : {}\n", msg_id));
+        out.push_str("─────────────────────────────────────\n");
+        out.push_str(content);
+        out.push_str("\n═════════════════════════════════════\n\n");
+    }
+    out
 }
 
 // ─── Formatage des résultats ──────────────────────────────────────────────────

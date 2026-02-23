@@ -47,6 +47,18 @@ impl Vault {
         self.store.delete_by_source(source).await
     }
 
+    pub async fn get_full_content_by_url(&self, url: &str) -> osmozzz_core::Result<Option<(Option<String>, String)>> {
+        self.store.get_full_content_by_url(url).await
+    }
+
+    pub async fn get_emails_by_sender(&self, pattern: &str, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
+        self.store.get_emails_by_sender(pattern, limit).await
+    }
+
+    pub async fn recent_emails_full(&self, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
+        self.store.recent_emails_full(limit).await
+    }
+
     pub async fn recent_emails(&self, limit: usize) -> osmozzz_core::Result<Vec<osmozzz_core::SearchResult>> {
         self.store.recent_by_source("email", limit).await
     }
