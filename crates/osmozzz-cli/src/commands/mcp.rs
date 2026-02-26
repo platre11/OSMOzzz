@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use crate::config::Config;
 use shellexpand;
 
+
 // ─── Types JSON-RPC ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -160,51 +161,55 @@ fn tools_list() -> Value {
             }
         },
         {
-            "name": "get_recent_emails",
-            "description": "Liste les derniers emails reçus dans la boîte Gmail, triés par date (du plus récent au plus ancien). Utilise l'index IMAP local. Idéal pour répondre à 'quel est mon dernier email ?' ou 'qu'est-ce que j'ai reçu récemment ?'.",
+            "name": "search_emails",
+            "description": "Cherche des emails par mot-clé. Scanne TOUS les emails indexés (expéditeur, objet, corps) — aucune limite de date. Passe un seul mot-clé significatif : 'revolut', 'facture', 'railway', 'codeur.com'. Retourne une liste compacte (objet + expéditeur + ID). Pour lire le contenu complet d'un email, utilise read_email avec son ID.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Le mot-clé à chercher (ex: 'revolut', 'facture', 'abonnement', 'remboursement')"
+                    },
                     "limit": {
                         "type": "integer",
-                        "description": "Nombre d'emails à retourner (défaut: 10, max: 50)",
-                        "default": 10,
+                        "description": "Nombre d'emails à retourner (défaut: 20, max: 100)",
+                        "default": 20,
                         "minimum": 1,
-                        "maximum": 50
+                        "maximum": 100
                     }
-                }
+                },
+                "required": ["keyword"]
             }
         },
         {
-            "name": "smart_email_search",
-            "description": "Recherche intelligente dans les emails uniquement. Détecte automatiquement l'intent : expéditeur ('mails de railway', 'dernier mail de codeur'), contenu ('mail qui parle de TVA', 'email sur le remboursement'), ou récents ('mes derniers mails'). Retourne le contenu COMPLET des emails trouvés en un seul appel. À utiliser en priorité pour toute question sur les emails.",
+            "name": "get_emails_by_date",
+            "description": "Filtre les emails par date ou récupère les plus récents. Sans paramètre → retourne les 50 plus récents. Avec query → filtre par période : 'aujourd'hui', 'hier', 'cette semaine', 'janvier', 'le 15 février', 'ce mois'. Retourne une liste compacte (objet + expéditeur + ID). Pour lire le contenu complet, utilise read_email avec son ID.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "La demande en langage naturel : 'dernier mail de railway', 'emails de codeur.com', 'mail qui parle de facturation', 'mes 3 derniers mails', etc."
+                        "description": "La période (optionnel) : 'aujourd'hui', 'hier', 'cette semaine', 'janvier', 'le 15', 'ce mois'. Vide = emails les plus récents."
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Nombre d'emails à retourner (défaut: 3, max: 10)",
-                        "default": 3,
+                        "description": "Nombre d'emails à retourner (défaut: 50, max: 200)",
+                        "default": 50,
                         "minimum": 1,
-                        "maximum": 10
+                        "maximum": 200
                     }
-                },
-                "required": ["query"]
+                }
             }
         },
         {
-            "name": "get_email_full",
-            "description": "Retourne le contenu complet d'un email indexé (sans troncature). Utilise l'ID visible dans get_recent_emails ou search_memory.",
+            "name": "read_email",
+            "description": "Lit le contenu COMPLET d'un email (sans troncature). Utilise l'ID obtenu depuis search_emails ou get_emails_by_date. Accepte l'ID court ou l'URL complète (gmail://message/...).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "L'ID du message (ex: '20260214005158.133e242c429fd22d@cio79999.news.railway.app') ou l'URL complète ('gmail://message/...')"
+                        "description": "L'ID de l'email (ex: '20260214005158.abc@railway.app') ou l'URL complète ('gmail://message/...')"
                     }
                 },
                 "required": ["id"]
@@ -413,98 +418,85 @@ pub async fn run(cfg: Config) -> Result<()> {
                         })));
                     }
 
-                    "get_recent_emails" => {
-                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
-                        let limit = limit.clamp(1, 50);
-                        eprintln!("[OSMOzzz MCP] Emails récents (limit={})", limit);
-                        match vault.recent_emails(limit).await {
-                            Ok(results) => {
-                                let text = format_recent_emails(&results);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": text}]
-                                })));
-                            }
-                            Err(e) => {
-                                send(&Response::err(id, -32603, &e.to_string()));
-                            }
-                        }
-                    }
-
-                    "smart_email_search" => {
-                        let query = match args["query"].as_str() {
-                            Some(q) => q.to_string(),
+                    "search_emails" => {
+                        let keyword = match args["keyword"].as_str() {
+                            Some(k) => k.to_string(),
                             None => {
-                                send(&Response::err(id, -32602, "Missing required param: query"));
+                                send(&Response::err(id, -32602, "Missing required param: keyword"));
                                 continue;
                             }
                         };
-                        let limit = args["limit"].as_u64().unwrap_or(3) as usize;
-                        let limit = limit.clamp(1, 10);
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        let limit = limit.clamp(1, 100);
 
-                        eprintln!("[OSMOzzz MCP] smart_email_search: \"{}\" (limit={})", query, limit);
+                        eprintln!("[OSMOzzz MCP] search_emails: \"{}\" (limit={})", keyword, limit);
 
-                        match detect_email_intent(&query) {
-                            EmailIntent::SenderSearch(sender) => {
-                                eprintln!("[OSMOzzz MCP] Intent: SenderSearch(\"{}\")", sender);
-                                match vault.get_emails_by_sender(&sender, limit).await {
-                                    Ok(results) if !results.is_empty() => {
-                                        send(&Response::ok(id, json!({
-                                            "content": [{"type": "text", "text": format_full_emails(&results)}]
-                                        })));
-                                    }
-                                    Ok(_) => {
-                                        // Sender not found → fallback semantic search on emails
-                                        eprintln!("[OSMOzzz MCP] Sender not found, fallback semantic");
-                                        match vault.search_filtered(&query, limit, Some("email")).await {
-                                            Ok(sem_results) => {
-                                                let mut full = Vec::new();
-                                                for r in &sem_results {
-                                                    if let Ok(Some((t, c))) = vault.get_full_content_by_url(&r.url).await {
-                                                        full.push((t, r.url.clone(), c));
-                                                    }
-                                                }
-                                                send(&Response::ok(id, json!({
-                                                    "content": [{"type": "text", "text": format_full_emails(&full)}]
-                                                })));
-                                            }
-                                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
-                                        }
-                                    }
-                                    Err(e) => send(&Response::err(id, -32603, &e.to_string())),
-                                }
+                        match vault.search_emails_by_keyword(&keyword, limit).await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun email trouvé contenant \"{}\".\n\nConseil : essaie un mot-clé plus court ou plus général.", keyword)
+                                } else {
+                                    format_email_list(&results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
                             }
-                            EmailIntent::Recent => {
-                                eprintln!("[OSMOzzz MCP] Intent: Recent");
-                                match vault.recent_emails_full(limit).await {
-                                    Ok(results) => {
-                                        send(&Response::ok(id, json!({
-                                            "content": [{"type": "text", "text": format_full_emails(&results)}]
-                                        })));
-                                    }
-                                    Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "get_emails_by_date" => {
+                        let query = args["query"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(50) as usize;
+                        let limit = limit.clamp(1, 200);
+
+                        eprintln!("[OSMOzzz MCP] get_emails_by_date: \"{}\" (limit={})", query, limit);
+
+                        if query.is_empty() {
+                            // Pas de query → emails récents
+                            match vault.recent_emails_full(limit).await {
+                                Ok(results) => {
+                                    send(&Response::ok(id, json!({
+                                        "content": [{"type": "text", "text": format_email_list(&results)}]
+                                    })));
                                 }
+                                Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                             }
-                            EmailIntent::ContentSearch => {
-                                eprintln!("[OSMOzzz MCP] Intent: ContentSearch");
-                                match vault.search_filtered(&query, limit, Some("email")).await {
-                                    Ok(sem_results) => {
-                                        let mut full = Vec::new();
-                                        for r in &sem_results {
-                                            if let Ok(Some((t, c))) = vault.get_full_content_by_url(&r.url).await {
-                                                full.push((t, r.url.clone(), c));
-                                            }
+                        } else {
+                            match parse_date_range(&query) {
+                                Some((from_ts, to_ts)) => {
+                                    match vault.get_emails_by_date(from_ts, to_ts, limit).await {
+                                        Ok(results) if !results.is_empty() => {
+                                            send(&Response::ok(id, json!({
+                                                "content": [{"type": "text", "text": format_email_list(&results)}]
+                                            })));
                                         }
-                                        send(&Response::ok(id, json!({
-                                            "content": [{"type": "text", "text": format_full_emails(&full)}]
-                                        })));
+                                        Ok(_) => {
+                                            send(&Response::ok(id, json!({
+                                                "content": [{"type": "text", "text": format!("Aucun email trouvé pour : \"{}\".", query)}]
+                                            })));
+                                        }
+                                        Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                                     }
-                                    Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                                }
+                                None => {
+                                    // Date non reconnue → fallback récents
+                                    eprintln!("[OSMOzzz MCP] Date non reconnue, fallback récents");
+                                    match vault.recent_emails_full(limit).await {
+                                        Ok(results) => {
+                                            send(&Response::ok(id, json!({
+                                                "content": [{"type": "text", "text": format_email_list(&results)}]
+                                            })));
+                                        }
+                                        Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                                    }
                                 }
                             }
                         }
                     }
 
-                    "get_email_full" => {
+                    "read_email" => {
                         let raw_id = match args["id"].as_str() {
                             Some(i) => i.to_string(),
                             None => {
@@ -512,20 +504,19 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 continue;
                             }
                         };
-                        // Accepte l'ID brut ou l'URL complète
                         let url = if raw_id.starts_with("gmail://") {
                             raw_id.clone()
                         } else {
                             format!("gmail://message/{}", raw_id)
                         };
-                        eprintln!("[OSMOzzz MCP] Email complet: {}", url);
+                        eprintln!("[OSMOzzz MCP] read_email: {}", url);
                         match vault.get_full_content_by_url(&url).await {
                             Ok(Some((title, content))) => {
                                 let mut out = String::new();
-                                if let Some(t) = title {
+                                if let Some(t) = &title {
                                     out.push_str(&format!("Objet : {}\n", t));
                                 }
-                                out.push_str(&format!("URL   : {}\n", url));
+                                out.push_str(&format!("ID    : {}\n", raw_id.trim_start_matches("gmail://message/")));
                                 out.push_str("\n─────────────────────────────────────\n");
                                 out.push_str(&content);
                                 send(&Response::ok(id, json!({
@@ -534,12 +525,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                             }
                             Ok(None) => {
                                 send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": format!("Email introuvable : {}\n\nL'email n'est peut-être pas indexé. Lance 'osmozzz index --source gmail' pour réindexer.", url)}]
+                                    "content": [{"type": "text", "text": format!("Email introuvable : {}", url)}]
                                 })));
                             }
-                            Err(e) => {
-                                send(&Response::err(id, -32603, &e.to_string()));
-                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                         }
                     }
 
@@ -598,72 +587,132 @@ pub async fn run(cfg: Config) -> Result<()> {
     Ok(())
 }
 
-// ─── Intent router ────────────────────────────────────────────────────────────
+// ─── Date range parser ────────────────────────────────────────────────────────
 
-enum EmailIntent {
-    SenderSearch(String),
-    Recent,
-    ContentSearch,
-}
+/// Parse a natural language date query into a (from_ts, to_ts) Unix timestamp range.
+fn parse_date_range(query: &str) -> Option<(i64, i64)> {
+    use chrono::{Datelike, Duration, NaiveDate, Utc};
 
-fn detect_email_intent(query: &str) -> EmailIntent {
     let q = query.to_lowercase();
+    let now = Utc::now();
+    let today = now.date_naive();
 
-    // Sender patterns — ordered by specificity
-    let sender_triggers = [
-        "mail de ", "mails de ", "email de ", "emails de ",
-        "mail d'", "mails d'", "email d'", "emails d'",
-        "from ", "de la part de ", "venant de ", "reçu de ",
-        "message de ", "messages de ", "courrier de ",
+    let day_range = |date: NaiveDate| -> Option<(i64, i64)> {
+        let from = date.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
+        let to   = date.and_hms_opt(23, 59, 59)?.and_utc().timestamp();
+        Some((from, to))
+    };
+
+    // aujourd'hui
+    if q.contains("aujourd") {
+        return day_range(today);
+    }
+    // hier
+    if q.contains("hier") {
+        return day_range(today - Duration::days(1));
+    }
+    // cette semaine / semaine
+    if q.contains("cette semaine") || q.contains("semaine") {
+        let from = (now - Duration::days(7)).timestamp();
+        return Some((from, now.timestamp()));
+    }
+    // ce mois
+    if q.contains("ce mois") || q.contains("mois-ci") {
+        let from = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)?
+            .and_hms_opt(0, 0, 0)?.and_utc().timestamp();
+        return Some((from, now.timestamp()));
+    }
+
+    // Noms de mois français
+    let months: &[(&str, u32)] = &[
+        ("janvier", 1), ("février", 2), ("fevrier", 2), ("mars", 3),
+        ("avril", 4), ("mai", 5), ("juin", 6), ("juillet", 7),
+        ("août", 8), ("aout", 8), ("septembre", 9), ("octobre", 10),
+        ("novembre", 11), ("décembre", 12), ("decembre", 12),
     ];
 
-    for trigger in &sender_triggers {
-        if let Some(idx) = q.find(trigger) {
-            let rest = q[idx + trigger.len()..].trim();
-            let sender: String = rest.chars()
-                .take_while(|c| !matches!(c, ',' | '?' | '!' | '\n' | '(' | ')'))
-                .collect();
-            let sender = sender.trim().to_string();
-            if sender.len() > 1 {
-                return EmailIntent::SenderSearch(sender);
+    for (month_name, month_num) in months {
+        if let Some(idx) = q.find(month_name) {
+            let year = today.year();
+            let before = q[..idx].trim_end();
+            // Cherche un nombre (le jour) juste avant le nom du mois
+            let day_opt = before.split_whitespace().last()
+                .and_then(|w| {
+                    let digits: String = w.chars().filter(|c| c.is_ascii_digit()).collect();
+                    digits.parse::<u32>().ok()
+                })
+                .filter(|&d| d >= 1 && d <= 31);
+
+            if let Some(day) = day_opt {
+                // Jour précis : "01 février"
+                if let Some(date) = NaiveDate::from_ymd_opt(year, *month_num, day) {
+                    return day_range(date);
+                }
+            } else {
+                // Mois entier : "janvier"
+                let from_date = NaiveDate::from_ymd_opt(year, *month_num, 1)?;
+                let to_date = if *month_num == 12 {
+                    NaiveDate::from_ymd_opt(year + 1, 1, 1)?
+                } else {
+                    NaiveDate::from_ymd_opt(year, *month_num + 1, 1)?
+                };
+                let from = from_date.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
+                let to   = to_date.and_hms_opt(0, 0, 0)?.and_utc().timestamp() - 1;
+                return Some((from, to));
             }
         }
     }
 
-    // Recent patterns (without specific sender)
-    let recent_triggers = [
-        "dernier mail", "derniers mails", "dernier email", "derniers emails",
-        "mes derniers", "mes mails", "mes emails", "nouveau mail", "nouveaux mails",
-        "reçu récemment", "reçus récemment", "boite mail", "boîte mail",
-    ];
-    for trigger in &recent_triggers {
-        if q.contains(trigger) {
-            return EmailIntent::Recent;
+    // "le X" sans mois → mois courant
+    if let Some(idx) = q.find("le ") {
+        let rest = q[idx + 3..].trim_start();
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(day) = digits.parse::<u32>() {
+            if day >= 1 && day <= 31 {
+                if let Some(date) = NaiveDate::from_ymd_opt(today.year(), today.month(), day) {
+                    return day_range(date);
+                }
+            }
         }
     }
 
-    // Default: semantic content search
-    EmailIntent::ContentSearch
+    None
 }
 
-// ─── Formatter emails complets ────────────────────────────────────────────────
+// ─── Formatters email ─────────────────────────────────────────────────────────
 
-fn format_full_emails(results: &[(Option<String>, String, String)]) -> String {
+/// Extrait expéditeur et date depuis les premières lignes du contenu stocké.
+fn extract_email_meta(content: &str) -> (String, String) {
+    let mut from = String::new();
+    let mut date = String::new();
+    for line in content.lines().take(10) {
+        if line.starts_with("De :") && from.is_empty() {
+            from = line.trim_start_matches("De :").trim().to_string();
+        } else if line.starts_with("Date :") && date.is_empty() {
+            date = line.trim_start_matches("Date :").trim().to_string();
+        }
+        if !from.is_empty() && !date.is_empty() { break; }
+    }
+    (from, date)
+}
+
+/// Liste compacte d'emails : objet + expéditeur + date + ID.
+/// Claude appelle ensuite read_email(id) pour le contenu complet.
+fn format_email_list(results: &[(Option<String>, String, String)]) -> String {
     if results.is_empty() {
         return "Aucun email trouvé.".to_string();
     }
-    let mut out = String::new();
+    let mut out = format!("{} email(s) trouvé(s) :\n\n", results.len());
     for (i, (title, url, content)) in results.iter().enumerate() {
-        out.push_str(&format!("📧 Email {}/{}\n", i + 1, results.len()));
-        if let Some(t) = title {
-            out.push_str(&format!("Objet : {}\n", t));
-        }
+        let (from, date) = extract_email_meta(content);
+        let subject = title.as_deref().unwrap_or("(sans objet)");
         let msg_id = url.trim_start_matches("gmail://message/");
-        out.push_str(&format!("ID    : {}\n", msg_id));
-        out.push_str("─────────────────────────────────────\n");
-        out.push_str(content);
-        out.push_str("\n═════════════════════════════════════\n\n");
+        out.push_str(&format!(
+            "{}. 📧 {}\n   De   : {}\n   Date : {}\n   ID   : {}\n\n",
+            i + 1, subject, from, date, msg_id
+        ));
     }
+    out.push_str("→ Pour lire un email : read_email(id=\"...\")");
     out
 }
 
@@ -701,31 +750,6 @@ fn format_results(query: &str, results: &[osmozzz_core::SearchResult]) -> String
         out.push_str(&format!("   Extrait : {}\n\n", r.content.replace('\n', " ")));
     }
 
-    out
-}
-
-// ─── format_recent_emails ─────────────────────────────────────────────────────
-
-fn format_recent_emails(results: &[osmozzz_core::SearchResult]) -> String {
-    if results.is_empty() {
-        return "Aucun email indexé. Lance 'osmozzz index --source gmail' pour indexer ta boîte.".to_string();
-    }
-
-    let mut out = format!("📬 {} derniers emails (IMAP Gmail, triés par date) :\n\n", results.len());
-    for (i, r) in results.iter().enumerate() {
-        let title = r.title.as_deref().unwrap_or("(sans objet)");
-        // Extract "De :" from content first line
-        let from_line = r.content.lines()
-            .find(|l| l.starts_with("De :"))
-            .unwrap_or("")
-            .trim_start_matches("De :").trim();
-
-        out.push_str(&format!("{}. {}\n", i + 1, title));
-        if !from_line.is_empty() {
-            out.push_str(&format!("   De : {}\n", from_line));
-        }
-        out.push_str(&format!("   ID : {}\n\n", r.url.trim_start_matches("gmail://message/")));
-    }
     out
 }
 
@@ -1014,7 +1038,48 @@ fn list_directory(path: &std::path::Path) -> String {
 
 // ─── find_file_filesystem ─────────────────────────────────────────────────────
 
-/// Recherche instantanée de fichiers par nom dans les dossiers courants.
+/// Lit les premiers caractères d'un fichier lisible pour un aperçu.
+/// Retourne None si le fichier est binaire, trop grand, ou vide.
+fn read_file_preview(path: &std::path::Path, max_chars: usize) -> Option<String> {
+    let ext = path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    let size = std::fs::metadata(path).ok()?.len();
+    if size > 10 * 1024 * 1024 { return None; } // skip > 10 Mo
+
+    let text = if ext == "pdf" {
+        if size > 5 * 1024 * 1024 { return None; }
+        pdf_extract::extract_text(path).ok()?
+    } else {
+        let readable = matches!(ext.as_str(),
+            "txt" | "md" | "mdx" | "rs" | "js" | "ts" | "tsx" | "jsx" | "py"
+            | "json" | "yaml" | "yml" | "toml" | "csv" | "html" | "css" | "sh"
+            | "log" | "conf" | "cfg" | "ini" | "xml" | "sql" | "go" | "java"
+            | "c" | "cpp" | "h" | "rb" | "php" | "swift" | "kt" | "scala"
+            | "org" | "tex" | "rst" | "adoc"
+        );
+        if !readable { return None; }
+        std::fs::read_to_string(path).ok()?
+    };
+
+    let text = text.trim();
+    if text.is_empty() { return None; }
+
+    let chars: Vec<char> = text.chars().collect();
+    let end = chars.len().min(max_chars);
+    // Garde une seule ligne pour l'aperçu (plus lisible)
+    let preview: String = chars[..end].iter().collect();
+    let preview = preview.lines()
+        .filter(|l| !l.trim().is_empty())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if preview.is_empty() { None } else { Some(preview) }
+}
+
+/// Recherche instantanée de fichiers par nom ET contenu dans les dossiers courants.
 /// Pas de LanceDB, pas d'ONNX — scan direct du filesystem.
 fn find_file_filesystem(pattern: &str, limit: usize) -> String {
     use std::time::SystemTime;
@@ -1031,21 +1096,25 @@ fn find_file_filesystem(pattern: &str, limit: usize) -> String {
     ];
 
     let pattern_lower = pattern.to_lowercase();
-    // Séparer en mots pour une recherche multi-terme
     let pattern_words: Vec<&str> = pattern_lower.split_whitespace().collect();
 
-    let mut matches: Vec<(std::path::PathBuf, u64, SystemTime)> = Vec::new();
+    // (path, size, modified, preview, name_match)
+    let mut matches: Vec<(std::path::PathBuf, u64, SystemTime, Option<String>, bool)> = Vec::new();
 
     for dir in &search_dirs {
         if !dir.exists() { continue; }
-        find_recursive(dir, &pattern_words, &mut matches, 0, limit * 4);
-        if matches.len() >= limit * 4 { break; }
+        find_recursive(dir, &pattern_words, &mut matches, 0, limit * 6);
+        if matches.len() >= limit * 6 { break; }
     }
 
-    // Trier : d'abord les correspondances exactes, puis par date de modification (récent en premier)
+    // Trier : nom exact > nom partiel > contenu ; puis par date
     matches.sort_by(|a, b| {
-        let score_a = name_match_score(a.0.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pattern_words);
-        let score_b = name_match_score(b.0.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pattern_words);
+        let score_a = if a.4 {
+            name_match_score(a.0.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pattern_words) + 1.0
+        } else { 0.5 };
+        let score_b = if b.4 {
+            name_match_score(b.0.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pattern_words) + 1.0
+        } else { 0.5 };
         score_b.partial_cmp(&score_a)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.2.cmp(&a.2))
@@ -1054,13 +1123,13 @@ fn find_file_filesystem(pattern: &str, limit: usize) -> String {
 
     if matches.is_empty() {
         return format!(
-            "Aucun fichier trouvé pour : \"{}\"\n\nConseils :\n• Vérifiez l'orthographe\n• Essayez un mot-clé plus court\n• Utilisez list_directory pour explorer un dossier",
+            "Aucun fichier trouvé pour : \"{}\"\n\nConseils :\n• Essayez un mot-clé plus court\n• Utilisez list_directory pour explorer un dossier",
             pattern
         );
     }
 
     let mut out = format!("Fichiers trouvés pour \"{}\" ({} résultats) :\n\n", pattern, matches.len());
-    for (i, (path, size_bytes, modified)) in matches.iter().enumerate() {
+    for (i, (path, size_bytes, modified, preview, name_match)) in matches.iter().enumerate() {
         let size = if *size_bytes < 1024 {
             format!("{} o", size_bytes)
         } else if *size_bytes < 1024 * 1024 {
@@ -1076,14 +1145,20 @@ fn find_file_filesystem(pattern: &str, limit: usize) -> String {
                 else { format!("il y a {}j", mins / 1440) }
             })
             .unwrap_or_else(|_| "?".to_string());
+        let match_type = if *name_match { "nom" } else { "contenu" };
         out.push_str(&format!(
-            "{}. {}\n   📂 {}\n   Taille : {} | {}\n\n",
+            "{}. {} [{}]\n   📂 {}\n   {} | {}\n",
             i + 1,
             path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+            match_type,
             path.display(),
             size,
             ago
         ));
+        if let Some(p) = preview {
+            out.push_str(&format!("   📝 {}\n", p));
+        }
+        out.push_str(&format!("   → fetch_content(path=\"{}\")\n\n", path.display()));
     }
     out
 }
@@ -1091,13 +1166,12 @@ fn find_file_filesystem(pattern: &str, limit: usize) -> String {
 fn find_recursive(
     dir: &std::path::Path,
     pattern_words: &[&str],
-    out: &mut Vec<(std::path::PathBuf, u64, std::time::SystemTime)>,
+    out: &mut Vec<(std::path::PathBuf, u64, std::time::SystemTime, Option<String>, bool)>,
     depth: usize,
     max: usize,
 ) {
-    if depth > 5 || out.len() >= max { return; }
+    if depth > 20 || out.len() >= max { return; }
 
-    // Ignorer les dossiers système
     let skip = ["node_modules", ".git", "target", "__pycache__", ".cargo",
                  "dist", "build", ".next", ".nuxt", "vendor", ".build",
                  "Pods", "DerivedData", ".gradle", ".idea", "venv", ".venv",
@@ -1119,11 +1193,20 @@ fn find_recursive(
                 find_recursive(&path, pattern_words, out, depth + 1, max);
             } else if meta.is_file() {
                 let name_lower = name.to_lowercase();
-                // Match si TOUS les mots du pattern sont présents dans le nom
-                let matches = pattern_words.iter().all(|w| name_lower.contains(*w));
-                if matches {
-                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    out.push((path, meta.len(), modified));
+                let name_match = pattern_words.iter().all(|w| name_lower.contains(*w));
+                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+                if name_match {
+                    let preview = read_file_preview(&path, 300);
+                    out.push((path, meta.len(), modified, preview, true));
+                } else {
+                    if let Some(preview) = read_file_preview(&path, 500) {
+                        let preview_lower = preview.to_lowercase();
+                        let content_match = pattern_words.iter().any(|w| w.len() > 2 && preview_lower.contains(*w));
+                        if content_match {
+                            out.push((path, meta.len(), modified, Some(preview), false));
+                        }
+                    }
                 }
             }
         }

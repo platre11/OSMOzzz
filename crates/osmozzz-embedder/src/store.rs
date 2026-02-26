@@ -467,6 +467,59 @@ impl VectorStore {
         Ok(results)
     }
 
+    /// Keyword search across ALL email content (from + subject + body).
+    /// Same philosophy as filesystem find_file: no ONNX, pure string match.
+    /// Finds ANY email containing the keyword regardless of age.
+    pub async fn search_emails_by_keyword(&self, keyword: &str, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+        let kw = keyword.to_lowercase();
+
+        let batches = table
+            .query()
+            .only_if("source = 'email'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Keyword query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Keyword collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col   = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col     = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col       = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let content = match content_col { Some(c) => c.value(i), None => continue };
+                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+
+                // Match anywhere: full content OR title
+                let found = content.to_lowercase().contains(&kw)
+                    || title.as_deref().map(|t| t.to_lowercase().contains(&kw)).unwrap_or(false);
+                if !found { continue; }
+
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                let url = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content.to_string()));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
+    }
+
     /// Get emails matching a sender pattern, sorted by date DESC, full content.
     pub async fn get_emails_by_sender(&self, pattern: &str, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
         let table = self.get_table().await?;
@@ -497,16 +550,21 @@ impl VectorStore {
 
             for i in 0..nrows {
                 let content = match content_col { Some(c) => c.value(i), None => continue };
-                // Match only in the header (first 200 chars = "De :" line)
-                let header: String = content.chars().take(200).collect();
-                if !header.to_lowercase().contains(&pattern_lower) { continue; }
+                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+
+                // Match anywhere in the full content or title
+                let content_lower = content.to_lowercase();
+                let title_lower = title.as_deref().unwrap_or("").to_lowercase();
+                if !content_lower.contains(&pattern_lower)
+                    && !title_lower.contains(&pattern_lower) {
+                    continue;
+                }
 
                 let ts = source_ts_col
                     .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
                     .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
                     .unwrap_or(0);
-                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
-                let url   = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                let url = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
                 results.push((ts, title, url, content.to_string()));
             }
         }
@@ -548,6 +606,110 @@ impl VectorStore {
                     .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
                     .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
                     .unwrap_or(0);
+                let title   = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+                let url     = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                let content = content_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
+    }
+
+    /// Get emails matching sender pattern AND within a timestamp range.
+    pub async fn get_emails_by_sender_and_date(&self, pattern: &str, from_ts: i64, to_ts: i64, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+        let pattern_lower = pattern.to_lowercase();
+
+        let batches = table
+            .query()
+            .only_if("source = 'email'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("SenderDate query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("SenderDate collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col   = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col     = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col       = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+
+                if ts < from_ts || ts > to_ts { continue; }
+
+                let content = match content_col { Some(c) => c.value(i), None => continue };
+                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+
+                // Match anywhere in the full content or title
+                let content_lower = content.to_lowercase();
+                let title_lower = title.as_deref().unwrap_or("").to_lowercase();
+                if !content_lower.contains(&pattern_lower)
+                    && !title_lower.contains(&pattern_lower) {
+                    continue;
+                }
+
+                let url = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content.to_string()));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
+    }
+
+    /// Get emails within a timestamp range, sorted by date DESC, full content.
+    pub async fn get_emails_by_date(&self, from_ts: i64, to_ts: i64, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+
+        let batches = table
+            .query()
+            .only_if("source = 'email'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Date query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Date collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col   = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col     = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col       = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+
+                if ts < from_ts || ts > to_ts { continue; }
+
                 let title   = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
                 let url     = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
                 let content = content_col.map(|c| c.value(i).to_string()).unwrap_or_default();

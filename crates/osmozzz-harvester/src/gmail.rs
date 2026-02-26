@@ -11,7 +11,7 @@
 /// - Corps tronqué à 4000 chars pour économiser de l'espace vectoriel
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use mailparse::{MailHeaderMap, parse_mail};
 use osmozzz_core::{Document, OsmozzError, Result, SourceType};
 use tokio::task;
@@ -81,14 +81,18 @@ pub struct GmailHarvester {
     config: GmailConfig,
     max_emails: usize,
     known_checksums: HashSet<String>,
+    /// If set, use IMAP SEARCH SINCE to fetch only emails newer than this date.
+    /// More efficient than fetching last N emails by sequence number.
+    since_date: Option<NaiveDate>,
 }
 
 impl GmailHarvester {
     pub fn new(config: GmailConfig) -> Self {
         Self {
             config,
-            max_emails: 500,
+            max_emails: 5000,
             known_checksums: HashSet::new(),
+            since_date: None,
         }
     }
 
@@ -101,6 +105,13 @@ impl GmailHarvester {
         self.known_checksums = checksums;
         self
     }
+
+    /// Only fetch emails received on or after this date (uses IMAP SEARCH SINCE).
+    /// Much faster than fetching last N emails when the index is already up to date.
+    pub fn with_since(mut self, date: NaiveDate) -> Self {
+        self.since_date = Some(date);
+        self
+    }
 }
 
 impl osmozzz_core::Harvester for GmailHarvester {
@@ -109,10 +120,11 @@ impl osmozzz_core::Harvester for GmailHarvester {
         let password = self.config.password.clone();
         let max_emails = self.max_emails;
         let known = self.known_checksums.clone();
+        let since_date = self.since_date;
 
         // IMAP est synchrone → on l'isole dans spawn_blocking
         let docs = task::spawn_blocking(move || {
-            harvest_imap(&username, &password, max_emails, &known)
+            harvest_imap(&username, &password, max_emails, &known, since_date)
         })
         .await
         .map_err(|e| OsmozzError::Harvester(format!("Task join error: {}", e)))??;
@@ -128,6 +140,7 @@ fn harvest_imap(
     password: &str,
     max_emails: usize,
     known_checksums: &HashSet<String>,
+    since_date: Option<NaiveDate>,
 ) -> Result<Vec<Document>> {
     let tls = native_tls::TlsConnector::builder()
         .build()
@@ -148,8 +161,8 @@ fn harvest_imap(
         )))?;
 
     let mailbox = session
-        .select("INBOX")
-        .map_err(|e| OsmozzError::Harvester(format!("Impossible d'ouvrir INBOX : {}", e)))?;
+        .select("[Gmail]/All Mail")
+        .map_err(|e| OsmozzError::Harvester(format!("Impossible d'ouvrir [Gmail]/All Mail : {}", e)))?;
 
     let total = mailbox.exists as usize;
     info!("Gmail INBOX : {} messages au total", total);
@@ -159,11 +172,32 @@ fn harvest_imap(
         return Ok(vec![]);
     }
 
-    // On prend les N derniers (les plus récents ont les numéros les plus hauts)
-    let start = if total > max_emails { total - max_emails + 1 } else { 1 };
-    let range = format!("{}:{}", start, total);
+    // Choisir la stratégie de sélection des messages
+    let range = if let Some(since) = since_date {
+        // Stratégie incrémentale : SEARCH SINCE pour ne récupérer que les nouveaux
+        let since_str = format_imap_date(since);
+        info!("Gmail : SEARCH SINCE {} (indexation incrémentale)", since_str);
 
-    info!("Gmail : récupération des messages {} → {}", start, total);
+        let seq_nums = session
+            .search(format!("SINCE {}", since_str))
+            .map_err(|e| OsmozzError::Harvester(format!("SEARCH SINCE échoué : {}", e)))?;
+
+        if seq_nums.is_empty() {
+            session.logout().ok();
+            info!("Gmail SEARCH SINCE {} : aucun nouveau message", since_str);
+            return Ok(vec![]);
+        }
+
+        let mut nums: Vec<u32> = seq_nums.into_iter().collect();
+        nums.sort_unstable();
+        info!("Gmail SEARCH SINCE {} : {} messages à vérifier", since_str, nums.len());
+        nums_to_sequence_set(&nums)
+    } else {
+        // Stratégie initiale : N derniers messages par numéro de séquence
+        let start = if total > max_emails { total - max_emails + 1 } else { 1 };
+        info!("Gmail : récupération des messages {} → {} (indexation initiale)", start, total);
+        format!("{}:{}", start, total)
+    };
 
     let messages = session
         .fetch(&range, "RFC822")
@@ -232,6 +266,37 @@ fn harvest_imap(
 
     info!("Gmail harvester : {} nouveaux emails à indexer", documents.len());
     Ok(documents)
+}
+
+// ─── Helpers IMAP ────────────────────────────────────────────────────────────
+
+/// Formats a NaiveDate into IMAP date format: "d-Mon-yyyy" (e.g., "1-Feb-2026").
+fn format_imap_date(date: NaiveDate) -> String {
+    let months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    let m = months[(date.month() as usize) - 1];
+    format!("{}-{}-{}", date.day(), m, date.year())
+}
+
+/// Converts a sorted slice of IMAP sequence numbers into a compact sequence set string.
+/// Example: [1, 2, 3, 5, 6] → "1:3,5:6"
+fn nums_to_sequence_set(nums: &[u32]) -> String {
+    if nums.is_empty() { return String::new(); }
+    let mut ranges: Vec<String> = Vec::new();
+    let mut start = nums[0];
+    let mut end = nums[0];
+    for &n in &nums[1..] {
+        if n == end + 1 {
+            end = n;
+        } else {
+            if start == end { ranges.push(format!("{}", start)); }
+            else { ranges.push(format!("{}:{}", start, end)); }
+            start = n;
+            end = n;
+        }
+    }
+    if start == end { ranges.push(format!("{}", start)); }
+    else { ranges.push(format!("{}:{}", start, end)); }
+    ranges.join(",")
 }
 
 // ─── Extraction du corps ──────────────────────────────────────────────────────

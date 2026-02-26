@@ -51,12 +51,26 @@ impl Vault {
         self.store.get_full_content_by_url(url).await
     }
 
+    pub async fn get_emails_by_sender_and_date(&self, pattern: &str, from_ts: i64, to_ts: i64, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
+        self.store.get_emails_by_sender_and_date(pattern, from_ts, to_ts, limit).await
+    }
+
+    pub async fn get_emails_by_date(&self, from_ts: i64, to_ts: i64, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
+        self.store.get_emails_by_date(from_ts, to_ts, limit).await
+    }
+
     pub async fn get_emails_by_sender(&self, pattern: &str, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
         self.store.get_emails_by_sender(pattern, limit).await
     }
 
     pub async fn recent_emails_full(&self, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
         self.store.recent_emails_full(limit).await
+    }
+
+    /// Keyword scan across ALL email content (from + subject + body).
+    /// Same philosophy as filesystem find_file: no ONNX, pure string match.
+    pub async fn search_emails_by_keyword(&self, keyword: &str, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
+        self.store.search_emails_by_keyword(keyword, limit).await
     }
 
     pub async fn recent_emails(&self, limit: usize) -> osmozzz_core::Result<Vec<osmozzz_core::SearchResult>> {

@@ -10,13 +10,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use chrono::{NaiveDate, Utc};
 use osmozzz_core::{Embedder, Harvester, OsmozzError};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{start_watcher, GmailConfig, GmailHarvester, WatchEvent};
 
 use crate::config::Config;
 
-const GMAIL_SYNC_INTERVAL_SECS: u64 = 15 * 60; // 15 minutes
+const GMAIL_SYNC_INTERVAL_SECS: u64 = 2 * 60; // 2 minutes
 
 pub async fn run(cfg: Config) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)
@@ -110,15 +111,44 @@ pub async fn run(cfg: Config) -> Result<()> {
     Ok(())
 }
 
+// ─── Checkpoint ──────────────────────────────────────────────────────────────
+
+fn checkpoint_path() -> PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".osmozzz/gmail_sync_checkpoint")
+}
+
+fn read_checkpoint() -> Option<NaiveDate> {
+    let content = std::fs::read_to_string(checkpoint_path()).ok()?;
+    NaiveDate::parse_from_str(content.trim(), "%Y-%m-%d").ok()
+}
+
+fn write_checkpoint(date: NaiveDate) {
+    let _ = std::fs::write(checkpoint_path(), date.format("%Y-%m-%d").to_string());
+}
+
+// ─── Sync Gmail ──────────────────────────────────────────────────────────────
+
 async fn sync_gmail(vault: &Arc<Vault>) {
     let config = match GmailConfig::load() {
         Some(c) => c,
         None => return, // Gmail non configuré, on ignore silencieusement
     };
 
-    eprintln!("[OSMOzzz Daemon] Gmail sync démarrage...");
+    // Lecture du checkpoint pour l'indexation incrémentale
+    let since = read_checkpoint();
 
-    let harvester = GmailHarvester::new(config);
+    match since {
+        Some(d) => eprintln!("[OSMOzzz Daemon] Gmail sync incrémentale depuis {}...", d),
+        None    => eprintln!("[OSMOzzz Daemon] Gmail sync initiale (premier démarrage, jusqu'à 5000 emails)..."),
+    }
+
+    let mut harvester = GmailHarvester::new(config);
+    if let Some(since_date) = since {
+        harvester = harvester.with_since(since_date);
+    }
+
     let docs = match harvester.harvest().await {
         Ok(d) => d,
         Err(e) => {
@@ -127,8 +157,12 @@ async fn sync_gmail(vault: &Arc<Vault>) {
         }
     };
 
+    // Met à jour le checkpoint même si aucun email nouveau (évite de re-scanner indéfiniment)
+    let today = Utc::now().date_naive();
+
     if docs.is_empty() {
         eprintln!("[OSMOzzz Daemon] Gmail sync: aucun nouvel email.");
+        write_checkpoint(today);
         return;
     }
 
@@ -148,18 +182,19 @@ async fn sync_gmail(vault: &Arc<Vault>) {
             eprintln!("[OSMOzzz Daemon] Compact erreur: {}", e);
         }
     }
+
+    // Checkpoint = aujourd'hui : la prochaine sync ne vérifiera que les emails d'aujourd'hui
+    write_checkpoint(today);
 }
 
 fn default_watch_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = dirs_next::home_dir() {
-        let desktop = home.join("Desktop");
-        let documents = home.join("Documents");
-        if desktop.exists() {
-            paths.push(desktop);
-        }
-        if documents.exists() {
-            paths.push(documents);
+        for folder in &["Desktop", "Documents", "Downloads"] {
+            let p = home.join(folder);
+            if p.exists() {
+                paths.push(p);
+            }
         }
     }
     paths
