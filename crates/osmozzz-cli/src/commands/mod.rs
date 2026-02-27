@@ -1,6 +1,7 @@
 pub mod compact;
 pub mod daemon;
 pub mod index;
+pub mod install;
 pub mod mcp;
 pub mod search;
 pub mod serve;

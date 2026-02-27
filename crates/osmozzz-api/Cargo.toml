@@ -1,26 +1,20 @@
 [package]
-name = "osmozzz-cli"
+name = "osmozzz-api"
 version.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "osmozzz"
-path = "src/main.rs"
-
 [dependencies]
 osmozzz-core = { path = "../osmozzz-core" }
-osmozzz-harvester = { path = "../osmozzz-harvester" }
 osmozzz-embedder = { path = "../osmozzz-embedder" }
-osmozzz-bridge = { path = "../osmozzz-bridge" }
-osmozzz-api = { path = "../osmozzz-api" }
+osmozzz-harvester = { path = "../osmozzz-harvester" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-clap = { workspace = true }
 chrono = { workspace = true }
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+include_dir = "0.7"
+toml = "0.8"
 dirs-next = { workspace = true }
-shellexpand = { workspace = true }
-pdf-extract = { workspace = true }

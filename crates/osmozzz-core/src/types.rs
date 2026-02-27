@@ -10,6 +10,11 @@ pub enum SourceType {
     Pdf,
     Markdown,
     Email,
+    IMessage,
+    Safari,
+    Notes,
+    Calendar,
+    Terminal,
 }
 
 impl std::fmt::Display for SourceType {
@@ -20,6 +25,11 @@ impl std::fmt::Display for SourceType {
             SourceType::Pdf => write!(f, "pdf"),
             SourceType::Markdown => write!(f, "markdown"),
             SourceType::Email => write!(f, "email"),
+            SourceType::IMessage => write!(f, "imessage"),
+            SourceType::Safari => write!(f, "safari"),
+            SourceType::Notes => write!(f, "notes"),
+            SourceType::Calendar => write!(f, "calendar"),
+            SourceType::Terminal => write!(f, "terminal"),
         }
     }
 }
@@ -33,6 +43,11 @@ impl std::str::FromStr for SourceType {
             "pdf" => Ok(SourceType::Pdf),
             "markdown" => Ok(SourceType::Markdown),
             "email" => Ok(SourceType::Email),
+            "imessage" => Ok(SourceType::IMessage),
+            "safari" => Ok(SourceType::Safari),
+            "notes" => Ok(SourceType::Notes),
+            "calendar" => Ok(SourceType::Calendar),
+            "terminal" => Ok(SourceType::Terminal),
             other => Err(format!("Unknown source type: {}", other)),
         }
     }

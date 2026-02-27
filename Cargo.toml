@@ -5,6 +5,7 @@ members = [
     "crates/osmozzz-embedder",
     "crates/osmozzz-bridge",
     "crates/osmozzz-cli",
+    "crates/osmozzz-api",
 ]
 resolver = "2"
 

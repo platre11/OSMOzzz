@@ -13,11 +13,22 @@ use anyhow::{Context, Result};
 use chrono::{NaiveDate, Utc};
 use osmozzz_core::{Embedder, Harvester, OsmozzError};
 use osmozzz_embedder::Vault;
-use osmozzz_harvester::{start_watcher, GmailConfig, GmailHarvester, WatchEvent};
+use osmozzz_harvester::{
+    start_watcher, CalendarHarvester, GmailConfig, GmailHarvester, IMessageHarvester,
+    NotesHarvester, SafariHarvester, TerminalHarvester, WatchEvent,
+};
+
+use osmozzz_api;
 
 use crate::config::Config;
 
-const GMAIL_SYNC_INTERVAL_SECS: u64 = 2 * 60; // 2 minutes
+const DASHBOARD_PORT: u16 = 7878;
+const GMAIL_SYNC_INTERVAL_SECS: u64 = 15 * 60; // 15 minutes
+const IMESSAGE_SYNC_INTERVAL_SECS: u64 = 60;   // 1 minute
+const SAFARI_SYNC_INTERVAL_SECS: u64 = 60;     // 1 minute
+const NOTES_SYNC_INTERVAL_SECS: u64 = 60;      // 1 minute
+const TERMINAL_SYNC_INTERVAL_SECS: u64 = 60;   // 1 minute
+const CALENDAR_SYNC_INTERVAL_SECS: u64 = 60;   // 1 minute
 
 pub async fn run(cfg: Config) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)
@@ -37,6 +48,14 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz Daemon] Vault prêt.");
 
+    // Démarrer le serveur HTTP du dashboard
+    let dashboard_vault = Arc::clone(&vault);
+    tokio::spawn(async move {
+        if let Err(e) = osmozzz_api::start_server(dashboard_vault, DASHBOARD_PORT).await {
+            eprintln!("[OSMOzzz Daemon] Dashboard erreur: {}", e);
+        }
+    });
+
     let watch_paths = default_watch_paths();
     if watch_paths.is_empty() {
         eprintln!("[OSMOzzz Daemon] Aucun dossier à surveiller (Desktop/Documents introuvables).");
@@ -50,7 +69,7 @@ pub async fn run(cfg: Config) -> Result<()> {
     for p in &watch_paths {
         eprintln!("[OSMOzzz Daemon]   → {}", p.display());
     }
-    // Gmail auto-sync : lance une première sync immédiate, puis toutes les 15 min
+    // Gmail auto-sync
     let gmail_vault = Arc::clone(&vault);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(
@@ -62,10 +81,83 @@ pub async fn run(cfg: Config) -> Result<()> {
         }
     });
 
-    eprintln!("[OSMOzzz Daemon] En écoute... (Ctrl+C pour arrêter)");
-    eprintln!("[OSMOzzz Daemon] Gmail sync automatique toutes les {} min.", GMAIL_SYNC_INTERVAL_SECS / 60);
+    // iMessage auto-sync
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(IMESSAGE_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = IMessageHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "iMessage", docs).await;
+        }
+    });
 
-    // Première sync Gmail immédiate au démarrage
+    // Safari auto-sync
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(SAFARI_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = SafariHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Safari", docs).await;
+        }
+    });
+
+    // Notes auto-sync
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(NOTES_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = NotesHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Notes", docs).await;
+        }
+    });
+
+    // Terminal auto-sync
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(TERMINAL_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = TerminalHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Terminal", docs).await;
+        }
+    });
+
+    // Calendar auto-sync
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(CALENDAR_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = CalendarHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Calendar", docs).await;
+        }
+    });
+
+    eprintln!("[OSMOzzz Daemon] En écoute... (Ctrl+C pour arrêter)");
+    eprintln!("[OSMOzzz Daemon] Syncs automatiques :");
+    eprintln!("[OSMOzzz Daemon]   Gmail    : toutes les {} min", GMAIL_SYNC_INTERVAL_SECS / 60);
+
+    eprintln!("[OSMOzzz Daemon]   iMessage : toutes les {} min", IMESSAGE_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Safari   : toutes les {} min", SAFARI_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Notes    : toutes les {} min", NOTES_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Terminal : toutes les {} min", TERMINAL_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Calendar : toutes les {} min", CALENDAR_SYNC_INTERVAL_SECS / 60);
+
+    // Syncs initiales échelonnées (évite le pic mémoire au démarrage)
+    // Les intervalles tokio gèrent les syncs suivantes automatiquement
     sync_gmail(&vault).await;
 
     let mut rx = start_watcher(watch_paths);
@@ -185,6 +277,30 @@ async fn sync_gmail(vault: &Arc<Vault>) {
 
     // Checkpoint = aujourd'hui : la prochaine sync ne vérifiera que les emails d'aujourd'hui
     write_checkpoint(today);
+}
+
+// ─── Sync générique pour toutes les sources locales ──────────────────────────
+
+async fn sync_docs(vault: &Arc<Vault>, label: &str, docs: Vec<osmozzz_core::Document>) {
+    if docs.is_empty() {
+        return;
+    }
+
+    let mut indexed = 0;
+    for doc in &docs {
+        if let Ok(true) = vault.exists(&doc.checksum).await { continue; }
+        match vault.upsert(doc).await {
+            Ok(_) => indexed += 1,
+            Err(e) => eprintln!("[OSMOzzz Daemon] {} upsert erreur: {}", label, e),
+        }
+    }
+
+    if indexed > 0 {
+        eprintln!("[OSMOzzz Daemon] {} sync: {} nouveaux documents indexés.", label, indexed);
+        if let Err(e) = vault.compact().await {
+            eprintln!("[OSMOzzz Daemon] Compact erreur: {}", e);
+        }
+    }
 }
 
 fn default_watch_paths() -> Vec<PathBuf> {

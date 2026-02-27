@@ -520,6 +520,63 @@ impl VectorStore {
         Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
     }
 
+    /// Generic keyword search filtered by source type (imessage, notes, terminal, calendar, safari…).
+    /// Same philosophy as search_emails_by_keyword: no ONNX, pure .contains() scan.
+    pub async fn search_by_keyword_source(
+        &self,
+        keyword: &str,
+        limit: usize,
+        source: &str,
+    ) -> Result<Vec<(Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+        let kw = keyword.to_lowercase();
+        let filter = format!("source = '{}'", source);
+
+        let batches = table
+            .query()
+            .only_if(&filter)
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Keyword source query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Keyword source collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col   = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col     = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col       = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let content = match content_col { Some(c) => c.value(i), None => continue };
+                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+
+                let found = content.to_lowercase().contains(&kw)
+                    || title.as_deref().map(|t| t.to_lowercase().contains(&kw)).unwrap_or(false);
+                if !found { continue; }
+
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                let url = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content.to_string()));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
+    }
+
     /// Get emails matching a sender pattern, sorted by date DESC, full content.
     pub async fn get_emails_by_sender(&self, pattern: &str, limit: usize) -> Result<Vec<(Option<String>, String, String)>> {
         let table = self.get_table().await?;
@@ -722,6 +779,62 @@ impl VectorStore {
         Ok(results.into_iter().map(|(_, title, url, content)| (title, url, content)).collect())
     }
 
+    /// Same as search_by_keyword_source but keeps timestamp in output (for grouped dashboard search).
+    pub async fn search_by_keyword_source_dated(
+        &self,
+        keyword: &str,
+        limit: usize,
+        source: &str,
+    ) -> Result<Vec<(i64, Option<String>, String, String)>> {
+        let table = self.get_table().await?;
+        let kw = keyword.to_lowercase();
+        let filter = format!("source = '{}'", source);
+
+        let batches = table
+            .query()
+            .only_if(&filter)
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Keyword dated query: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Keyword dated collect: {}", e)))?;
+
+        let mut results: Vec<(i64, Option<String>, String, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+
+            let content_col   = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col     = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let url_col       = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let content = match content_col { Some(c) => c.value(i), None => continue };
+                let title = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+
+                let found = content.to_lowercase().contains(&kw)
+                    || title.as_deref().map(|t| t.to_lowercase().contains(&kw)).unwrap_or(false);
+                if !found { continue; }
+
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                let url = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((ts, title, url, content.to_string()));
+            }
+        }
+
+        results.sort_by(|a, b| b.0.cmp(&a.0));
+        results.truncate(limit);
+        Ok(results)
+    }
+
     /// Fetch the full content of a document by its URL (no truncation).
     pub async fn get_full_content_by_url(&self, url: &str) -> Result<Option<(Option<String>, String)>> {
         let table = self.get_table().await?;
@@ -749,6 +862,99 @@ impl VectorStore {
             return Ok(Some((title, content)));
         }
         Ok(None)
+    }
+
+    /// Returns unique iMessage contacts: (phone, last_text, last_ts, count), sorted by last_ts DESC.
+    pub async fn get_imessage_contacts(&self) -> Result<Vec<(String, String, i64, usize)>> {
+        let table = self.get_table().await?;
+        let batches = table
+            .query()
+            .only_if("source = 'imessage'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("iMessage contacts: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("iMessage contacts collect: {}", e)))?;
+
+        // phone → (last_text, last_ts, count)
+        let mut map: std::collections::HashMap<String, (String, i64, usize)> = std::collections::HashMap::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+            let title_col   = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let content_col = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let title = match title_col { Some(c) if !c.is_null(i) => c.value(i), _ => continue };
+                let phone = match title.split_whitespace().last() {
+                    Some(p) if p.starts_with('+') || p.chars().all(|c| c.is_ascii_digit()) => p.to_string(),
+                    _ => continue,
+                };
+                let content = content_col.map(|c| c.value(i)).unwrap_or("");
+                let text = if let Some(end) = content.find("] ") { &content[end + 2..] } else { content };
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                let entry = map.entry(phone).or_insert(("".to_string(), 0, 0));
+                entry.2 += 1;
+                if ts >= entry.1 { entry.1 = ts; entry.0 = text.to_string(); }
+            }
+        }
+
+        let mut result: Vec<(String, String, i64, usize)> = map.into_iter()
+            .map(|(phone, (last, ts, n))| (phone, last, ts, n))
+            .collect();
+        result.sort_by(|a, b| b.2.cmp(&a.2));
+        Ok(result)
+    }
+
+    /// Returns all messages with a specific contact (phone), sorted chronologically ASC.
+    pub async fn get_imessage_conversation(&self, phone: &str, limit: usize) -> Result<Vec<(i64, bool, String)>> {
+        let table = self.get_table().await?;
+        let batches = table
+            .query()
+            .only_if("source = 'imessage'")
+            .limit(100_000)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("iMessage conv: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("iMessage conv collect: {}", e)))?;
+
+        let mut messages: Vec<(i64, bool, String)> = Vec::new();
+
+        for batch in &batches {
+            let nrows = batch.num_rows();
+            if nrows == 0 { continue; }
+            let title_col   = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let content_col = batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_ts_col = batch.column_by_name("source_ts").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let harvested_col = batch.column_by_name("harvested_at").and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..nrows {
+                let title = match title_col { Some(c) if !c.is_null(i) => c.value(i), _ => continue };
+                if !title.contains(phone) { continue; }
+                let content = content_col.map(|c| c.value(i)).unwrap_or("");
+                let is_me = content.starts_with("[moi]");
+                let text = if let Some(end) = content.find("] ") { content[end + 2..].to_string() } else { content.to_string() };
+                let ts = source_ts_col
+                    .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
+                    .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
+                    .unwrap_or(0);
+                messages.push((ts, is_me, text));
+            }
+        }
+
+        messages.sort_by(|a, b| a.0.cmp(&b.0));
+        if messages.len() > limit { messages = messages[messages.len() - limit..].to_vec(); }
+        Ok(messages)
     }
 
     /// Merge all fragment files into one and prune old versions.

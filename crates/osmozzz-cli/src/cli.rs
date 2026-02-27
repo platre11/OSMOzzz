@@ -39,6 +39,8 @@ pub enum Commands {
     /// Run this after bulk indexing (Gmail, Chrome, files).
     /// Merges thousands of tiny fragment files into one and prunes old versions.
     Compact,
+    /// Install OSMOzzz as a macOS LaunchAgent (auto-start at login)
+    Install,
 }
 
 #[derive(Args)]

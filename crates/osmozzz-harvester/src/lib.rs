@@ -1,11 +1,21 @@
+pub mod calendar;
 pub mod chrome;
 pub mod files;
 pub mod gmail;
+pub mod imessage;
+pub mod notes;
+pub mod safari;
 pub mod splitter;
+pub mod terminal;
 pub mod watcher;
 mod checksum;
 
+pub use calendar::CalendarHarvester;
 pub use chrome::ChromeHarvester;
 pub use files::FileHarvester;
 pub use gmail::{GmailConfig, GmailHarvester};
+pub use imessage::IMessageHarvester;
+pub use notes::NotesHarvester;
+pub use safari::SafariHarvester;
+pub use terminal::TerminalHarvester;
 pub use watcher::{start as start_watcher, WatchEvent};

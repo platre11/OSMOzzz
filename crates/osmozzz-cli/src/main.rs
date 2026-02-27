@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // En mode MCP et Daemon, logs vers stderr uniquement
-    let log_target = matches!(cli.command, Commands::Mcp | Commands::Daemon);
+    let log_target = matches!(cli.command, Commands::Mcp | Commands::Daemon | Commands::Install);
 
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| {
@@ -43,5 +43,6 @@ async fn main() -> Result<()> {
         Commands::Mcp => commands::mcp::run(cfg).await,
         Commands::Daemon => commands::daemon::run(cfg).await,
         Commands::Compact => commands::compact::run(cfg).await,
+        Commands::Install => { commands::install::run()?; Ok(()) }
     }
 }

@@ -228,6 +228,90 @@ fn tools_list() -> Value {
                 },
                 "required": ["path"]
             }
+        },
+        {
+            "name": "search_messages",
+            "description": "Cherche dans les iMessages/SMS par mot-clé. Scanne tous les messages indexés (expéditeur + texte). Retourne une liste compacte avec expéditeur, extrait et ID. Nécessite que 'osmozzz index --source imessage' ait été exécuté.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Le mot-clé à chercher dans les messages"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_notes",
+            "description": "Cherche dans les Apple Notes par mot-clé. Scanne tous les titres et snippets des notes indexées. Retourne titre + extrait. Nécessite 'osmozzz index --source notes'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Le mot-clé à chercher dans les notes"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_terminal",
+            "description": "Cherche une commande dans l'historique terminal (~/.zsh_history). Utile pour retrouver une commande précédemment exécutée. Retourne les commandes correspondantes. Nécessite 'osmozzz index --source terminal'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Le mot-clé à chercher dans les commandes (ex: 'docker run', 'git rebase', 'cargo build')"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_calendar",
+            "description": "Cherche dans les événements Apple Calendar par mot-clé. Retourne titre + notes + date. Nécessite 'osmozzz index --source calendar'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Le mot-clé à chercher dans les événements"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["keyword"]
+            }
         }
     ])
 }
@@ -556,6 +640,114 @@ pub async fn run(cfg: Config) -> Result<()> {
                         })));
                     }
 
+                    "search_messages" => {
+                        let keyword = match args["keyword"].as_str() {
+                            Some(k) => k.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Missing required param: keyword"));
+                                continue;
+                            }
+                        };
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        let limit = limit.clamp(1, 100);
+
+                        eprintln!("[OSMOzzz MCP] search_messages: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "imessage").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun message trouvé pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("iMessages", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_notes" => {
+                        let keyword = match args["keyword"].as_str() {
+                            Some(k) => k.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Missing required param: keyword"));
+                                continue;
+                            }
+                        };
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        let limit = limit.clamp(1, 100);
+
+                        eprintln!("[OSMOzzz MCP] search_notes: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "notes").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune note trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Notes", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_terminal" => {
+                        let keyword = match args["keyword"].as_str() {
+                            Some(k) => k.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Missing required param: keyword"));
+                                continue;
+                            }
+                        };
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        let limit = limit.clamp(1, 100);
+
+                        eprintln!("[OSMOzzz MCP] search_terminal: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "terminal").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune commande trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Terminal", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_calendar" => {
+                        let keyword = match args["keyword"].as_str() {
+                            Some(k) => k.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Missing required param: keyword"));
+                                continue;
+                            }
+                        };
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        let limit = limit.clamp(1, 100);
+
+                        eprintln!("[OSMOzzz MCP] search_calendar: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "calendar").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun événement trouvé pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Calendar", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
                     other => {
                         send(&Response::err(
                             id,
@@ -713,6 +905,41 @@ fn format_email_list(results: &[(Option<String>, String, String)]) -> String {
         ));
     }
     out.push_str("→ Pour lire un email : read_email(id=\"...\")");
+    out
+}
+
+// ─── Formatter générique pour les nouvelles sources ──────────────────────────
+
+/// Liste compacte pour iMessage, Notes, Terminal, Calendar, Safari.
+fn format_keyword_results(
+    label: &str,
+    keyword: &str,
+    results: &[(Option<String>, String, String)],
+) -> String {
+    let mut out = format!(
+        "{} résultat(s) {} pour \"{}\" :\n\n",
+        results.len(),
+        label,
+        keyword
+    );
+    for (i, (title, url, content)) in results.iter().enumerate() {
+        let t = title.as_deref().unwrap_or("—");
+        // Extrait: 200 premiers chars du content
+        let preview = {
+            let s = content.trim();
+            if s.len() > 200 {
+                let mut b = 200;
+                while b > 0 && !s.is_char_boundary(b) { b -= 1; }
+                format!("{}…", &s[..b])
+            } else {
+                s.to_string()
+            }
+        };
+        out.push_str(&format!(
+            "{}. {}\n   URL : {}\n   {}\n\n",
+            i + 1, t, url, preview
+        ));
+    }
     out
 }
 

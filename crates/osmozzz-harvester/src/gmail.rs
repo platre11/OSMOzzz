@@ -160,9 +160,9 @@ fn harvest_imap(
              → Générez-en un sur : myaccount.google.com/apppasswords", e
         )))?;
 
-    let mailbox = session
-        .select("[Gmail]/All Mail")
-        .map_err(|e| OsmozzError::Harvester(format!("Impossible d'ouvrir [Gmail]/All Mail : {}", e)))?;
+    let mailbox = session.select("[Gmail]/All Mail")
+        .or_else(|_| session.select("[Gmail]/Tous les messages"))
+        .map_err(|e| OsmozzError::Harvester(format!("Impossible d'ouvrir la boîte Gmail : {}", e)))?;
 
     let total = mailbox.exists as usize;
     info!("Gmail INBOX : {} messages au total", total);

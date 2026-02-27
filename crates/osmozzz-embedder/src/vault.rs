@@ -73,8 +73,67 @@ impl Vault {
         self.store.search_emails_by_keyword(keyword, limit).await
     }
 
+    /// Generic keyword search filtered by source (imessage, notes, terminal, calendar, safari…).
+    pub async fn search_by_keyword_source(
+        &self,
+        keyword: &str,
+        limit: usize,
+        source: &str,
+    ) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
+        self.store.search_by_keyword_source(keyword, limit, source).await
+    }
+
+    /// Keyword scan across ALL sources.
+    pub async fn search_all_by_keyword(
+        &self,
+        keyword: &str,
+        limit: usize,
+    ) -> osmozzz_core::Result<Vec<(Option<String>, String, String, String)>> {
+        let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+        let per_source = (limit / sources.len()).max(5);
+        let mut all = Vec::new();
+        for src in &sources {
+            let results = self.store.search_by_keyword_source(keyword, per_source, src).await.unwrap_or_default();
+            for (title, content, url) in results {
+                all.push((title, content, url, src.to_string()));
+            }
+        }
+        all.truncate(limit);
+        Ok(all)
+    }
+
+    /// Grouped keyword search: top `per_source` most recent results per source.
+    /// Returns only non-empty sources. (ts, title, url, content)
+    pub async fn search_grouped_by_keyword(
+        &self,
+        keyword: &str,
+        per_source: usize,
+    ) -> osmozzz_core::Result<std::collections::HashMap<String, Vec<(i64, Option<String>, String, String)>>> {
+        let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+        let mut grouped = std::collections::HashMap::new();
+        for src in &sources {
+            let results = self.store.search_by_keyword_source_dated(keyword, per_source, src).await.unwrap_or_default();
+            if !results.is_empty() {
+                grouped.insert(src.to_string(), results);
+            }
+        }
+        Ok(grouped)
+    }
+
+    pub async fn get_imessage_contacts(&self) -> osmozzz_core::Result<Vec<(String, String, i64, usize)>> {
+        self.store.get_imessage_contacts().await
+    }
+
+    pub async fn get_imessage_conversation(&self, phone: &str, limit: usize) -> osmozzz_core::Result<Vec<(i64, bool, String)>> {
+        self.store.get_imessage_conversation(phone, limit).await
+    }
+
     pub async fn recent_emails(&self, limit: usize) -> osmozzz_core::Result<Vec<osmozzz_core::SearchResult>> {
         self.store.recent_by_source("email", limit).await
+    }
+
+    pub async fn recent_by_source(&self, source: &str, limit: usize) -> osmozzz_core::Result<Vec<osmozzz_core::SearchResult>> {
+        self.store.recent_by_source(source, limit).await
     }
 
     pub async fn search_filtered(

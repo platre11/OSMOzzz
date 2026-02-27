@@ -1,7 +1,10 @@
 use anyhow::{bail, Context, Result};
 use osmozzz_core::{Embedder, Harvester};
 use osmozzz_embedder::Vault;
-use osmozzz_harvester::{ChromeHarvester, FileHarvester, GmailConfig, GmailHarvester};
+use osmozzz_harvester::{
+    CalendarHarvester, ChromeHarvester, FileHarvester, GmailConfig, GmailHarvester,
+    IMessageHarvester, NotesHarvester, SafariHarvester, TerminalHarvester,
+};
 
 use crate::cli::IndexArgs;
 use crate::config::Config;
@@ -11,9 +14,11 @@ pub async fn run(args: IndexArgs, cfg: Config) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)
         .context("Cannot create ~/.osmozzz data directory")?;
 
+    println!("Chargement du modèle ONNX et du vault...");
     let vault = Vault::open(&cfg.model_path, &cfg.tokenizer_path, cfg.db_path.to_str().unwrap())
         .await
         .context("Failed to initialize vault. Make sure the ONNX model is downloaded.")?;
+    println!("Vault prêt.");
 
     if args.reset {
         // Map CLI source name → stored source type
@@ -157,13 +162,86 @@ pub async fn run(args: IndexArgs, cfg: Config) -> Result<()> {
             println!("\nTerminé ! Indexés : {}, Ignorés (déjà indexés) : {}", indexed, skipped);
         }
 
+        "imessage" => {
+            println!("Indexation des iMessages (~/Library/Messages/chat.db)...");
+            let harvester = IMessageHarvester::new();
+            let documents = harvester.harvest().await.context("iMessage harvest failed")?;
+            index_documents(&vault, documents, "iMessage").await?;
+        }
+
+        "safari" => {
+            println!("Indexation de l'historique Safari...");
+            let harvester = SafariHarvester::new();
+            let documents = harvester.harvest().await.context("Safari harvest failed")?;
+            index_documents(&vault, documents, "Safari").await?;
+        }
+
+        "notes" => {
+            println!("Indexation des Apple Notes...");
+            let harvester = NotesHarvester::new();
+            let documents = harvester.harvest().await.context("Notes harvest failed")?;
+            index_documents(&vault, documents, "Notes").await?;
+        }
+
+        "calendar" => {
+            println!("Indexation du calendrier Apple...");
+            let harvester = CalendarHarvester::new();
+            let documents = harvester.harvest().await.context("Calendar harvest failed")?;
+            index_documents(&vault, documents, "Calendar").await?;
+        }
+
+        "terminal" => {
+            println!("Indexation de l'historique terminal (~/.zsh_history)...");
+            let harvester = TerminalHarvester::new();
+            let documents = harvester.harvest().await.context("Terminal harvest failed")?;
+            index_documents(&vault, documents, "Terminal").await?;
+        }
+
         other => {
             bail!(
-                "Unknown source '{}'. Supported sources: chrome, files, gmail",
+                "Unknown source '{}'. Supported: chrome, files, gmail, imessage, safari, notes, calendar, terminal",
                 other
             );
         }
     }
 
+    Ok(())
+}
+
+async fn index_documents(
+    vault: &Vault,
+    documents: Vec<osmozzz_core::Document>,
+    label: &str,
+) -> Result<()> {
+    if documents.is_empty() {
+        println!("Aucun document trouvé pour {}.", label);
+        return Ok(());
+    }
+
+    println!("Trouvé {} documents, indexation en cours...", documents.len());
+    let mut indexed = 0;
+    let mut skipped = 0;
+
+    for (i, doc) in documents.iter().enumerate() {
+        if i % 100 == 0 && i > 0 {
+            println!("  Progression : {}/{}", i, documents.len());
+        }
+        match vault.exists(&doc.checksum).await {
+            Ok(true) => {
+                skipped += 1;
+                continue;
+            }
+            _ => {}
+        }
+        match vault.upsert(doc).await {
+            Ok(_) => indexed += 1,
+            Err(e) => eprintln!("  Avertissement : échec indexation {} : {}", doc.url, e),
+        }
+    }
+
+    println!(
+        "\nTerminé ! Indexés : {}, Ignorés (déjà indexés) : {}",
+        indexed, skipped
+    );
     Ok(())
 }
