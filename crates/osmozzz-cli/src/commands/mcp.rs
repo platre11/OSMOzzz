@@ -61,17 +61,17 @@ fn tools_list() -> Value {
     json!([
         {
             "name": "search_memory",
-            "description": "Recherche sémantique dans ta mémoire personnelle locale : emails Gmail (indexés via IMAP directement, sans navigateur), historique Chrome, fichiers texte, PDFs, code source. Renvoie les extraits les plus pertinents avec leur source (EMAIL, CHROME, FILE…). Tout est 100% local, rien ne sort du Mac. Pour chercher des emails : utilise des mots-clés du sujet, expéditeur ou contenu.",
+            "description": "OUTIL PRINCIPAL — recherche sémantique (par concept/sens) dans TOUTE la mémoire locale : historique Chrome, historique Safari, emails Gmail, fichiers texte/PDF/code, iMessages/SMS, Apple Notes, Apple Calendar, historique terminal. QUAND L'UTILISER : questions vagues ou conceptuelles ('mes dépenses du mois', 'projet avec Thomas', 'site que j'ai visité sur les MCP tools', 'infos sur Revolut'). POUR UN SITE WEB VISITÉ : utilise search_memory avec un mot du nom du site ou de son contenu — c'est ici que l'historique Chrome/Safari est indexé, pas dans un autre tool. LIMITES : pour les noms propres exacts (prénom, email d'expéditeur, numéro de tel), enchaîne avec search_emails / search_messages / search_notes qui font une correspondance exacte.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "La requête de recherche en langage naturel"
+                        "description": "La requête en langage naturel (ex: 'site sur les outils MCP', 'mes virements Revolut', 'réunion avec Thomas')"
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Nombre de résultats à retourner (défaut: 5)",
+                        "description": "Nombre de résultats (défaut: 5, max: 20)",
                         "default": 5,
                         "minimum": 1,
                         "maximum": 20
@@ -81,94 +81,14 @@ fn tools_list() -> Value {
             }
         },
         {
-            "name": "find_file",
-            "description": "Localise un fichier sur le Mac par son nom, son extension ou son chemin partiel. Exemples: 'scene.gltf', '.blend files', 'error.log'. Utilise la mémoire locale indexée.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Nom, extension ou chemin partiel du fichier à trouver"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Nombre de résultats (défaut: 5)",
-                        "default": 5,
-                        "minimum": 1,
-                        "maximum": 20
-                    }
-                },
-                "required": ["name"]
-            }
-        },
-        {
-            "name": "fetch_content",
-            "description": "Lecture intelligente d'un fichier. AVEC query → mode Agentic RAG : score tous les blocs avec ONNX local, retourne le bloc le plus pertinent + carte de navigation (scores des autres blocs). L'IA peut ensuite demander un bloc précis par block_index. SANS query → lecture linéaire par offset/length.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Chemin absolu du fichier à lire"
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Question ou sujet recherché. Active le mode RAG : retourne le bloc le plus pertinent + carte de navigation."
-                    },
-                    "block_index": {
-                        "type": "integer",
-                        "description": "Index du bloc à lire directement (issu de la carte de navigation). Utiliser avec query pour naviguer.",
-                        "minimum": 0
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Position de départ en caractères (mode linéaire, sans query).",
-                        "default": 0,
-                        "minimum": 0
-                    },
-                    "length": {
-                        "type": "integer",
-                        "description": "Nombre de caractères à lire (mode linéaire, défaut: 3000, max: 10000).",
-                        "default": 3000,
-                        "minimum": 100,
-                        "maximum": 10000
-                    }
-                },
-                "required": ["path"]
-            }
-        },
-        {
-            "name": "get_recent_files",
-            "description": "Liste les fichiers récemment modifiés dans Desktop et Documents. Utile pour reprendre une tâche en cours ou voir ce qui a changé récemment.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "hours": {
-                        "type": "integer",
-                        "description": "Fenêtre temporelle en heures (défaut: 24)",
-                        "default": 24,
-                        "minimum": 1,
-                        "maximum": 168
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Nombre max de fichiers à retourner (défaut: 20)",
-                        "default": 20,
-                        "minimum": 1,
-                        "maximum": 100
-                    }
-                }
-            }
-        },
-        {
             "name": "search_emails",
-            "description": "Cherche des emails par mot-clé. Scanne TOUS les emails indexés (expéditeur, objet, corps) — aucune limite de date. Passe un seul mot-clé significatif : 'revolut', 'facture', 'railway', 'codeur.com'. Retourne une liste compacte (objet + expéditeur + ID). Pour lire le contenu complet d'un email, utilise read_email avec son ID.",
+            "description": "EMAILS UNIQUEMENT — recherche par mot-clé exact dans tous les emails indexés (expéditeur, objet, corps). QUAND L'UTILISER : l'utilisateur parle d'un email, d'un expéditeur, d'une facture, d'un abonnement. Scanne TOUS les emails sans limite de date. Retourne liste compacte (objet + expéditeur + ID). TOUJOURS enchaîner avec read_email(id) pour lire le contenu complet. NE PAS utiliser search_memory pour chercher des emails — ce tool est plus précis.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "Le mot-clé à chercher (ex: 'revolut', 'facture', 'abonnement', 'remboursement')"
+                        "description": "Mot-clé exact à chercher (ex: 'revolut', 'facture', 'abonnement', 'railway')"
                     },
                     "limit": {
                         "type": "integer",
@@ -183,17 +103,17 @@ fn tools_list() -> Value {
         },
         {
             "name": "get_emails_by_date",
-            "description": "Filtre les emails par date ou récupère les plus récents. Sans paramètre → retourne les 50 plus récents. Avec query → filtre par période : 'aujourd'hui', 'hier', 'cette semaine', 'janvier', 'le 15 février', 'ce mois'. Retourne une liste compacte (objet + expéditeur + ID). Pour lire le contenu complet, utilise read_email avec son ID.",
+            "description": "EMAILS PAR DATE — QUAND L'UTILISER : l'utilisateur mentionne une période ('emails d'aujourd'hui', 'emails de janvier', 'emails de cette semaine', 'mes derniers emails'). Sans paramètre → 50 emails les plus récents. Avec query → filtre par période en langage naturel. Retourne liste compacte. TOUJOURS enchaîner avec read_email(id) pour le contenu complet.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "La période (optionnel) : 'aujourd'hui', 'hier', 'cette semaine', 'janvier', 'le 15', 'ce mois'. Vide = emails les plus récents."
+                        "description": "Période optionnelle : 'aujourd'hui', 'hier', 'cette semaine', 'janvier', 'le 15 février', 'ce mois'. Vide = emails les plus récents."
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Nombre d'emails à retourner (défaut: 50, max: 200)",
+                        "description": "Nombre d'emails (défaut: 50, max: 200)",
                         "default": 50,
                         "minimum": 1,
                         "maximum": 200
@@ -203,41 +123,27 @@ fn tools_list() -> Value {
         },
         {
             "name": "read_email",
-            "description": "Lit le contenu COMPLET d'un email (sans troncature). Utilise l'ID obtenu depuis search_emails ou get_emails_by_date. Accepte l'ID court ou l'URL complète (gmail://message/...).",
+            "description": "LIT UN EMAIL COMPLET — QUAND L'UTILISER : après search_emails ou get_emails_by_date pour lire le contenu intégral d'un email. Accepte l'ID court (ex: '20260214005158.abc@railway.app') ou l'URL complète (gmail://message/...).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "L'ID de l'email (ex: '20260214005158.abc@railway.app') ou l'URL complète ('gmail://message/...')"
+                        "description": "ID de l'email obtenu depuis search_emails ou get_emails_by_date"
                     }
                 },
                 "required": ["id"]
             }
         },
         {
-            "name": "list_directory",
-            "description": "Liste le contenu d'un dossier (nom, type, taille, date de modification).",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Chemin du dossier à lister (ex: ~/Desktop, ~/Documents)"
-                    }
-                },
-                "required": ["path"]
-            }
-        },
-        {
             "name": "search_messages",
-            "description": "Cherche dans les iMessages/SMS par mot-clé. Scanne tous les messages indexés (expéditeur + texte). Retourne une liste compacte avec expéditeur, extrait et ID. Nécessite que 'osmozzz index --source imessage' ait été exécuté.",
+            "description": "IMESSAGES/SMS UNIQUEMENT — recherche par mot-clé exact dans toutes les conversations indexées. QUAND L'UTILISER : l'utilisateur parle d'un message, d'une conversation, d'un SMS, d'un contact. NE PAS utiliser search_memory pour les messages — ce tool est plus précis pour les noms et le texte exact.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "Le mot-clé à chercher dans les messages"
+                        "description": "Mot-clé à chercher (nom d'un contact, mot dans un message, numéro de tel)"
                     },
                     "limit": {
                         "type": "integer",
@@ -252,13 +158,13 @@ fn tools_list() -> Value {
         },
         {
             "name": "search_notes",
-            "description": "Cherche dans les Apple Notes par mot-clé. Scanne tous les titres et snippets des notes indexées. Retourne titre + extrait. Nécessite 'osmozzz index --source notes'.",
+            "description": "APPLE NOTES UNIQUEMENT — recherche par mot-clé exact dans toutes les notes indexées. QUAND L'UTILISER : l'utilisateur parle d'une note, d'une idée écrite, d'un mémo. Retourne titre + extrait. NE PAS utiliser search_memory pour les notes — ce tool est plus précis.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "Le mot-clé à chercher dans les notes"
+                        "description": "Mot-clé à chercher dans les notes"
                     },
                     "limit": {
                         "type": "integer",
@@ -273,13 +179,13 @@ fn tools_list() -> Value {
         },
         {
             "name": "search_terminal",
-            "description": "Cherche une commande dans l'historique terminal (~/.zsh_history). Utile pour retrouver une commande précédemment exécutée. Retourne les commandes correspondantes. Nécessite 'osmozzz index --source terminal'.",
+            "description": "HISTORIQUE TERMINAL UNIQUEMENT — recherche par mot-clé exact dans ~/.zsh_history. QUAND L'UTILISER : l'utilisateur veut retrouver une commande shell précise ('comment j'avais lancé docker', 'la commande cargo que j'ai utilisée'). NE PAS utiliser search_memory pour les commandes terminal.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "Le mot-clé à chercher dans les commandes (ex: 'docker run', 'git rebase', 'cargo build')"
+                        "description": "Mot-clé de la commande (ex: 'docker run', 'git rebase', 'cargo build', 'osmozzz')"
                     },
                     "limit": {
                         "type": "integer",
@@ -294,13 +200,13 @@ fn tools_list() -> Value {
         },
         {
             "name": "search_calendar",
-            "description": "Cherche dans les événements Apple Calendar par mot-clé. Retourne titre + notes + date. Nécessite 'osmozzz index --source calendar'.",
+            "description": "APPLE CALENDAR UNIQUEMENT — recherche par mot-clé exact dans les événements indexés. QUAND L'UTILISER : l'utilisateur parle d'un rendez-vous, d'un événement, d'une réunion planifiée. Retourne titre + notes + date.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "Le mot-clé à chercher dans les événements"
+                        "description": "Mot-clé à chercher dans les événements (ex: 'dentiste', 'réunion', nom d'une personne)"
                     },
                     "limit": {
                         "type": "integer",
@@ -311,6 +217,100 @@ fn tools_list() -> Value {
                     }
                 },
                 "required": ["keyword"]
+            }
+        },
+        {
+            "name": "find_file",
+            "description": "TROUVE UN FICHIER PAR SON NOM — QUAND L'UTILISER : l'utilisateur connaît le nom du fichier, son extension ou une partie de son chemin ('scene.gltf', 'fichiers .blend', 'error.log', 'rapport.pdf'). Scanne le filesystem (Desktop, Documents, code). NE PAS utiliser pour chercher par contenu — utilise search_memory pour ça. Après avoir trouvé le chemin, utilise fetch_content pour lire le fichier.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nom, extension ou chemin partiel du fichier (ex: 'rapport.pdf', '.blend', 'main.rs')"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 5, max: 20)",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "fetch_content",
+            "description": "LIT LE CONTENU D'UN FICHIER — QUAND L'UTILISER : après find_file pour lire un fichier dont tu connais le chemin. AVEC query → mode RAG intelligent : ONNX score chaque bloc du fichier et retourne le bloc le plus pertinent + carte de navigation pour naviguer vers d'autres blocs (block_index). SANS query → lecture linéaire brute par offset/length.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin absolu du fichier à lire"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Sujet recherché dans le fichier → active le mode RAG (retourne le bloc le plus pertinent)"
+                    },
+                    "block_index": {
+                        "type": "integer",
+                        "description": "Index d'un bloc spécifique à lire (issu de la carte de navigation)",
+                        "minimum": 0
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Position de départ en caractères (mode linéaire sans query, défaut: 0)",
+                        "default": 0,
+                        "minimum": 0
+                    },
+                    "length": {
+                        "type": "integer",
+                        "description": "Nombre de caractères à lire (mode linéaire, défaut: 3000, max: 10000)",
+                        "default": 3000,
+                        "minimum": 100,
+                        "maximum": 10000
+                    }
+                },
+                "required": ["path"]
+            }
+        },
+        {
+            "name": "get_recent_files",
+            "description": "FICHIERS RÉCEMMENT MODIFIÉS — QUAND L'UTILISER : l'utilisateur veut reprendre un travail en cours, voir ce qu'il a modifié récemment ('sur quoi j'ai travaillé aujourd'hui', 'mes fichiers récents'). Retourne les fichiers modifiés dans Desktop et Documents dans une fenêtre temporelle. NE PAS utiliser pour chercher des sites web visités — utilise search_memory pour ça.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "hours": {
+                        "type": "integer",
+                        "description": "Fenêtre temporelle en heures (défaut: 24, max: 168 = 7 jours)",
+                        "default": 24,
+                        "minimum": 1,
+                        "maximum": 168
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre max de fichiers (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                }
+            }
+        },
+        {
+            "name": "list_directory",
+            "description": "LISTE UN DOSSIER — QUAND L'UTILISER : l'utilisateur veut voir le contenu d'un dossier spécifique dont il connaît le chemin (ex: ~/Desktop, ~/Documents, ~/code/monprojet). Retourne nom, type, taille, date de modification.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin du dossier à lister (ex: ~/Desktop, ~/Documents, ~/code)"
+                    }
+                },
+                "required": ["path"]
             }
         }
     ])
