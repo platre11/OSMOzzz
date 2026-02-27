@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import styled, { keyframes } from 'styled-components'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { RecentDoc, ContactItem, MessageItem } from '../api'
+import BlacklistPanel, { BannisBtn } from '../components/BlacklistPanel'
 
 const CLICKABLE_SOURCES = new Set(['file', 'imessage', 'notes', 'calendar', 'terminal', 'chrome', 'safari'])
 
@@ -176,6 +177,59 @@ const EmptyMsg = styled.p`
   text-align: center;
   padding: 60px;
   color: #9ca3af;
+`
+
+const CardWrapper = styled.div`
+  position: relative;
+  &:hover > div:last-child { display: flex; }
+`
+
+const CardActions = styled.div`
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: none;
+  gap: 6px;
+`
+
+const BanBtn = styled.button`
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+  cursor: pointer;
+  &:hover { background: #fee2e2; }
+`
+
+const BanMenu = styled.div`
+  position: absolute;
+  top: 28px;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  z-index: 10;
+  min-width: 220px;
+  overflow: hidden;
+`
+
+const BanMenuItem = styled.button`
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #374151;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-bottom: 1px solid #f3f4f6;
+  &:last-child { border-bottom: none; }
+  &:hover { background: #fef2f2; color: #dc2626; }
 `
 
 // ─── iMessage two-panel ───────────────────────────────────────────────────────
@@ -354,10 +408,70 @@ function ImessageView() {
   )
 }
 
+
+function BanCardItem({ doc, clickable, identifier, onBanned }: {
+  doc: RecentDoc; clickable: boolean; identifier: string | null; onBanned: () => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  async function doBan(kind: 'url' | 'source') {
+    setMenuOpen(false)
+    if (kind === 'url') await api.banUrl(doc.url)
+    else if (identifier) await api.banSourceItem(doc.source, identifier)
+    onBanned()
+  }
+
+  return (
+    <CardWrapper>
+      <Card
+        $clickable={clickable}
+        onClick={clickable ? () => handleClick(doc.source, doc) : undefined}
+      >
+        <CardTop>
+          <Badge $source={doc.source}>{doc.source}</Badge>
+          <DocTitle>{doc.title || doc.url}</DocTitle>
+        </CardTop>
+        <DocContent>{doc.content}</DocContent>
+      </Card>
+      <CardActions>
+        <BanBtn onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>⊘ Bannir</BanBtn>
+        {menuOpen && (
+          <BanMenu>
+            <BanMenuItem onClick={() => doBan('url')}>Ce document uniquement</BanMenuItem>
+            {identifier && (
+              <BanMenuItem onClick={() => doBan('source')}>Tout de : {identifier}</BanMenuItem>
+            )}
+          </BanMenu>
+        )}
+      </CardActions>
+    </CardWrapper>
+  )
+}
+
+function extractIdentifier(doc: RecentDoc): string | null {
+  if (doc.source === 'imessage') {
+    const m = (doc.title ?? '').match(/([+\d]{7,})/)
+    return m ? m[1] : null
+  }
+  if (doc.source === 'chrome' || doc.source === 'safari') {
+    try { return new URL(doc.url).hostname } catch { return null }
+  }
+  if (doc.source === 'file') {
+    const parts = doc.url.split('/'); parts.pop(); return parts.join('/') || null
+  }
+  if (doc.source === 'email') {
+    const m = doc.content?.match(/^De\s*:\s*(.+)/m)
+    return m ? m[1].trim() : null
+  }
+  return null
+}
+
 export default function RecentPage() {
-  const [source, setSource] = useState('email')
-  const [page, setPage]     = useState(0)
+  const [source, setSource]         = useState('email')
+  const [page, setPage]             = useState(0)
+  const [showBannis, setShowBannis] = useState(false)
   const limit = 20
+  const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery<RecentDoc[]>({
     queryKey: ['recent', source, page],
@@ -368,7 +482,14 @@ export default function RecentPage() {
 
   return (
     <Page>
-      <PageTitle>Documents récents</PageTitle>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <PageTitle>Documents récents</PageTitle>
+        <BannisBtn onClick={() => setShowBannis(true)}>⊘ Bannis</BannisBtn>
+      </div>
+
+      {showBannis && (
+        <BlacklistPanel source={source} onClose={() => setShowBannis(false)} />
+      )}
 
       <TabRow>
         {SOURCES.map(s => (
@@ -387,18 +508,15 @@ export default function RecentPage() {
             <DocList>
               {data?.map((doc, i) => {
                 const clickable = CLICKABLE_SOURCES.has(doc.source)
+                const identifier = extractIdentifier(doc)
                 return (
-                  <Card
+                  <BanCardItem
                     key={i}
-                    $clickable={clickable}
-                    onClick={clickable ? () => handleClick(doc.source, doc) : undefined}
-                  >
-                    <CardTop>
-                      <Badge $source={doc.source}>{doc.source}</Badge>
-                      <DocTitle>{doc.title || doc.url}</DocTitle>
-                    </CardTop>
-                    <DocContent>{doc.content}</DocContent>
-                  </Card>
+                    doc={doc}
+                    clickable={clickable}
+                    identifier={identifier}
+                    onBanned={() => queryClient.invalidateQueries({ queryKey: ['recent', source, page] })}
+                  />
                 )
               })}
             </DocList>

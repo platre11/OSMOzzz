@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react'
 import styled, { keyframes } from 'styled-components'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { GroupedSearchResponse, SearchDoc } from '../api'
 import { icons } from '../lib/assets'
 import type { LucideIcon } from 'lucide-react'
+import BlacklistPanel, { BannisBtn } from '../components/BlacklistPanel'
 
 const SOURCE_LABELS: Record<string, string> = {
   email: 'Gmail', chrome: 'Chrome', file: 'Fichiers', imessage: 'iMessage',
@@ -210,6 +211,60 @@ const InlineLink = styled.a`
   &:hover { color: #4a4de3; }
 `
 
+const CardActions = styled.div`
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: none;
+  gap: 6px;
+`
+
+const CardWrapper = styled.div`
+  position: relative;
+  &:hover ${CardActions} { display: flex; }
+`
+
+const BanBtn = styled.button`
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+  cursor: pointer;
+  white-space: nowrap;
+  &:hover { background: #fee2e2; }
+`
+
+const BanMenu = styled.div`
+  position: absolute;
+  top: 28px;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  z-index: 10;
+  min-width: 220px;
+  overflow: hidden;
+`
+
+const BanMenuItem = styled.button`
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #374151;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-bottom: 1px solid #f3f4f6;
+  &:last-child { border-bottom: none; }
+  &:hover { background: #fef2f2; color: #dc2626; }
+`
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function highlightText(text: string, query: string): React.ReactNode {
@@ -271,28 +326,79 @@ function handleCardClick(source: string, doc: SearchDoc) {
 
 // ─── ResultCard ───────────────────────────────────────────────────────────────
 
-function ResultCard({ doc, source, query }: { doc: SearchDoc; source: string; query: string }) {
+function extractSourceIdentifier(source: string, doc: SearchDoc): string | null {
+  if (source === 'imessage') {
+    const m = (doc.title ?? '').match(/([+\d]{7,})/)
+    return m ? m[1] : null
+  }
+  if (source === 'chrome' || source === 'safari') {
+    try { return new URL(doc.url).hostname } catch { return null }
+  }
+  if (source === 'file') {
+    const parts = doc.url.split('/')
+    parts.pop()
+    return parts.join('/') || null
+  }
+  if (source === 'email') {
+    const m = doc.content?.match(/^From:\s*(.+)/m)
+    return m ? m[1].trim() : null
+  }
+  return null
+}
+
+function sourceIdentifierLabel(source: string): string {
+  return { email: 'expéditeur', imessage: 'contact', chrome: 'domaine', safari: 'domaine', file: 'dossier' }[source] ?? 'source'
+}
+
+function ResultCard({ doc, source, query, onBanned }: { doc: SearchDoc; source: string; query: string; onBanned: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const clickable = CLICKABLE_SOURCES.has(source)
+  const identifier = extractSourceIdentifier(source, doc)
+
+  async function doBan(kind: 'url' | 'source') {
+    setMenuOpen(false)
+    if (kind === 'url') {
+      await api.banUrl(doc.url)
+    } else if (identifier) {
+      await api.banSourceItem(source, identifier)
+    }
+    onBanned()
+  }
 
   return (
-    <Card
-      $clickable={clickable}
-      onClick={clickable ? () => handleCardClick(source, doc) : undefined}
-    >
-      <CardHeader>
-        <CardTitle>{highlightText(doc.title || doc.url, query)}</CardTitle>
-        {doc.date && <CardDate>{doc.date}</CardDate>}
-      </CardHeader>
-      {doc.content && (
-        <CardContent>
-          {source === 'email'
-            ? renderEmailContent(doc.content, query)
-            : highlightText(doc.content, query)
-          }
-        </CardContent>
-      )}
-      <CardUrl>{doc.url}</CardUrl>
-    </Card>
+    <CardWrapper>
+      <Card
+        $clickable={clickable}
+        onClick={clickable ? () => handleCardClick(source, doc) : undefined}
+      >
+        <CardHeader>
+          <CardTitle>{highlightText(doc.title || doc.url, query)}</CardTitle>
+          {doc.date && <CardDate>{doc.date}</CardDate>}
+        </CardHeader>
+        {doc.content && (
+          <CardContent>
+            {source === 'email'
+              ? renderEmailContent(doc.content, query)
+              : highlightText(doc.content, query)
+            }
+          </CardContent>
+        )}
+        <CardUrl>{doc.url}</CardUrl>
+      </Card>
+      <CardActions>
+        <BanBtn onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>⊘ Bannir</BanBtn>
+        {menuOpen && (
+          <BanMenu>
+            <BanMenuItem onClick={() => doBan('url')}>Ce document uniquement</BanMenuItem>
+            {identifier && (
+              <BanMenuItem onClick={() => doBan('source')}>
+                Tout cet {sourceIdentifierLabel(source)} : {identifier}
+              </BanMenuItem>
+            )}
+          </BanMenu>
+        )}
+      </CardActions>
+    </CardWrapper>
   )
 }
 
@@ -301,6 +407,8 @@ function ResultCard({ doc, source, query }: { doc: SearchDoc; source: string; qu
 export default function SearchPage() {
   const [query, setQuery]              = useState('')
   const [debouncedQuery, setDebounced] = useState('')
+  const [showBannis, setShowBannis]    = useState(false)
+  const queryClient = useQueryClient()
 
   const debounce = useCallback((value: string) => {
     const t = setTimeout(() => setDebounced(value), 300)
@@ -320,16 +428,21 @@ export default function SearchPage() {
 
   return (
     <Page>
-      <SearchWrapper>
-        <icons.Search size={16} />
-        <SearchInput
-          type="text"
-          value={query}
-          onChange={e => handleChange(e.target.value)}
-          placeholder="Cherche dans toute ta mémoire..."
-          autoFocus
-        />
-      </SearchWrapper>
+      {showBannis && <BlacklistPanel source="all" onClose={() => setShowBannis(false)} />}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <SearchWrapper style={{ flex: 1 }}>
+          <icons.Search size={16} />
+          <SearchInput
+            type="text"
+            value={query}
+            onChange={e => handleChange(e.target.value)}
+            placeholder="Cherche dans toute ta mémoire..."
+            autoFocus
+          />
+        </SearchWrapper>
+        <BannisBtn onClick={() => setShowBannis(true)}>⊘ Bannis</BannisBtn>
+      </div>
 
       {isLoading && <Loader />}
 
@@ -354,7 +467,13 @@ export default function SearchPage() {
                 </GroupHeader>
                 <CardList>
                   {group.results.map((doc, i) => (
-                    <ResultCard key={i} doc={doc} source={group.source} query={debouncedQuery} />
+                    <ResultCard
+                      key={i}
+                      doc={doc}
+                      source={group.source}
+                      query={debouncedQuery}
+                      onBanned={() => queryClient.invalidateQueries({ queryKey: ['search', debouncedQuery] })}
+                    />
                   ))}
                 </CardList>
               </Group>

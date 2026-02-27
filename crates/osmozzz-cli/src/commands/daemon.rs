@@ -19,6 +19,7 @@ use osmozzz_harvester::{
 };
 
 use osmozzz_api;
+use osmozzz_embedder::Blacklist;
 
 use crate::config::Config;
 
@@ -286,8 +287,14 @@ async fn sync_docs(vault: &Arc<Vault>, label: &str, docs: Vec<osmozzz_core::Docu
         return;
     }
 
+    let blacklist = Blacklist::load();
     let mut indexed = 0;
     for doc in &docs {
+        // Skip banned documents (URL ban or source-level ban)
+        let source = doc.source.to_string();
+        let title  = doc.title.as_deref().unwrap_or("");
+        if blacklist.is_banned(&source, &doc.url, title) { continue; }
+
         if let Ok(true) = vault.exists(&doc.checksum).await { continue; }
         match vault.upsert(doc).await {
             Ok(_) => indexed += 1,

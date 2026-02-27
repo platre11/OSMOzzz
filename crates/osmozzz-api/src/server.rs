@@ -3,6 +3,7 @@ use anyhow::Result;
 use axum::{
     Router,
     routing::{get, post},
+    // post already imported
     http::{HeaderValue, Method},
 };
 use include_dir::{include_dir, Dir};
@@ -32,6 +33,10 @@ pub async fn start_server(vault: Arc<Vault>, port: u16) -> Result<()> {
         .route("/open", get(routes::get_open))
         .route("/messages/contacts", get(routes::get_imessage_contacts))
         .route("/messages/conversation", get(routes::get_imessage_conversation))
+        .route("/ban", post(routes::post_ban))
+        .route("/unban", post(routes::post_unban))
+        .route("/blacklist", get(routes::get_blacklist))
+        .route("/compact", post(routes::post_compact))
         .with_state(state);
 
     let app = Router::new()

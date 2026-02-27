@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import styled, { keyframes } from 'styled-components'
 import { api } from '../api'
-import type { StatusData } from '../api'
+import type { StatusData, PerfMetrics } from '../api'
 import { icons } from '../lib/assets'
 
 const SOURCE_META: Record<string, { label: string; color: string; bg: string; Icon: React.ElementType }> = {
@@ -13,6 +14,17 @@ const SOURCE_META: Record<string, { label: string; color: string; bg: string; Ic
   notes:    { label: 'Notes',      color: '#ca8a04', bg: '#fefce8', Icon: icons.BookOpen },
   terminal: { label: 'Terminal',   color: '#475569', bg: '#f8fafc', Icon: icons.Terminal },
   calendar: { label: 'Calendrier', color: '#0d9488', bg: '#f0fdfa', Icon: icons.Calendar },
+}
+
+const SOURCE_MAX: Record<string, number | null> = {
+  email:    5000,
+  chrome:   10000,
+  safari:   10000,
+  imessage: 5000,
+  terminal: 5000,
+  notes:    2000,
+  calendar: null,
+  file:     null,
 }
 
 const spin = keyframes`to { transform: rotate(360deg); }`
@@ -101,6 +113,29 @@ const CardSub = styled.p`
   margin-top: 2px;
 `
 
+const CardMax = styled.p`
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 6px;
+`
+
+const MiniBar = styled.div<{ $pct: number; $color: string }>`
+  height: 3px;
+  border-radius: 2px;
+  background: #f3f4f6;
+  margin-top: 4px;
+  overflow: hidden;
+  &::after {
+    content: '';
+    display: block;
+    height: 100%;
+    width: ${({ $pct }) => Math.min($pct, 100)}%;
+    background: ${({ $color }) => $color};
+    border-radius: 2px;
+    transition: width .4s ease;
+  }
+`
+
 const ErrorTag = styled.div`
   margin-top: 8px;
   font-size: 11px;
@@ -125,6 +160,130 @@ const ErrorMsg = styled.p`
   padding: 60px;
   color: #9ca3af;
 `
+
+const PerfSection = styled.div`
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 14px;
+  padding: 20px 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+`
+
+const PerfTitle = styled.p`
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #9ca3af;
+  margin-bottom: 14px;
+`
+
+const PerfRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f3f4f6;
+  &:last-child { border-bottom: none; }
+`
+
+const PerfLabel = styled.span`
+  font-size: 13px;
+  color: #6b7280;
+`
+
+const PerfValue = styled.span`
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1d23;
+`
+
+const CompactBtn = styled.button<{ $loading?: boolean }>`
+  margin-top: 14px;
+  width: 100%;
+  padding: 9px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: ${({ $loading }) => $loading ? '#f3f4f6' : '#fff'};
+  color: ${({ $loading }) => $loading ? '#9ca3af' : '#374151'};
+  font-size: 13px;
+  font-weight: 600;
+  cursor: ${({ $loading }) => $loading ? 'not-allowed' : 'pointer'};
+  transition: all .15s;
+  &:hover { background: ${({ $loading }) => $loading ? '#f3f4f6' : '#f9fafb'}; }
+`
+
+const PerfBar = styled.div<{ $pct: number; $color: string }>`
+  height: 4px;
+  border-radius: 2px;
+  background: #f3f4f6;
+  margin-top: 4px;
+  overflow: hidden;
+  &::after {
+    content: '';
+    display: block;
+    height: 100%;
+    width: ${({ $pct }) => Math.min($pct, 100)}%;
+    background: ${({ $color }) => $color};
+    border-radius: 2px;
+    transition: width .4s ease;
+  }
+`
+
+function PerfMetricsCard({ perf }: { perf: PerfMetrics }) {
+  const totalMb = (perf.process_rss_mb ?? 0) + perf.estimated_ram_mb
+  const [compacting, setCompacting] = useState(false)
+  const [done, setDone] = useState(false)
+  const queryClient = useQueryClient()
+
+  async function handleCompact() {
+    setCompacting(true)
+    setDone(false)
+    await api.compact()
+    setCompacting(false)
+    setDone(true)
+    queryClient.invalidateQueries({ queryKey: ['status'] })
+  }
+
+  return (
+    <PerfSection>
+      <PerfTitle>Empreinte mémoire & disque</PerfTitle>
+
+      <PerfRow>
+        <PerfLabel>Base de données (disque)</PerfLabel>
+        <PerfValue>{perf.db_disk_mb} MB</PerfValue>
+      </PerfRow>
+      <PerfBar $pct={(perf.db_disk_mb / 500) * 100} $color="#5b5ef4" />
+
+      <PerfRow>
+        <PerfLabel>Vecteurs en mémoire estimée</PerfLabel>
+        <PerfValue>~{perf.estimated_ram_mb} MB ({perf.total_vectors.toLocaleString('fr-FR')} docs × 1.5 KB)</PerfValue>
+      </PerfRow>
+      <PerfBar $pct={(perf.estimated_ram_mb / 512) * 100} $color="#9333ea" />
+
+      {perf.process_rss_mb != null && (
+        <>
+          <PerfRow>
+            <PerfLabel>RAM processus osmozzz (RSS)</PerfLabel>
+            <PerfValue>{perf.process_rss_mb} MB</PerfValue>
+          </PerfRow>
+          <PerfBar $pct={(perf.process_rss_mb / 1024) * 100} $color="#0d9488" />
+        </>
+      )}
+
+      <PerfRow>
+        <PerfLabel>Total estimé</PerfLabel>
+        <PerfValue style={{ color: totalMb > 800 ? '#dc2626' : '#16a34a' }}>
+          ~{totalMb} MB
+        </PerfValue>
+      </PerfRow>
+
+      <CompactBtn $loading={compacting} onClick={handleCompact} disabled={compacting}>
+        {compacting ? '⏳ Compactage en cours...' : done ? '✓ Compactage terminé' : '⚡ Optimiser la base de données'}
+      </CompactBtn>
+    </PerfSection>
+  )
+}
 
 export default function StatusPage() {
   const { data, isLoading, error } = useQuery<StatusData>({
@@ -154,6 +313,8 @@ export default function StatusPage() {
         {Object.entries(data.sources).map(([source, status]) => {
           const meta = SOURCE_META[source] ?? { label: source, color: '#374151', bg: '#f3f4f6', Icon: icons.Database }
           const { Icon } = meta
+          const max = SOURCE_MAX[source] ?? null
+          const pct = max ? (status.count / max) * 100 : 0
           return (
             <Card key={source}>
               <CardIcon $bg={meta.bg} $color={meta.color}>
@@ -162,11 +323,19 @@ export default function StatusPage() {
               <CardLabel>{meta.label}</CardLabel>
               <CardCount>{status.count.toLocaleString('fr-FR')}</CardCount>
               <CardSub>documents indexés</CardSub>
+              {max !== null && (
+                <>
+                  <MiniBar $pct={pct} $color={meta.color} />
+                  <CardMax>{status.count.toLocaleString('fr-FR')} / {max.toLocaleString('fr-FR')}</CardMax>
+                </>
+              )}
               {status.error && <ErrorTag>⚠ {status.error}</ErrorTag>}
             </Card>
           )
         })}
       </Grid>
+
+      {data.perf && <PerfMetricsCard perf={data.perf} />}
     </Page>
   )
 }

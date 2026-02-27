@@ -9,9 +9,10 @@ use futures::TryStreamExt;
 use lancedb::{
     connect,
     query::{ExecutableQuery, QueryBase},
-    table::OptimizeAction,
+    table::{OptimizeAction, CompactionOptions},
     Connection, Table,
 };
+use lancedb::table::Duration as LanceDuration;
 use osmozzz_core::{Document, OsmozzError, Result, SearchResult};
 use tracing::debug;
 
@@ -21,6 +22,7 @@ const EMBEDDING_DIM: i32 = 384;
 pub struct VectorStore {
     conn: Connection,
     table: Arc<tokio::sync::RwLock<Option<Table>>>,
+    db_path: String,
 }
 
 impl VectorStore {
@@ -36,6 +38,7 @@ impl VectorStore {
         let store = Self {
             conn,
             table: Arc::new(tokio::sync::RwLock::new(None)),
+            db_path: db_path.to_string(),
         };
         store.ensure_table().await?;
         Ok(store)
@@ -864,6 +867,43 @@ impl VectorStore {
         Ok(None)
     }
 
+    /// Fetch source+title+content for a batch of URLs (for blacklist panel enrichment).
+    /// Returns Vec<(url, source, title, content_snippet)>
+    pub async fn get_docs_info_by_urls(&self, urls: &[String]) -> Result<Vec<(String, String, Option<String>, String)>> {
+        if urls.is_empty() { return Ok(vec![]); }
+        let table = self.get_table().await?;
+        let conditions: Vec<String> = urls.iter()
+            .map(|u| format!("url = '{}'", u.replace('\'', "''")))
+            .collect();
+        let filter = conditions.join(" OR ");
+        let batches = table
+            .query()
+            .only_if(filter)
+            .limit(urls.len() + 10)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("get_docs_info: {}", e)))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("get_docs_info collect: {}", e)))?;
+
+        let mut results = Vec::new();
+        for batch in &batches {
+            let url_col    = batch.column_by_name("url").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let source_col = batch.column_by_name("source").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let title_col  = batch.column_by_name("title").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let content_col= batch.column_by_name("content").and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            for i in 0..batch.num_rows() {
+                let url     = url_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                let source  = source_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                let title   = title_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i).to_string()) });
+                let content = content_col.map(|c| c.value(i).to_string()).unwrap_or_default();
+                results.push((url, source, title, content));
+            }
+        }
+        Ok(results)
+    }
+
     /// Returns unique iMessage contacts: (phone, last_text, last_ts, count), sorted by last_ts DESC.
     pub async fn get_imessage_contacts(&self) -> Result<Vec<(String, String, i64, usize)>> {
         let table = self.get_table().await?;
@@ -957,14 +997,70 @@ impl VectorStore {
         Ok(messages)
     }
 
+    /// Delete one specific document by its exact URL.
+    pub async fn delete_by_url(&self, url: &str) -> Result<()> {
+        let table = self.get_table().await?;
+        let safe = url.replace('\'', "''");
+        table.delete(&format!("url = '{}'", safe))
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("delete_by_url: {}", e)))?;
+        Ok(())
+    }
+
+    /// Delete all documents from a source that match a given identifier.
+    /// Used when banning a sender, phone, domain, or path.
+    pub async fn delete_by_source_item(&self, source: &str, identifier: &str) -> Result<()> {
+        let table = self.get_table().await?;
+        let safe_src = source.replace('\'', "''");
+        let safe_id  = identifier.replace('\'', "''");
+        let filter = match source {
+            "email"    => format!("source = '{}' AND content LIKE '%{}%'", safe_src, safe_id),
+            "imessage" => format!("source = '{}' AND title LIKE '%{}%'",   safe_src, safe_id),
+            "chrome"   => format!("source = '{}' AND url LIKE '%{}%'",     safe_src, safe_id),
+            "safari"   => format!("source = '{}' AND url LIKE '%{}%'",     safe_src, safe_id),
+            "file"     => format!("source = '{}' AND url LIKE '{}%'",      safe_src, safe_id),
+            _ => return Ok(()),
+        };
+        table.delete(&filter)
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("delete_by_source_item: {}", e)))?;
+        Ok(())
+    }
+
+    /// Total size of the LanceDB directory on disk, in bytes.
+    pub fn disk_bytes(&self) -> u64 {
+        fn dir_size(path: &std::path::Path) -> u64 {
+            let Ok(entries) = std::fs::read_dir(path) else { return 0 };
+            entries.flatten().map(|e| {
+                let p = e.path();
+                if p.is_dir() { dir_size(&p) }
+                else { e.metadata().map(|m| m.len()).unwrap_or(0) }
+            }).sum()
+        }
+        dir_size(std::path::Path::new(&self.db_path))
+    }
+
     /// Merge all fragment files into one and prune old versions.
     /// Run this after bulk indexing to restore fast vector search.
     pub async fn compact(&self) -> Result<()> {
         let table = self.get_table().await?;
+        // 1. Compact data fragments
         table
-            .optimize(OptimizeAction::All)
+            .optimize(OptimizeAction::Compact {
+                options: CompactionOptions::default(),
+                remap_options: None,
+            })
             .await
             .map_err(|e| OsmozzError::Storage(format!("Compact: {}", e)))?;
+        // 2. Prune versions older than 1 hour (delete_unverified=true bypasses the 7-day guard)
+        table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(LanceDuration::hours(1)),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: Some(false),
+            })
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("Prune: {}", e)))?;
         Ok(())
     }
 }

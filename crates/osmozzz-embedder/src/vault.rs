@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use osmozzz_core::{Document, Embedder, Result, SearchResult};
 use tracing::info;
 
+use crate::blacklist::Blacklist;
 use crate::embedder::OnnxEmbedder;
 use crate::store::VectorStore;
 
@@ -49,6 +50,10 @@ impl Vault {
 
     pub async fn get_full_content_by_url(&self, url: &str) -> osmozzz_core::Result<Option<(Option<String>, String)>> {
         self.store.get_full_content_by_url(url).await
+    }
+
+    pub async fn get_docs_info_by_urls(&self, urls: &[String]) -> osmozzz_core::Result<Vec<(String, String, Option<String>, String)>> {
+        self.store.get_docs_info_by_urls(urls).await
     }
 
     pub async fn get_emails_by_sender_and_date(&self, pattern: &str, from_ts: i64, to_ts: i64, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
@@ -110,14 +115,74 @@ impl Vault {
         per_source: usize,
     ) -> osmozzz_core::Result<std::collections::HashMap<String, Vec<(i64, Option<String>, String, String)>>> {
         let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+        let bl = Blacklist::load();
         let mut grouped = std::collections::HashMap::new();
         for src in &sources {
-            let results = self.store.search_by_keyword_source_dated(keyword, per_source, src).await.unwrap_or_default();
-            if !results.is_empty() {
-                grouped.insert(src.to_string(), results);
+            let results = self.store.search_by_keyword_source_dated(keyword, per_source + 50, src).await.unwrap_or_default();
+            let filtered: Vec<_> = results.into_iter()
+                .filter(|(_ts, title, url, content)| {
+                    !bl.is_result_banned(src, url, title.as_deref().unwrap_or(""), content)
+                })
+                .take(per_source)
+                .collect();
+            if !filtered.is_empty() {
+                grouped.insert(src.to_string(), filtered);
             }
         }
         Ok(grouped)
+    }
+
+    // ─── Blacklist ────────────────────────────────────────────────────────────
+
+    pub fn load_blacklist(&self) -> Blacklist {
+        Blacklist::load()
+    }
+
+    /// Ban: only adds to blacklist.toml — data stays in LanceDB for instant unban.
+    pub async fn ban_url(&self, url: &str) -> osmozzz_core::Result<()> {
+        let mut bl = Blacklist::load();
+        bl.ban_url(url);
+        bl.save().map_err(|e| osmozzz_core::OsmozzError::Storage(e.to_string()))
+    }
+
+    pub async fn ban_source_item(&self, source: &str, identifier: &str) -> osmozzz_core::Result<()> {
+        let mut bl = Blacklist::load();
+        bl.ban_source_item(source, identifier);
+        bl.save().map_err(|e| osmozzz_core::OsmozzError::Storage(e.to_string()))
+    }
+
+    pub async fn unban_url(&self, url: &str) -> osmozzz_core::Result<()> {
+        let mut bl = Blacklist::load();
+        bl.unban_url(url);
+        bl.save().map_err(|e| osmozzz_core::OsmozzError::Storage(e.to_string()))
+    }
+
+    pub async fn unban_source_item(&self, source: &str, identifier: &str) -> osmozzz_core::Result<()> {
+        let mut bl = Blacklist::load();
+        bl.unban_source_item(source, identifier);
+        bl.save().map_err(|e| osmozzz_core::OsmozzError::Storage(e.to_string()))
+    }
+
+    pub fn get_blacklist(&self) -> Blacklist {
+        Blacklist::load()
+    }
+
+    // ─── Métriques performance ────────────────────────────────────────────────
+
+    /// DB size on disk in bytes.
+    pub fn db_disk_bytes(&self) -> u64 {
+        self.store.disk_bytes()
+    }
+
+    /// Current process RSS memory in MB (macOS only, best-effort).
+    pub fn process_rss_mb() -> Option<u64> {
+        let pid = std::process::id();
+        let out = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        let kb: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+        Some(kb / 1024)
     }
 
     pub async fn get_imessage_contacts(&self) -> osmozzz_core::Result<Vec<(String, String, i64, usize)>> {
@@ -133,7 +198,12 @@ impl Vault {
     }
 
     pub async fn recent_by_source(&self, source: &str, limit: usize) -> osmozzz_core::Result<Vec<osmozzz_core::SearchResult>> {
-        self.store.recent_by_source(source, limit).await
+        let bl = Blacklist::load();
+        let results = self.store.recent_by_source(source, limit + 500).await?;
+        Ok(results.into_iter()
+            .filter(|r| !bl.is_result_banned(&r.source, &r.url, r.title.as_deref().unwrap_or(""), &r.content))
+            .take(limit)
+            .collect())
     }
 
     pub async fn search_filtered(

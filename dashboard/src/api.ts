@@ -8,9 +8,17 @@ export interface SourceStatus {
   error: string | null
 }
 
+export interface PerfMetrics {
+  db_disk_mb: number
+  process_rss_mb: number | null
+  total_vectors: number
+  estimated_ram_mb: number
+}
+
 export interface StatusData {
   daemon_status: string
   sources: Record<string, SourceStatus>
+  perf: PerfMetrics
 }
 
 export interface SearchDoc {
@@ -56,6 +64,18 @@ export interface MessageItem {
   date: string | null
 }
 
+export interface BlacklistEntry {
+  kind: string
+  source: string
+  identifier: string
+  title: string | null
+  content: string | null
+}
+
+export interface BlacklistResponse {
+  entries: BlacklistEntry[]
+}
+
 export const api = {
   getStatus: async (): Promise<StatusData> => {
     const r = await axios.get(`${BASE}/status`)
@@ -93,5 +113,30 @@ export const api = {
   getImessageConversation: async (phone: string, limit = 200): Promise<MessageItem[]> => {
     const r = await axios.get(`${BASE}/messages/conversation`, { params: { phone, limit } })
     return r.data.data ?? []
+  },
+
+  banUrl: async (url: string): Promise<void> => {
+    await axios.post(`${BASE}/ban`, { kind: 'url', url })
+  },
+
+  banSourceItem: async (source: string, identifier: string): Promise<void> => {
+    await axios.post(`${BASE}/ban`, { kind: 'source', source, identifier })
+  },
+
+  getBlacklist: async (): Promise<BlacklistResponse> => {
+    const r = await axios.get(`${BASE}/blacklist`)
+    return r.data.data ?? { entries: [] }
+  },
+
+  unbanUrl: async (url: string): Promise<void> => {
+    await axios.post(`${BASE}/unban`, { kind: 'url', url })
+  },
+
+  unbanSourceItem: async (source: string, identifier: string): Promise<void> => {
+    await axios.post(`${BASE}/unban`, { kind: 'source', source, identifier })
+  },
+
+  compact: async (): Promise<void> => {
+    await axios.post(`${BASE}/compact`)
   },
 }

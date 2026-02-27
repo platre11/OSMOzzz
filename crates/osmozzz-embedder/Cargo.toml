@@ -19,3 +19,5 @@ arrow-schema = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+toml = "0.8"
+dirs-next = { workspace = true }

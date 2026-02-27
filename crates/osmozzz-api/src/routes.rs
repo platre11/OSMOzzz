@@ -21,9 +21,18 @@ pub struct SourceStatus {
 }
 
 #[derive(Serialize)]
+pub struct PerfMetrics {
+    pub db_disk_mb: u64,
+    pub process_rss_mb: Option<u64>,
+    pub total_vectors: usize,
+    pub estimated_ram_mb: u64,
+}
+
+#[derive(Serialize)]
 pub struct StatusResponse {
     pub daemon_status: String,
     pub sources: HashMap<String, SourceStatus>,
+    pub perf: PerfMetrics,
 }
 
 #[derive(Serialize)]
@@ -137,9 +146,16 @@ pub async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
         });
     }
 
+    let total_vectors: usize = sources.values().map(|s| s.count).sum();
+    // Estimation : 1 vecteur 384d f32 = 1536 bytes ≈ 1.5 KB
+    let estimated_ram_mb = (total_vectors as u64 * 1536) / (1024 * 1024);
+    let db_disk_mb = state.vault.db_disk_bytes() / (1024 * 1024);
+    let process_rss_mb = osmozzz_embedder::Vault::process_rss_mb();
+
     ApiResponse::ok(StatusResponse {
         daemon_status: "running".to_string(),
         sources,
+        perf: PerfMetrics { db_disk_mb, process_rss_mb, total_vectors, estimated_ram_mb },
     })
 }
 
@@ -256,6 +272,53 @@ pub async fn post_config_gmail(
     ApiResponse::ok("Gmail configuré avec succès".to_string()).into_response()
 }
 
+// ─── POST /api/ban ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct BanRequest {
+    /// "url" = ban one document | "source" = ban all from identifier
+    pub kind: String,
+    /// Document URL (required for kind="url")
+    pub url: Option<String>,
+    /// Source type: "email", "imessage", "chrome", "safari", "file"
+    pub source: Option<String>,
+    /// Identifier: sender email, phone number, domain, or file path
+    pub identifier: Option<String>,
+}
+
+pub async fn post_ban(
+    State(state): State<AppState>,
+    Json(body): Json<BanRequest>,
+) -> impl IntoResponse {
+    match body.kind.as_str() {
+        "url" => {
+            let url = match &body.url {
+                Some(u) if !u.is_empty() => u.clone(),
+                _ => return ApiResponse::<String>::err("url requis").into_response(),
+            };
+            match state.vault.ban_url(&url).await {
+                Ok(_)  => ApiResponse::ok("banni".to_string()).into_response(),
+                Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+            }
+        }
+        "source" => {
+            let source = match &body.source {
+                Some(s) if !s.is_empty() => s.clone(),
+                _ => return ApiResponse::<String>::err("source requis").into_response(),
+            };
+            let identifier = match &body.identifier {
+                Some(i) if !i.is_empty() => i.clone(),
+                _ => return ApiResponse::<String>::err("identifier requis").into_response(),
+            };
+            match state.vault.ban_source_item(&source, &identifier).await {
+                Ok(_)  => ApiResponse::ok("banni".to_string()).into_response(),
+                Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+            }
+        }
+        _ => ApiResponse::<String>::err("kind invalide (url|source)").into_response(),
+    }
+}
+
 // ─── GET /api/messages/contacts ──────────────────────────────────────────────
 
 pub async fn get_imessage_contacts(State(state): State<AppState>) -> impl IntoResponse {
@@ -334,6 +397,112 @@ pub async fn get_open(Query(params): Query<OpenQuery>) -> impl IntoResponse {
 
     match result {
         Ok(_)  => ApiResponse::ok("ok").into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+// ─── GET /api/blacklist ───────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct BlacklistEntry {
+    pub kind: String,
+    pub source: String,
+    pub identifier: String,
+    pub title: Option<String>,
+    pub content: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct BlacklistResponse {
+    pub entries: Vec<BlacklistEntry>,
+}
+
+pub async fn get_blacklist(State(state): State<AppState>) -> impl IntoResponse {
+    let bl = state.vault.get_blacklist();
+    let raw = bl.get_all_entries();
+
+    // Collect URL bans to enrich with vault data
+    let url_bans: Vec<String> = raw.iter()
+        .filter(|(kind, _, _)| kind == "url")
+        .map(|(_, _, id)| id.clone())
+        .collect();
+
+    let mut doc_map: std::collections::HashMap<String, (String, Option<String>, String)> = std::collections::HashMap::new();
+    if !url_bans.is_empty() {
+        if let Ok(docs) = state.vault.get_docs_info_by_urls(&url_bans).await {
+            for (url, source, title, content) in docs {
+                doc_map.insert(url, (source, title, content));
+            }
+        }
+    }
+
+    let entries: Vec<BlacklistEntry> = raw.into_iter().map(|(kind, source, identifier)| {
+        if kind == "url" {
+            if let Some((real_source, title, content)) = doc_map.get(&identifier) {
+                let snippet = truncate(&content, 200);
+                return BlacklistEntry {
+                    kind,
+                    source: real_source.clone(),
+                    identifier,
+                    title: title.clone(),
+                    content: Some(snippet),
+                };
+            }
+        }
+        BlacklistEntry { kind, source, identifier, title: None, content: None }
+    }).collect();
+
+    ApiResponse::ok(BlacklistResponse { entries })
+}
+
+// ─── POST /api/unban ─────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct UnbanRequest {
+    pub kind: String,
+    pub url: Option<String>,
+    pub source: Option<String>,
+    pub identifier: Option<String>,
+}
+
+pub async fn post_unban(
+    State(state): State<AppState>,
+    Json(body): Json<UnbanRequest>,
+) -> impl IntoResponse {
+    match body.kind.as_str() {
+        "url" => {
+            let url = match &body.url {
+                Some(u) if !u.is_empty() => u.clone(),
+                _ => return ApiResponse::<String>::err("url requis").into_response(),
+            };
+            match state.vault.unban_url(&url).await {
+                Ok(_)  => ApiResponse::ok("débanni".to_string()).into_response(),
+                Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+            }
+        }
+        "source" => {
+            let source = match &body.source {
+                Some(s) if !s.is_empty() => s.clone(),
+                _ => return ApiResponse::<String>::err("source requis").into_response(),
+            };
+            let identifier = match &body.identifier {
+                Some(i) if !i.is_empty() => i.clone(),
+                _ => return ApiResponse::<String>::err("identifier requis").into_response(),
+            };
+            match state.vault.unban_source_item(&source, &identifier).await {
+                Ok(_)  => ApiResponse::ok("débanni".to_string()).into_response(),
+                Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+            }
+        }
+        _ => ApiResponse::<String>::err("kind invalide (url|source)").into_response(),
+    }
+}
+
+// ─── POST /api/compact ───────────────────────────────────────────────────────
+
+pub async fn post_compact(State(state): State<AppState>) -> impl IntoResponse {
+    match state.vault.compact().await {
+        Ok(_)  => ApiResponse::ok("Compactage terminé".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
     }
 }
