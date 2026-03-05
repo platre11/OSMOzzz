@@ -134,16 +134,36 @@ fn default_limit() -> usize { 200 }
 // ─── GET /api/status ─────────────────────────────────────────────────────────
 
 pub async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
-    let sources_list = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+    // Sources locales : toujours présentes
+    let local_sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+    // Sources cloud : présentes seulement si le .toml de config existe
+    let cloud_sources = [
+        ("notion",   "notion.toml"),
+        ("github",   "github.toml"),
+        ("linear",   "linear.toml"),
+        ("jira",     "jira.toml"),
+        ("slack",    "slack.toml"),
+        ("trello",   "trello.toml"),
+        ("todoist",  "todoist.toml"),
+        ("gitlab",   "gitlab.toml"),
+        ("airtable", "airtable.toml"),
+        ("obsidian", "obsidian.toml"),
+    ];
+
     let mut sources = HashMap::new();
 
-    for src in &sources_list {
+    for src in &local_sources {
         let count = state.vault.count_source(src).await.unwrap_or(0);
-        sources.insert(src.to_string(), SourceStatus {
-            count,
-            last_sync: None,
-            error: None,
-        });
+        sources.insert(src.to_string(), SourceStatus { count, last_sync: None, error: None });
+    }
+
+    if let Some(dir) = osmozzz_dir() {
+        for (src, toml_file) in &cloud_sources {
+            if dir.join(toml_file).exists() {
+                let count = state.vault.count_source(src).await.unwrap_or(0);
+                sources.insert(src.to_string(), SourceStatus { count, last_sync: None, error: None });
+            }
+        }
     }
 
     let total_vectors: usize = sources.values().map(|s| s.count).sum();
@@ -224,18 +244,82 @@ pub async fn get_recent(
 // ─── GET /api/config ─────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
+pub struct ConnectorStatus {
+    pub configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+}
+
+#[derive(Serialize)]
 pub struct ConfigResponse {
-    pub gmail_configured: bool,
-    pub gmail_username: Option<String>,
+    pub gmail: ConnectorStatus,
+    pub notion: ConnectorStatus,
+    pub github: ConnectorStatus,
+    pub linear: ConnectorStatus,
+    pub jira: ConnectorStatus,
+    pub slack: ConnectorStatus,
+    pub trello: ConnectorStatus,
+    pub todoist: ConnectorStatus,
+    pub gitlab: ConnectorStatus,
+    pub airtable: ConnectorStatus,
+    pub obsidian: ConnectorStatus,
+}
+
+fn osmozzz_dir() -> Option<std::path::PathBuf> {
+    dirs_next::home_dir().map(|h| h.join(".osmozzz"))
+}
+
+fn connector_status(filename: &str, display_key: &str) -> ConnectorStatus {
+    let path = match osmozzz_dir() {
+        Some(d) => d.join(filename),
+        None => return ConnectorStatus { configured: false, display: None },
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return ConnectorStatus { configured: false, display: None },
+    };
+    // Parse le display_key si défini (ex: "token", "username")
+    let display = if display_key.is_empty() {
+        None
+    } else {
+        content.lines()
+            .find(|l| l.trim_start().starts_with(display_key))
+            .and_then(|l| l.split('=').nth(1))
+            .map(|v| v.trim().trim_matches('"').to_string())
+    };
+    ConnectorStatus { configured: true, display }
 }
 
 pub async fn get_config() -> impl IntoResponse {
-    let config = GmailConfig::load();
+    let gmail_cfg = GmailConfig::load();
     ApiResponse::ok(ConfigResponse {
-        gmail_configured: config.is_some(),
-        gmail_username: config.map(|c| c.username),
+        gmail:    ConnectorStatus {
+            configured: gmail_cfg.is_some(),
+            display:    gmail_cfg.map(|c| c.username),
+        },
+        notion:   connector_status("notion.toml",   "token"),
+        github:   connector_status("github.toml",   "repos"),
+        linear:   connector_status("linear.toml",   ""),
+        jira:     connector_status("jira.toml",     "base_url"),
+        slack:    connector_status("slack.toml",    "channels"),
+        trello:   connector_status("trello.toml",   ""),
+        todoist:  connector_status("todoist.toml",  ""),
+        gitlab:   connector_status("gitlab.toml",   "base_url"),
+        airtable: connector_status("airtable.toml", "bases"),
+        obsidian: connector_status("obsidian.toml", "vault_path"),
     })
 }
+
+// ─── Helper : écrire un fichier de config ─────────────────────────────────────
+
+fn write_config(filename: &str, content: &str) -> Result<(), String> {
+    let dir = osmozzz_dir().ok_or("Cannot find home directory")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create config dir: {}", e))?;
+    std::fs::write(dir.join(filename), content)
+        .map_err(|e| format!("Cannot write {}: {}", filename, e))
+}
+
+fn esc(s: &str) -> String { s.replace('"', "\\\"") }
 
 // ─── POST /api/config/gmail ──────────────────────────────────────────────────
 
@@ -245,31 +329,213 @@ pub struct GmailConfigBody {
     pub app_password: String,
 }
 
-pub async fn post_config_gmail(
-    Json(body): Json<GmailConfigBody>,
-) -> impl IntoResponse {
-    let home: std::path::PathBuf = match dirs_next::home_dir() {
-        Some(h) => h,
-        None => return ApiResponse::<String>::err("Cannot find home directory").into_response(),
-    };
-
-    let config_dir = home.join(".osmozzz");
-    if let Err(e) = std::fs::create_dir_all(&config_dir) {
-        return ApiResponse::<String>::err(format!("Cannot create config dir: {}", e)).into_response();
-    }
-
+pub async fn post_config_gmail(Json(body): Json<GmailConfigBody>) -> impl IntoResponse {
     let content = format!(
         "username = \"{}\"\napp_password = \"{}\"\n",
-        body.username.replace('"', "\\\""),
-        body.app_password.replace('"', "\\\"")
+        esc(&body.username), esc(&body.app_password)
     );
-
-    let path = config_dir.join("gmail.toml");
-    if let Err(e) = std::fs::write(&path, content) {
-        return ApiResponse::<String>::err(format!("Cannot write gmail.toml: {}", e)).into_response();
+    match write_config("gmail.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Gmail configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
+}
 
-    ApiResponse::ok("Gmail configuré avec succès".to_string()).into_response()
+// ─── POST /api/config/notion ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct NotionConfigBody { pub token: String }
+
+pub async fn post_config_notion(Json(body): Json<NotionConfigBody>) -> impl IntoResponse {
+    let content = format!("token = \"{}\"\n", esc(&body.token));
+    match write_config("notion.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Notion configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/github ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct GithubConfigBody {
+    pub token: String,
+    pub repos: String, // "owner/repo1, owner/repo2"
+}
+
+pub async fn post_config_github(Json(body): Json<GithubConfigBody>) -> impl IntoResponse {
+    let repos: Vec<String> = body.repos
+        .split(',')
+        .map(|s| format!("\"{}\"", esc(s.trim())))
+        .filter(|s| s.len() > 2)
+        .collect();
+    let content = format!(
+        "token = \"{}\"\nrepos = [{}]\n",
+        esc(&body.token),
+        repos.join(", ")
+    );
+    match write_config("github.toml", &content) {
+        Ok(_)  => ApiResponse::ok("GitHub configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/linear ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct LinearConfigBody { pub api_key: String }
+
+pub async fn post_config_linear(Json(body): Json<LinearConfigBody>) -> impl IntoResponse {
+    let content = format!("api_key = \"{}\"\n", esc(&body.api_key));
+    match write_config("linear.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Linear configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/jira ───────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct JiraConfigBody {
+    pub base_url: String,
+    pub email: String,
+    pub token: String,
+}
+
+pub async fn post_config_jira(Json(body): Json<JiraConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "base_url = \"{}\"\nemail = \"{}\"\ntoken = \"{}\"\n",
+        esc(&body.base_url), esc(&body.email), esc(&body.token)
+    );
+    match write_config("jira.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Jira configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/slack ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SlackConfigBody {
+    pub token: String,
+    pub channels: String, // "general, random, dev"
+}
+
+pub async fn post_config_slack(Json(body): Json<SlackConfigBody>) -> impl IntoResponse {
+    let channels: Vec<String> = body.channels
+        .split(',')
+        .map(|s| format!("\"{}\"", esc(s.trim())))
+        .filter(|s| s.len() > 2)
+        .collect();
+    let content = format!(
+        "token = \"{}\"\nchannels = [{}]\n",
+        esc(&body.token),
+        channels.join(", ")
+    );
+    match write_config("slack.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Slack configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/trello ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TrelloConfigBody {
+    pub api_key: String,
+    pub token: String,
+}
+
+pub async fn post_config_trello(Json(body): Json<TrelloConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "api_key = \"{}\"\ntoken = \"{}\"\n",
+        esc(&body.api_key), esc(&body.token)
+    );
+    match write_config("trello.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Trello configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/todoist ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TodoistConfigBody { pub token: String }
+
+pub async fn post_config_todoist(Json(body): Json<TodoistConfigBody>) -> impl IntoResponse {
+    let content = format!("token = \"{}\"\n", esc(&body.token));
+    match write_config("todoist.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Todoist configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/gitlab ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct GitlabConfigBody {
+    pub token: String,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub groups: String, // "groupe1, groupe2"
+}
+
+pub async fn post_config_gitlab(Json(body): Json<GitlabConfigBody>) -> impl IntoResponse {
+    let base_url = if body.base_url.is_empty() {
+        "https://gitlab.com".to_string()
+    } else {
+        body.base_url.clone()
+    };
+    let groups: Vec<String> = body.groups
+        .split(',')
+        .map(|s| format!("\"{}\"", esc(s.trim())))
+        .filter(|s| s.len() > 2)
+        .collect();
+    let content = format!(
+        "token = \"{}\"\nbase_url = \"{}\"\ngroups = [{}]\n",
+        esc(&body.token), esc(&base_url), groups.join(", ")
+    );
+    match write_config("gitlab.toml", &content) {
+        Ok(_)  => ApiResponse::ok("GitLab configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/airtable ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct AirtableConfigBody {
+    pub token: String,
+    pub bases: String, // "appXXXX, appYYYY"
+}
+
+pub async fn post_config_airtable(Json(body): Json<AirtableConfigBody>) -> impl IntoResponse {
+    let bases: Vec<String> = body.bases
+        .split(',')
+        .map(|s| format!("\"{}\"", esc(s.trim())))
+        .filter(|s| s.len() > 2)
+        .collect();
+    let content = format!(
+        "token = \"{}\"\nbases = [{}]\n",
+        esc(&body.token),
+        bases.join(", ")
+    );
+    match write_config("airtable.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Airtable configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/obsidian ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ObsidianConfigBody { pub vault_path: String }
+
+pub async fn post_config_obsidian(Json(body): Json<ObsidianConfigBody>) -> impl IntoResponse {
+    let content = format!("vault_path = \"{}\"\n", esc(&body.vault_path));
+    match write_config("obsidian.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Obsidian configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
 }
 
 // ─── POST /api/ban ────────────────────────────────────────────────────────────

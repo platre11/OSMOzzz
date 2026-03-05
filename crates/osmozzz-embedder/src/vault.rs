@@ -94,7 +94,7 @@ impl Vault {
         keyword: &str,
         limit: usize,
     ) -> osmozzz_core::Result<Vec<(Option<String>, String, String, String)>> {
-        let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+        let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar", "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
         let per_source = (limit / sources.len()).max(5);
         let mut all = Vec::new();
         for src in &sources {
@@ -114,7 +114,7 @@ impl Vault {
         keyword: &str,
         per_source: usize,
     ) -> osmozzz_core::Result<std::collections::HashMap<String, Vec<(i64, Option<String>, String, String)>>> {
-        let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+        let sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar", "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
         let bl = Blacklist::load();
         let mut grouped = std::collections::HashMap::new();
         for src in &sources {

@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod config;
+mod proof;
 
 use anyhow::Result;
 use clap::Parser;
@@ -13,7 +14,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // En mode MCP et Daemon, logs vers stderr uniquement
-    let log_target = matches!(cli.command, Commands::Mcp | Commands::Daemon | Commands::Install);
+    let log_target = matches!(cli.command, Commands::Mcp | Commands::Daemon | Commands::Install | Commands::Verify(_));
 
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| {
@@ -44,5 +45,8 @@ async fn main() -> Result<()> {
         Commands::Daemon => commands::daemon::run(cfg).await,
         Commands::Compact => commands::compact::run(cfg).await,
         Commands::Install => { commands::install::run()?; Ok(()) }
+        Commands::Verify(args) => {
+            commands::verify::run(&args.sig, &args.source, &args.url, &args.content, args.ts)
+        }
     }
 }

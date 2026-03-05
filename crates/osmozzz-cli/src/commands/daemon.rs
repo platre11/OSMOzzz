@@ -14,8 +14,10 @@ use chrono::{NaiveDate, Utc};
 use osmozzz_core::{Embedder, Harvester, OsmozzError};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{
-    start_watcher, CalendarHarvester, GmailConfig, GmailHarvester, IMessageHarvester,
-    NotesHarvester, SafariHarvester, TerminalHarvester, WatchEvent,
+    start_watcher, AirtableHarvester, CalendarHarvester, GithubHarvester, GitlabHarvester,
+    GmailConfig, GmailHarvester, IMessageHarvester, JiraHarvester, LinearHarvester,
+    NotionHarvester, NotesHarvester, ObsidianHarvester, SafariHarvester, SlackHarvester,
+    TerminalHarvester, TodoistHarvester, TrelloHarvester, WatchEvent,
 };
 
 use osmozzz_api;
@@ -24,12 +26,23 @@ use osmozzz_embedder::Blacklist;
 use crate::config::Config;
 
 const DASHBOARD_PORT: u16 = 7878;
-const GMAIL_SYNC_INTERVAL_SECS: u64 = 15 * 60; // 15 minutes
-const IMESSAGE_SYNC_INTERVAL_SECS: u64 = 60;   // 1 minute
-const SAFARI_SYNC_INTERVAL_SECS: u64 = 60;     // 1 minute
-const NOTES_SYNC_INTERVAL_SECS: u64 = 60;      // 1 minute
-const TERMINAL_SYNC_INTERVAL_SECS: u64 = 60;   // 1 minute
-const CALENDAR_SYNC_INTERVAL_SECS: u64 = 60;   // 1 minute
+const GMAIL_SYNC_INTERVAL_SECS: u64 = 15 * 60;  // 15 minutes
+const IMESSAGE_SYNC_INTERVAL_SECS: u64 = 60;    // 1 minute
+const SAFARI_SYNC_INTERVAL_SECS: u64 = 60;      // 1 minute
+const NOTES_SYNC_INTERVAL_SECS: u64 = 60;       // 1 minute
+const TERMINAL_SYNC_INTERVAL_SECS: u64 = 60;    // 1 minute
+const CALENDAR_SYNC_INTERVAL_SECS: u64 = 60;    // 1 minute
+// Connecteurs cloud (sync moins fréquente — appels API)
+const NOTION_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
+const GITHUB_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
+const LINEAR_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
+const JIRA_SYNC_INTERVAL_SECS: u64 = 60 * 60;      // 1 heure
+const SLACK_SYNC_INTERVAL_SECS: u64 = 30 * 60;     // 30 minutes
+const TRELLO_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
+const TODOIST_SYNC_INTERVAL_SECS: u64 = 15 * 60;   // 15 minutes
+const GITLAB_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
+const AIRTABLE_SYNC_INTERVAL_SECS: u64 = 60 * 60;  // 1 heure
+const OBSIDIAN_SYNC_INTERVAL_SECS: u64 = 5 * 60;   // 5 minutes (local)
 
 pub async fn run(cfg: Config) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)
@@ -147,15 +160,154 @@ pub async fn run(cfg: Config) -> Result<()> {
         }
     });
 
+    // Notion auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(NOTION_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = NotionHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Notion", docs).await;
+        }
+    });
+
+    // GitHub auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(GITHUB_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = GithubHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "GitHub", docs).await;
+        }
+    });
+
+    // Linear auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(LINEAR_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = LinearHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Linear", docs).await;
+        }
+    });
+
+    // Jira auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(JIRA_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = JiraHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Jira", docs).await;
+        }
+    });
+
+    // Slack auto-sync (30min)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(SLACK_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = SlackHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Slack", docs).await;
+        }
+    });
+
+    // Trello auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(TRELLO_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = TrelloHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Trello", docs).await;
+        }
+    });
+
+    // Todoist auto-sync (15min)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(TODOIST_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = TodoistHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Todoist", docs).await;
+        }
+    });
+
+    // GitLab auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(GITLAB_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = GitlabHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "GitLab", docs).await;
+        }
+    });
+
+    // Airtable auto-sync (1h)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(AIRTABLE_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = AirtableHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Airtable", docs).await;
+        }
+    });
+
+    // Obsidian auto-sync (5min — vault local)
+    let v = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(OBSIDIAN_SYNC_INTERVAL_SECS)
+        );
+        loop {
+            interval.tick().await;
+            let docs = ObsidianHarvester::new().harvest().await.unwrap_or_default();
+            sync_docs(&v, "Obsidian", docs).await;
+        }
+    });
+
     eprintln!("[OSMOzzz Daemon] En écoute... (Ctrl+C pour arrêter)");
     eprintln!("[OSMOzzz Daemon] Syncs automatiques :");
     eprintln!("[OSMOzzz Daemon]   Gmail    : toutes les {} min", GMAIL_SYNC_INTERVAL_SECS / 60);
-
     eprintln!("[OSMOzzz Daemon]   iMessage : toutes les {} min", IMESSAGE_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Safari   : toutes les {} min", SAFARI_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Notes    : toutes les {} min", NOTES_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Terminal : toutes les {} min", TERMINAL_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Calendar : toutes les {} min", CALENDAR_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Notion   : toutes les {} min", NOTION_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   GitHub   : toutes les {} min", GITHUB_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Linear   : toutes les {} min", LINEAR_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Jira     : toutes les {} min", JIRA_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Slack    : toutes les {} min", SLACK_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Trello   : toutes les {} min", TRELLO_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Todoist  : toutes les {} min", TODOIST_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   GitLab   : toutes les {} min", GITLAB_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Airtable : toutes les {} min", AIRTABLE_SYNC_INTERVAL_SECS / 60);
+    eprintln!("[OSMOzzz Daemon]   Obsidian : toutes les {} min", OBSIDIAN_SYNC_INTERVAL_SECS / 60);
 
     // Syncs initiales échelonnées (évite le pic mémoire au démarrage)
     // Les intervalles tokio gèrent les syncs suivantes automatiquement

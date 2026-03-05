@@ -45,9 +45,23 @@ export interface RecentDoc {
   source_ts: number | null
 }
 
+export interface ConnectorStatus {
+  configured: boolean
+  display: string | null
+}
+
 export interface ConfigData {
-  gmail_configured: boolean
-  gmail_username: string | null
+  gmail:    ConnectorStatus
+  notion:   ConnectorStatus
+  github:   ConnectorStatus
+  linear:   ConnectorStatus
+  jira:     ConnectorStatus
+  slack:    ConnectorStatus
+  trello:   ConnectorStatus
+  todoist:  ConnectorStatus
+  gitlab:   ConnectorStatus
+  airtable: ConnectorStatus
+  obsidian: ConnectorStatus
 }
 
 export interface ContactItem {
@@ -99,6 +113,46 @@ export const api = {
 
   saveGmail: async (username: string, app_password: string) => {
     await axios.post(`${BASE}/config/gmail`, { username, app_password })
+  },
+
+  saveNotion: async (token: string) => {
+    await axios.post(`${BASE}/config/notion`, { token })
+  },
+
+  saveGithub: async (token: string, repos: string) => {
+    await axios.post(`${BASE}/config/github`, { token, repos })
+  },
+
+  saveLinear: async (api_key: string) => {
+    await axios.post(`${BASE}/config/linear`, { api_key })
+  },
+
+  saveJira: async (base_url: string, email: string, token: string) => {
+    await axios.post(`${BASE}/config/jira`, { base_url, email, token })
+  },
+
+  saveSlack: async (token: string, channels: string) => {
+    await axios.post(`${BASE}/config/slack`, { token, channels })
+  },
+
+  saveTrello: async (api_key: string, token: string) => {
+    await axios.post(`${BASE}/config/trello`, { api_key, token })
+  },
+
+  saveTodoist: async (token: string) => {
+    await axios.post(`${BASE}/config/todoist`, { token })
+  },
+
+  saveGitlab: async (token: string, base_url: string, groups: string) => {
+    await axios.post(`${BASE}/config/gitlab`, { token, base_url, groups })
+  },
+
+  saveAirtable: async (token: string, bases: string) => {
+    await axios.post(`${BASE}/config/airtable`, { token, bases })
+  },
+
+  saveObsidian: async (vault_path: string) => {
+    await axios.post(`${BASE}/config/obsidian`, { vault_path })
   },
 
   open: async (url: string): Promise<void> => {

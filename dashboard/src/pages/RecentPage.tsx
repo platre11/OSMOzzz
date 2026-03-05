@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import styled, { keyframes } from 'styled-components'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import type { RecentDoc, ContactItem, MessageItem } from '../api'
+import type { RecentDoc, ContactItem, MessageItem, StatusData } from '../api'
 import BlacklistPanel, { BannisBtn } from '../components/BlacklistPanel'
 
 const CLICKABLE_SOURCES = new Set(['file', 'imessage', 'notes', 'calendar', 'terminal', 'chrome', 'safari'])
@@ -27,16 +27,28 @@ function handleClick(source: string, doc: RecentDoc) {
 const SOURCE_LABELS: Record<string, string> = {
   email: 'Gmail', chrome: 'Chrome', file: 'Fichiers', imessage: 'iMessage',
   safari: 'Safari', notes: 'Notes', terminal: 'Terminal', calendar: 'Calendrier',
+  notion: 'Notion', github: 'GitHub', linear: 'Linear', jira: 'Jira',
+  slack: 'Slack', trello: 'Trello', todoist: 'Todoist', gitlab: 'GitLab',
+  airtable: 'Airtable', obsidian: 'Obsidian',
 }
 const SOURCE_COLORS: Record<string, string> = {
   email: '#dc2626', chrome: '#1d4ed8', file: '#16a34a', imessage: '#9333ea',
   safari: '#ea580c', notes: '#ca8a04', terminal: '#475569', calendar: '#0d9488',
+  notion: '#000000', github: '#24292f', linear: '#5e6ad2', jira: '#0052cc',
+  slack: '#4a154b', trello: '#0079bf', todoist: '#db4035', gitlab: '#e24329',
+  airtable: '#18bfff', obsidian: '#7c3aed',
 }
 const SOURCE_BG: Record<string, string> = {
   email: '#fef2f2', chrome: '#eff6ff', file: '#f0fdf4', imessage: '#faf5ff',
   safari: '#fff7ed', notes: '#fefce8', terminal: '#f8fafc', calendar: '#f0fdfa',
+  notion: '#f5f5f5', github: '#f6f8fa', linear: '#f0f0ff', jira: '#e6f0ff',
+  slack: '#fdf4ff', trello: '#e6f4ff', todoist: '#fff0ef', gitlab: '#fff2ef',
+  airtable: '#e6f9ff', obsidian: '#f5f0ff',
 }
-const SOURCES = ['email', 'chrome', 'file', 'imessage', 'safari', 'notes', 'terminal', 'calendar']
+const SOURCES = [
+  'email', 'chrome', 'file', 'imessage', 'safari', 'notes', 'terminal', 'calendar',
+  'notion', 'github', 'linear', 'jira', 'slack', 'trello', 'todoist', 'gitlab', 'airtable', 'obsidian',
+]
 
 const spin = keyframes`to { transform: rotate(360deg); }`
 
@@ -467,16 +479,28 @@ function extractIdentifier(doc: RecentDoc): string | null {
 }
 
 export default function RecentPage() {
-  const [source, setSource]         = useState('email')
   const [page, setPage]             = useState(0)
   const [showBannis, setShowBannis] = useState(false)
   const limit = 20
   const queryClient = useQueryClient()
 
+  const { data: statusData } = useQuery<StatusData>({
+    queryKey: ['status'],
+    queryFn:  api.getStatus,
+    refetchInterval: false,
+  })
+
+  const activeSources = SOURCES.filter(s => s in (statusData?.sources ?? {}))
+
+  const [source, setSource] = useState('email')
+
+  // Si la source courante n'est plus active, switcher vers la première active
+  const displaySource = activeSources.includes(source) ? source : (activeSources[0] ?? 'email')
+
   const { data, isLoading } = useQuery<RecentDoc[]>({
-    queryKey: ['recent', source, page],
-    queryFn:  () => api.getRecent(source, limit, page * limit),
-    enabled:  source !== 'imessage',
+    queryKey: ['recent', displaySource, page],
+    queryFn:  () => api.getRecent(displaySource, limit, page * limit),
+    enabled:  displaySource !== 'imessage' && activeSources.length > 0,
     refetchInterval: false,
   })
 
@@ -492,14 +516,14 @@ export default function RecentPage() {
       )}
 
       <TabRow>
-        {SOURCES.map(s => (
-          <Tab key={s} $active={source === s} onClick={() => { setSource(s); setPage(0) }}>
+        {activeSources.map(s => (
+          <Tab key={s} $active={displaySource === s} onClick={() => { setSource(s); setPage(0) }}>
             {SOURCE_LABELS[s]}
           </Tab>
         ))}
       </TabRow>
 
-      {source === 'imessage'
+      {displaySource === 'imessage'
         ? <ImessageView />
         : <>
             {isLoading && <Loader />}

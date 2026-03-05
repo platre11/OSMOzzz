@@ -14,6 +14,16 @@ const SOURCE_META: Record<string, { label: string; color: string; bg: string; Ic
   notes:    { label: 'Notes',      color: '#ca8a04', bg: '#fefce8', Icon: icons.BookOpen },
   terminal: { label: 'Terminal',   color: '#475569', bg: '#f8fafc', Icon: icons.Terminal },
   calendar: { label: 'Calendrier', color: '#0d9488', bg: '#f0fdfa', Icon: icons.Calendar },
+  notion:   { label: 'Notion',     color: '#000000', bg: '#f5f5f5', Icon: icons.FileText },
+  github:   { label: 'GitHub',     color: '#24292f', bg: '#f6f8fa', Icon: icons.Code },
+  linear:   { label: 'Linear',     color: '#5e6ad2', bg: '#f0f0ff', Icon: icons.Layers },
+  jira:     { label: 'Jira',       color: '#0052cc', bg: '#e6f0ff', Icon: icons.Trello },
+  slack:    { label: 'Slack',      color: '#4a154b', bg: '#fdf4ff', Icon: icons.MessageSquare },
+  trello:   { label: 'Trello',     color: '#0079bf', bg: '#e6f4ff', Icon: icons.Trello },
+  todoist:  { label: 'Todoist',    color: '#db4035', bg: '#fff0ef', Icon: icons.CheckSquare },
+  gitlab:   { label: 'GitLab',     color: '#e24329', bg: '#fff2ef', Icon: icons.Code },
+  airtable: { label: 'Airtable',   color: '#18bfff', bg: '#e6f9ff', Icon: icons.Database },
+  obsidian: { label: 'Obsidian',   color: '#7c3aed', bg: '#f5f0ff', Icon: icons.BookOpen },
 }
 
 const SOURCE_MAX: Record<string, number | null> = {
@@ -25,6 +35,16 @@ const SOURCE_MAX: Record<string, number | null> = {
   notes:    2000,
   calendar: null,
   file:     null,
+  notion:   null,
+  github:   null,
+  linear:   null,
+  jira:     null,
+  slack:    null,
+  trello:   null,
+  todoist:  null,
+  gitlab:   null,
+  airtable: null,
+  obsidian: null,
 }
 
 const spin = keyframes`to { transform: rotate(360deg); }`
@@ -310,7 +330,11 @@ export default function StatusPage() {
       </PageHeader>
 
       <Grid>
-        {Object.entries(data.sources).map(([source, status]) => {
+        {[
+          'email','chrome','file','imessage','safari','notes','terminal','calendar',
+          'notion','github','linear','jira','slack','trello','todoist','gitlab','airtable','obsidian',
+        ].filter(s => s in data.sources).map(source => {
+          const status = data.sources[source]
           const meta = SOURCE_META[source] ?? { label: source, color: '#374151', bg: '#f3f4f6', Icon: icons.Database }
           const { Icon } = meta
           const max = SOURCE_MAX[source] ?? null

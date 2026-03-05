@@ -15,6 +15,16 @@ pub enum SourceType {
     Notes,
     Calendar,
     Terminal,
+    Notion,
+    Github,
+    Linear,
+    Jira,
+    Slack,
+    Trello,
+    Todoist,
+    Gitlab,
+    Airtable,
+    Obsidian,
 }
 
 impl std::fmt::Display for SourceType {
@@ -30,6 +40,16 @@ impl std::fmt::Display for SourceType {
             SourceType::Notes => write!(f, "notes"),
             SourceType::Calendar => write!(f, "calendar"),
             SourceType::Terminal => write!(f, "terminal"),
+            SourceType::Notion => write!(f, "notion"),
+            SourceType::Github => write!(f, "github"),
+            SourceType::Linear => write!(f, "linear"),
+            SourceType::Jira => write!(f, "jira"),
+            SourceType::Slack => write!(f, "slack"),
+            SourceType::Trello => write!(f, "trello"),
+            SourceType::Todoist => write!(f, "todoist"),
+            SourceType::Gitlab => write!(f, "gitlab"),
+            SourceType::Airtable => write!(f, "airtable"),
+            SourceType::Obsidian => write!(f, "obsidian"),
         }
     }
 }
@@ -48,6 +68,16 @@ impl std::str::FromStr for SourceType {
             "notes" => Ok(SourceType::Notes),
             "calendar" => Ok(SourceType::Calendar),
             "terminal" => Ok(SourceType::Terminal),
+            "notion" => Ok(SourceType::Notion),
+            "github" => Ok(SourceType::Github),
+            "linear" => Ok(SourceType::Linear),
+            "jira" => Ok(SourceType::Jira),
+            "slack" => Ok(SourceType::Slack),
+            "trello" => Ok(SourceType::Trello),
+            "todoist" => Ok(SourceType::Todoist),
+            "gitlab" => Ok(SourceType::Gitlab),
+            "airtable" => Ok(SourceType::Airtable),
+            "obsidian" => Ok(SourceType::Obsidian),
             other => Err(format!("Unknown source type: {}", other)),
         }
     }

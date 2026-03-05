@@ -22,3 +22,6 @@ notify = { workspace = true }
 imap = { workspace = true }
 native-tls = { workspace = true }
 mailparse = { workspace = true }
+reqwest = { workspace = true }
+toml = { workspace = true }
+serde_json = { workspace = true }

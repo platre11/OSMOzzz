@@ -43,7 +43,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                 Ok(count) => {
                     println!("{}", "─".repeat(40));
                     println!("Indexed docs: {}", count);
-                    for src in &["chrome", "email", "file", "markdown", "pdf", "imessage", "safari", "notes", "calendar", "terminal"] {
+                    for src in &["chrome", "email", "file", "markdown", "pdf", "imessage", "safari", "notes", "calendar", "terminal", "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"] {
                         if let Ok(n) = vault.count_source(src).await {
                             if n > 0 {
                                 println!("  {:10}: {}", src, n);

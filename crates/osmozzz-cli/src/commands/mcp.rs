@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::Config;
+use crate::proof;
 use shellexpand;
 
 
@@ -61,7 +62,7 @@ fn tools_list() -> Value {
     json!([
         {
             "name": "search_memory",
-            "description": "OUTIL PRINCIPAL — recherche sémantique (par concept/sens) dans TOUTE la mémoire locale : historique Chrome, historique Safari, emails Gmail, fichiers texte/PDF/code, iMessages/SMS, Apple Notes, Apple Calendar, historique terminal. QUAND L'UTILISER : questions vagues ou conceptuelles ('mes dépenses du mois', 'projet avec Thomas', 'site que j'ai visité sur les MCP tools', 'infos sur Revolut'). POUR UN SITE WEB VISITÉ : utilise search_memory avec un mot du nom du site ou de son contenu — c'est ici que l'historique Chrome/Safari est indexé, pas dans un autre tool. LIMITES : pour les noms propres exacts (prénom, email d'expéditeur, numéro de tel), enchaîne avec search_emails / search_messages / search_notes qui font une correspondance exacte.",
+            "description": "OUTIL PRINCIPAL — recherche sémantique (par concept/sens) dans TOUTE la mémoire indexée : Chrome, Safari, Gmail, fichiers, iMessages, Notes, Calendar, Terminal, Notion, GitHub, Linear, Jira, Slack, Trello, Todoist, GitLab, Airtable, Obsidian. QUAND L'UTILISER : questions vagues ou conceptuelles ('mes dépenses du mois', 'projet avec Thomas', 'site que j'ai visité sur les MCP tools', 'infos sur Revolut', 'issue sur le bug de login'). POUR UN SITE WEB VISITÉ : utilise search_memory avec un mot du nom du site — l'historique Chrome/Safari est ici. LIMITES : pour les noms propres exacts, enchaîne avec le tool dédié (search_emails, search_messages, search_notion, search_github, etc.).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -220,6 +221,216 @@ fn tools_list() -> Value {
             }
         },
         {
+            "name": "search_notion",
+            "description": "NOTION UNIQUEMENT — recherche par mot-clé exact dans les pages Notion indexées. QUAND L'UTILISER : l'utilisateur demande quelque chose sur Notion, une doc, une page, un projet Notion. Retourne titre + extrait + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les pages Notion"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_github",
+            "description": "GITHUB UNIQUEMENT — recherche par mot-clé dans les issues et pull requests GitHub indexés. QUAND L'UTILISER : l'utilisateur parle d'un bug, d'une PR, d'une issue GitHub. Retourne titre + statut + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les issues/PRs GitHub"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_linear",
+            "description": "LINEAR UNIQUEMENT — recherche par mot-clé dans les issues Linear indexées. QUAND L'UTILISER : l'utilisateur parle de tâches Linear, de tickets, de sprints. Retourne titre + statut + équipe + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les issues Linear"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_jira",
+            "description": "JIRA UNIQUEMENT — recherche par mot-clé dans les issues Jira indexées. QUAND L'UTILISER : l'utilisateur parle de tickets Jira, de sprints, d'épics. Retourne titre + statut + priorité + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les issues Jira"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_slack",
+            "description": "SLACK UNIQUEMENT — recherche par mot-clé dans les messages Slack indexés. QUAND L'UTILISER : l'utilisateur cherche une conversation Slack, un message d'un collègue, une décision prise sur Slack. Retourne channel + auteur + extrait.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les messages Slack"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_trello",
+            "description": "TRELLO UNIQUEMENT — recherche par mot-clé dans les cartes Trello indexées. QUAND L'UTILISER : l'utilisateur parle de cartes Trello, de boards, de to-do Trello. Retourne nom + board + liste + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les cartes Trello"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_todoist",
+            "description": "TODOIST UNIQUEMENT — recherche par mot-clé dans les tâches Todoist indexées. QUAND L'UTILISER : l'utilisateur parle de ses tâches, de sa to-do list Todoist, d'une tâche à faire. Retourne tâche + projet + priorité.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les tâches Todoist"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_gitlab",
+            "description": "GITLAB UNIQUEMENT — recherche par mot-clé dans les issues et merge requests GitLab indexés. QUAND L'UTILISER : l'utilisateur parle d'issues GitLab, de MRs, de repos GitLab. Retourne titre + statut + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les issues/MRs GitLab"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_airtable",
+            "description": "AIRTABLE UNIQUEMENT — recherche par mot-clé dans les records Airtable indexés. QUAND L'UTILISER : l'utilisateur cherche dans ses bases Airtable, des données structurées dans Airtable. Retourne les champs du record + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les records Airtable"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_obsidian",
+            "description": "OBSIDIAN UNIQUEMENT — recherche par mot-clé dans les notes Obsidian (.md) indexées. QUAND L'UTILISER : l'utilisateur cherche dans ses notes Obsidian, son second cerveau, ses notes de cours/projet. Retourne titre + extrait.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans les notes Obsidian"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
             "name": "find_file",
             "description": "TROUVE UN FICHIER PAR SON NOM — QUAND L'UTILISER : l'utilisateur connaît le nom du fichier, son extension ou une partie de son chemin ('scene.gltf', 'fichiers .blend', 'error.log', 'rapport.pdf'). Scanne le filesystem (Desktop, Documents, code). NE PAS utiliser pour chercher par contenu — utilise search_memory pour ça. Après avoir trouvé le chemin, utilise fetch_content pour lire le fichier.",
             "inputSchema": {
@@ -328,6 +539,8 @@ fn send(response: &Response) {
 
 pub async fn run(cfg: Config) -> Result<()> {
     eprintln!("[OSMOzzz MCP] Démarrage du serveur MCP...");
+
+    let proof_key = proof::load_or_create_key();
 
     let vault = Arc::new(
         Vault::open(
@@ -443,7 +656,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 results.sort_by(|a, b| b.score.partial_cmp(&a.score)
                                     .unwrap_or(std::cmp::Ordering::Equal));
 
-                                let text = format_results(&query, &results);
+                                let text = format_results(&query, &results, &proof_key);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": text}]
                                 })));
@@ -748,6 +961,196 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
+                    "search_notion" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_notion: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "notion").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune page Notion trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Notion", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_github" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_github: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "github").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune issue/PR GitHub trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("GitHub", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_linear" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_linear: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "linear").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune issue Linear trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Linear", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_jira" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_jira: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "jira").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune issue Jira trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Jira", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_slack" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        eprintln!("[OSMOzzz MCP] search_slack: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "slack").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun message Slack trouvé pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Slack", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_trello" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_trello: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "trello").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune carte Trello trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Trello", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_todoist" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_todoist: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "todoist").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune tâche Todoist trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Todoist", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_gitlab" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_gitlab: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "gitlab").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune issue/MR GitLab trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("GitLab", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_airtable" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_airtable: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "airtable").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun record Airtable trouvé pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Airtable", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_obsidian" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        eprintln!("[OSMOzzz MCP] search_obsidian: \"{}\"", keyword);
+                        match vault.search_by_keyword_source(&keyword, limit, "obsidian").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucune note Obsidian trouvée pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Obsidian", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": msg}]
+                                })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
                     other => {
                         send(&Response::err(
                             id,
@@ -945,10 +1348,12 @@ fn format_keyword_results(
 
 // ─── Formatage des résultats ──────────────────────────────────────────────────
 
-fn format_results(query: &str, results: &[osmozzz_core::SearchResult]) -> String {
+fn format_results(query: &str, results: &[osmozzz_core::SearchResult], proof_key: &[u8; 32]) -> String {
     if results.is_empty() {
         return format!("Aucun résultat trouvé pour : \"{}\"", query);
     }
+
+    let ts = chrono::Utc::now().timestamp();
 
     let mut out = format!(
         "Résultats de recherche dans ta mémoire locale pour : \"{}\"\n\n",
@@ -960,6 +1365,8 @@ fn format_results(query: &str, results: &[osmozzz_core::SearchResult]) -> String
             (Some(idx), Some(tot)) if tot > 1 => format!(" [partie {}/{}]", idx + 1, tot),
             _ => String::new(),
         };
+
+        let sig = proof::sign(proof_key, &r.source, &r.url, &r.content, ts);
 
         out.push_str(&format!(
             "{}. [{}]{} — Score: {:.2}\n",
@@ -974,7 +1381,8 @@ fn format_results(query: &str, results: &[osmozzz_core::SearchResult]) -> String
         }
 
         out.push_str(&format!("   Source : {}\n", r.url));
-        out.push_str(&format!("   Extrait : {}\n\n", r.content.replace('\n', " ")));
+        out.push_str(&format!("   Extrait : {}\n", r.content.replace('\n', " ")));
+        out.push_str(&format!("   🔐 PROOF: {} | ts={}\n\n", sig, ts));
     }
 
     out

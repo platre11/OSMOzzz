@@ -41,6 +41,34 @@ pub enum Commands {
     Compact,
     /// Install OSMOzzz as a macOS LaunchAgent (auto-start at login)
     Install,
+    /// Verify a Proof of Context signature
+    ///
+    /// Checks that a snippet returned by OSMOzzz is authentic and unmodified.
+    /// Usage: osmozzz verify --sig <hex> --source <source> --url <url> --content <content> --ts <ts>
+    Verify(VerifyArgs),
+}
+
+#[derive(Args)]
+pub struct VerifyArgs {
+    /// HMAC-SHA256 signature (hex) from the proof tag
+    #[arg(long)]
+    pub sig: String,
+
+    /// Source type (email, chrome, file, imessage…)
+    #[arg(long)]
+    pub source: String,
+
+    /// Document URL from the result
+    #[arg(long)]
+    pub url: String,
+
+    /// Content snippet (first ~100 chars from the result)
+    #[arg(long)]
+    pub content: String,
+
+    /// Unix timestamp from the proof tag
+    #[arg(long)]
+    pub ts: i64,
 }
 
 #[derive(Args)]

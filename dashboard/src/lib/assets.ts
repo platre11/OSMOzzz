@@ -18,7 +18,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Circle,
-  // Sources
+  // Sources locales
   Mail,
   Chrome,
   FileText,
@@ -27,11 +27,17 @@ import {
   BookOpen,
   Terminal,
   Calendar,
+  // Sources cloud
+  Code,
+  Layers,
+  MessageSquare,
+  CheckSquare,
   // UI
   Settings,
   LayoutDashboard,
   Clock,
   Database,
+  Trello,
 } from 'lucide-react'
 
 export const icons = {
@@ -46,7 +52,7 @@ export const icons = {
   CheckCircle2,
   AlertCircle,
   Circle,
-  // Sources
+  // Sources locales
   Mail,
   Chrome,
   FileText,
@@ -55,6 +61,12 @@ export const icons = {
   BookOpen,
   Terminal,
   Calendar,
+  // Sources cloud
+  Code,
+  Layers,
+  MessageSquare,
+  CheckSquare,
+  Trello,
   // UI
   Settings,
   LayoutDashboard,
