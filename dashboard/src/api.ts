@@ -90,6 +90,14 @@ export interface BlacklistResponse {
   entries: BlacklistEntry[]
 }
 
+export interface PrivacyConfig {
+  credit_card: boolean
+  iban: boolean
+  api_keys: boolean
+  email: boolean
+  phone: boolean
+}
+
 export const api = {
   getStatus: async (): Promise<StatusData> => {
     const r = await axios.get(`${BASE}/status`)
@@ -192,5 +200,14 @@ export const api = {
 
   compact: async (): Promise<void> => {
     await axios.post(`${BASE}/compact`)
+  },
+
+  getPrivacy: async (): Promise<PrivacyConfig> => {
+    const r = await axios.get(`${BASE}/privacy`)
+    return r.data.data ?? { credit_card: true, iban: true, api_keys: true, email: false, phone: false }
+  },
+
+  setPrivacy: async (config: PrivacyConfig): Promise<void> => {
+    await axios.post(`${BASE}/privacy`, config)
   },
 }

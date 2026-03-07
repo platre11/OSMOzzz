@@ -773,6 +773,22 @@ pub async fn post_compact(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+// ─── GET /api/privacy ────────────────────────────────────────────────────────
+
+pub async fn get_privacy() -> impl IntoResponse {
+    let config = osmozzz_core::filter::PrivacyConfig::load();
+    ApiResponse::ok(config)
+}
+
+// ─── POST /api/privacy ───────────────────────────────────────────────────────
+
+pub async fn post_privacy(Json(body): Json<osmozzz_core::filter::PrivacyConfig>) -> impl IntoResponse {
+    match body.save() {
+        Ok(_)  => ApiResponse::ok("ok".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn truncate(s: &str, max: usize) -> String {

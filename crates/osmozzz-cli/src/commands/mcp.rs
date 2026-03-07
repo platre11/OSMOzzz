@@ -32,7 +32,7 @@ struct Request {
     params: Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct Response {
     jsonrpc: &'static str,
     id: Value,
@@ -530,7 +530,30 @@ fn tools_list() -> Value {
 // ─── Envoi d'une réponse sur stdout (pur JSON) ────────────────────────────────
 
 fn send(response: &Response) {
-    let json = serde_json::to_string(response).unwrap_or_default();
+    // Applique le pare-feu de confidentialité sur les réponses texte
+    let json = if response.result.as_ref().and_then(|r| r.get("content")).is_some() {
+        let cfg = osmozzz_core::filter::PrivacyConfig::load();
+        if cfg.is_any_active() {
+            let filter = osmozzz_core::filter::PrivacyFilter::from_config(&cfg);
+            let mut owned = response.clone();
+            if let Some(result) = &mut owned.result {
+                if let Some(arr) = result.get_mut("content").and_then(|v| v.as_array_mut()) {
+                    for item in arr.iter_mut() {
+                        if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if let Some(text) = item["text"].as_str() {
+                                item["text"] = serde_json::Value::String(filter.apply(text));
+                            }
+                        }
+                    }
+                }
+            }
+            serde_json::to_string(&owned).unwrap_or_default()
+        } else {
+            serde_json::to_string(response).unwrap_or_default()
+        }
+    } else {
+        serde_json::to_string(response).unwrap_or_default()
+    };
     println!("{}", json);
     io::stdout().flush().ok();
 }

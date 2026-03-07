@@ -47,6 +47,7 @@ pub async fn start_server(vault: Arc<Vault>, port: u16) -> Result<()> {
         .route("/unban", post(routes::post_unban))
         .route("/blacklist", get(routes::get_blacklist))
         .route("/compact", post(routes::post_compact))
+        .route("/privacy", get(routes::get_privacy).post(routes::post_privacy))
         .with_state(state);
 
     let app = Router::new()
