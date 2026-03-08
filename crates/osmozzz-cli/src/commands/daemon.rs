@@ -22,6 +22,7 @@ use osmozzz_harvester::{
 
 use osmozzz_api;
 use osmozzz_embedder::Blacklist;
+use osmozzz_p2p::{P2pNode, node::{P2pEvent, DEFAULT_P2P_PORT}};
 
 use crate::config::Config;
 
@@ -62,10 +63,47 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz Daemon] Vault prêt.");
 
+    // Initialiser le nœud P2P
+    let (p2p_event_tx, mut p2p_event_rx) = tokio::sync::mpsc::channel::<P2pEvent>(64);
+    let display_name = std::env::var("USER").unwrap_or_else(|_| "OSMOzzz".to_string());
+    let p2p_node = match P2pNode::new(&display_name, DEFAULT_P2P_PORT, p2p_event_tx).await {
+        Ok(node) => {
+            let node_clone = node.clone();
+            tokio::spawn(async move {
+                if let Err(e) = node_clone.start_server().await {
+                    eprintln!("[P2P] Erreur serveur : {}", e);
+                }
+            });
+            // Écoute les événements P2P (connexions, requêtes reçues)
+            tokio::spawn(async move {
+                while let Some(event) = p2p_event_rx.recv().await {
+                    match event {
+                        P2pEvent::PeerConnected { display_name, .. } => {
+                            eprintln!("[P2P] {} connecté", display_name);
+                        }
+                        P2pEvent::PeerDisconnected { peer_id } => {
+                            eprintln!("[P2P] Peer {} déconnecté", &peer_id[..8.min(peer_id.len())]);
+                        }
+                        P2pEvent::QueryReceived { peer_name, query, .. } => {
+                            eprintln!("[P2P] {} a cherché : \"{}\"", peer_name, query);
+                        }
+                    }
+                }
+            });
+            eprintln!("[OSMOzzz Daemon] P2P démarré sur le port {}", DEFAULT_P2P_PORT);
+            Some(node)
+        }
+        Err(e) => {
+            eprintln!("[OSMOzzz Daemon] P2P désactivé : {}", e);
+            None
+        }
+    };
+
     // Démarrer le serveur HTTP du dashboard
     let dashboard_vault = Arc::clone(&vault);
+    let dashboard_p2p = p2p_node.clone();
     tokio::spawn(async move {
-        if let Err(e) = osmozzz_api::start_server(dashboard_vault, DASHBOARD_PORT).await {
+        if let Err(e) = osmozzz_api::start_server(dashboard_vault, dashboard_p2p, DASHBOARD_PORT).await {
             eprintln!("[OSMOzzz Daemon] Dashboard erreur: {}", e);
         }
     });
@@ -83,11 +121,14 @@ pub async fn run(cfg: Config) -> Result<()> {
     for p in &watch_paths {
         eprintln!("[OSMOzzz Daemon]   → {}", p.display());
     }
-    // Gmail auto-sync
+    // Gmail auto-sync — premier tick retardé d'un intervalle pour éviter la double sync
     let gmail_vault = Arc::clone(&vault);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(GMAIL_SYNC_INTERVAL_SECS)
+        let start = tokio::time::Instant::now()
+            + tokio::time::Duration::from_secs(GMAIL_SYNC_INTERVAL_SECS);
+        let mut interval = tokio::time::interval_at(
+            start,
+            tokio::time::Duration::from_secs(GMAIL_SYNC_INTERVAL_SECS),
         );
         loop {
             interval.tick().await;
@@ -402,12 +443,14 @@ async fn sync_gmail(vault: &Arc<Vault>) {
         }
     };
 
-    // Met à jour le checkpoint même si aucun email nouveau (évite de re-scanner indéfiniment)
+    // Checkpoint = hier : garantit qu'on ne rate jamais les emails arrivés entre deux syncs.
+    // La déduplication par checksum (vault.exists) évite les doublons.
     let today = Utc::now().date_naive();
+    let checkpoint_date = today.pred_opt().unwrap_or(today);
 
     if docs.is_empty() {
         eprintln!("[OSMOzzz Daemon] Gmail sync: aucun nouvel email.");
-        write_checkpoint(today);
+        write_checkpoint(checkpoint_date);
         return;
     }
 
@@ -428,8 +471,7 @@ async fn sync_gmail(vault: &Arc<Vault>) {
         }
     }
 
-    // Checkpoint = aujourd'hui : la prochaine sync ne vérifiera que les emails d'aujourd'hui
-    write_checkpoint(today);
+    write_checkpoint(checkpoint_date);
 }
 
 // ─── Sync générique pour toutes les sources locales ──────────────────────────

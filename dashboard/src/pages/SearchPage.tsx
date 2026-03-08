@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import styled, { keyframes } from 'styled-components'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -21,10 +21,7 @@ const SOURCE_ICONS: Record<string, LucideIcon> = {
   terminal: icons.Terminal, calendar: icons.Calendar,
 }
 
-// Sources dont toute la card est cliquable
 const CLICKABLE_SOURCES = new Set(['file', 'imessage', 'notes', 'calendar', 'terminal', 'chrome', 'safari'])
-
-// Regex pour détecter URLs et emails dans le contenu
 const LINK_RE = /(https?:\/\/[^\s<>"'[\]()]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
 
 const spin = keyframes`to { transform: rotate(360deg); }`
@@ -34,12 +31,19 @@ const spin = keyframes`to { transform: rotate(360deg); }`
 const Page = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
+`
+
+const TopRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
 `
 
 const SearchWrapper = styled.div`
   position: relative;
   color: #9ca3af;
+  flex: 1;
 
   svg {
     position: absolute;
@@ -70,6 +74,8 @@ const SearchInput = styled.input`
 
   &::placeholder { color: #9ca3af; }
 `
+
+// ─── Brut results ─────────────────────────────────────────────────────────────
 
 const Loader = styled.div`
   width: 20px;
@@ -280,7 +286,6 @@ function highlightText(text: string, query: string): React.ReactNode {
   )
 }
 
-// Pour les emails : rend le texte avec liens cliquables + surlignage
 function renderEmailContent(text: string, query: string): React.ReactNode {
   const parts = text.split(LINK_RE)
   return (
@@ -308,7 +313,6 @@ function renderEmailContent(text: string, query: string): React.ReactNode {
 
 function resolveUrl(source: string, doc: SearchDoc): string {
   if (source === 'imessage') {
-    // Extrait le numéro depuis le titre "iMessage ← +33766300049"
     const match = doc.title?.match(/([+\d]{7,})/)
     if (match) return `sms://${match[1]}`
   }
@@ -386,7 +390,7 @@ function ResultCard({ doc, source, query, onBanned }: { doc: SearchDoc; source: 
         <CardUrl>{doc.url}</CardUrl>
       </Card>
       <CardActions>
-        <BanBtn onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>⊘ Bannir</BanBtn>
+        <BanBtn onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}>Ban</BanBtn>
         {menuOpen && (
           <BanMenu>
             <BanMenuItem onClick={() => doBan('url')}>Ce document uniquement</BanMenuItem>
@@ -430,28 +434,29 @@ export default function SearchPage() {
     <Page>
       {showBannis && <BlacklistPanel source="all" onClose={() => setShowBannis(false)} />}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <SearchWrapper style={{ flex: 1 }}>
+      <TopRow>
+        <SearchWrapper>
           <icons.Search size={16} />
           <SearchInput
             type="text"
             value={query}
             onChange={e => handleChange(e.target.value)}
-            placeholder="Cherche dans toute ta mémoire..."
+            placeholder="Cherche dans toute ta memoire..."
             autoFocus
           />
         </SearchWrapper>
-        <BannisBtn onClick={() => setShowBannis(true)}>⊘ Bannis</BannisBtn>
-      </div>
+
+        <BannisBtn onClick={() => setShowBannis(true)}>Ban</BannisBtn>
+      </TopRow>
 
       {isLoading && <Loader />}
 
       {!isLoading && debouncedQuery.length > 1 && !hasResults && (
-        <EmptyMsg>Aucun résultat pour « {debouncedQuery} »</EmptyMsg>
+        <EmptyMsg>Aucun resultat pour « {debouncedQuery} »</EmptyMsg>
       )}
 
       {!debouncedQuery && (
-        <HintMsg>Tape un mot-clé pour chercher dans tes emails, messages, fichiers…</HintMsg>
+        <HintMsg>Tape un mot-cle pour chercher dans tes emails, messages, fichiers...</HintMsg>
       )}
 
       {hasResults && (
@@ -463,7 +468,7 @@ export default function SearchPage() {
                 <GroupHeader $source={group.source}>
                   <GroupIcon>{Icon && <Icon size={14} />}</GroupIcon>
                   <GroupTitle>{SOURCE_LABELS[group.source] ?? group.source}</GroupTitle>
-                  <GroupCount>{group.results.length} résultat{group.results.length > 1 ? 's' : ''}</GroupCount>
+                  <GroupCount>{group.results.length} resultat{group.results.length > 1 ? 's' : ''}</GroupCount>
                 </GroupHeader>
                 <CardList>
                   {group.results.map((doc, i) => (

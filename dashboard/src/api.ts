@@ -90,6 +90,35 @@ export interface BlacklistResponse {
   entries: BlacklistEntry[]
 }
 
+export interface PeerResponse {
+  peer_id: string
+  display_name: string
+  addresses: string[]
+  connected: boolean
+  last_seen: number | null
+  shared_sources: string[]
+}
+
+export interface PeerPermissions {
+  allowed_sources: string[]
+  max_results_per_query: number
+}
+
+export interface QueryHistoryEntry {
+  ts: number
+  peer_id: string
+  peer_name: string
+  query: string
+  results_count: number
+  blocked: boolean
+}
+
+export const ALL_SOURCES = [
+  'file', 'notion', 'github', 'linear', 'jira',
+  'slack', 'trello', 'todoist', 'gitlab', 'airtable', 'obsidian',
+  'email', 'imessage', 'terminal', 'chrome', 'safari', 'notes', 'calendar',
+] as const
+
 export interface PrivacyConfig {
   credit_card: boolean
   iban: boolean
@@ -201,6 +230,59 @@ export const api = {
   compact: async (): Promise<void> => {
     await axios.post(`${BASE}/compact`)
   },
+
+  // ─── Réseau P2P ─────────────────────────────────────────────────────────────
+
+  getNetworkPeers: async (): Promise<PeerResponse[]> => {
+    const r = await axios.get(`${BASE}/network/peers`)
+    return r.data.data ?? []
+  },
+
+  generateInvite: async (): Promise<{ link: string; peer_id: string }> => {
+    const r = await axios.post(`${BASE}/network/invite`)
+    return r.data.data
+  },
+
+  connectPeer: async (link: string, display_name: string): Promise<void> => {
+    await axios.post(`${BASE}/network/connect`, { link, display_name })
+  },
+
+  deletePeer: async (peer_id: string): Promise<void> => {
+    await axios.delete(`${BASE}/network/peers/${peer_id}`)
+  },
+
+  getPeerPermissions: async (peer_id: string): Promise<PeerPermissions> => {
+    const r = await axios.get(`${BASE}/network/permissions/${peer_id}`)
+    return r.data.data
+  },
+
+  setPeerPermissions: async (peer_id: string, perms: PeerPermissions): Promise<void> => {
+    await axios.post(`${BASE}/network/permissions/${peer_id}`, perms)
+  },
+
+  getNetworkHistory: async (): Promise<QueryHistoryEntry[]> => {
+    const r = await axios.get(`${BASE}/network/history`)
+    return r.data.data ?? []
+  },
+
+  // ─── IA locale ───────────────────────────────────────────────────────────────
+
+  /**
+   * Envoie une question au LLM local et reçoit une réponse en streaming (SSE).
+   * Retourne un ReadableStreamDefaultReader — itérer avec reader.read() pour
+   * recevoir les tokens au fur et à mesure.
+   */
+  chatStream: async (query: string): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+    const response = await fetch(`${BASE}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    })
+    if (!response.body) throw new Error('Pas de stream SSE')
+    return response.body.getReader()
+  },
+
+  // ─── Confidentialité ─────────────────────────────────────────────────────────
 
   getPrivacy: async (): Promise<PrivacyConfig> => {
     const r = await axios.get(`${BASE}/privacy`)

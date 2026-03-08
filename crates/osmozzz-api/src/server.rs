@@ -2,22 +2,26 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::{
     Router,
-    routing::{get, post},
-    // post already imported
+    routing::{delete, get, post},
     http::{HeaderValue, Method},
 };
 use include_dir::{include_dir, Dir};
 use tower_http::cors::{Any, CorsLayer};
 
 use osmozzz_embedder::Vault;
+use osmozzz_p2p::P2pNode;
 use crate::routes;
 use crate::state::AppState;
 
 // En mode release, le build React est embarqué dans le binaire
 static DASHBOARD_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../dashboard/dist");
 
-pub async fn start_server(vault: Arc<Vault>, port: u16) -> Result<()> {
-    let state = AppState { vault };
+pub async fn start_server(
+    vault: Arc<Vault>,
+    p2p: Option<Arc<P2pNode>>,
+    port: u16,
+) -> Result<()> {
+    let state = AppState { vault, p2p };
 
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:5173".parse::<HeaderValue>()?)
@@ -48,6 +52,12 @@ pub async fn start_server(vault: Arc<Vault>, port: u16) -> Result<()> {
         .route("/blacklist", get(routes::get_blacklist))
         .route("/compact", post(routes::post_compact))
         .route("/privacy", get(routes::get_privacy).post(routes::post_privacy))
+        .route("/network/peers", get(routes::get_network_peers))
+        .route("/network/invite", post(routes::post_network_invite))
+        .route("/network/connect", post(routes::post_network_connect))
+        .route("/network/peers/:peer_id", delete(routes::delete_network_peer))
+        .route("/network/permissions/:peer_id", get(routes::get_network_permissions).post(routes::post_network_permissions))
+        .route("/network/history", get(routes::get_network_history))
         .with_state(state);
 
     let app = Router::new()

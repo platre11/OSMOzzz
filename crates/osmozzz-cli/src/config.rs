@@ -36,8 +36,15 @@ impl Config {
 
         let socket_path = data_dir.join("osmozzz.sock");
 
-        let chrome_history_path = home
-            .join("Library/Application Support/Google/Chrome/Default/History");
+        let chrome_history_path = {
+            #[cfg(target_os = "macos")]
+            { home.join("Library/Application Support/Google/Chrome/Default/History") }
+            #[cfg(target_os = "windows")]
+            { dirs_next::data_local_dir().unwrap_or_else(|| home.clone())
+                .join("Google/Chrome/User Data/Default/History") }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            { home.join(".config/google-chrome/Default/History") }
+        };
 
         Ok(Self {
             data_dir,

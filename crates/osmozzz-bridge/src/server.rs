@@ -4,12 +4,13 @@ use std::sync::Arc;
 use osmozzz_core::{Embedder, OsmozzError, Result};
 use osmozzz_embedder::Vault;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
 use tracing::{error, info, warn};
 
 use crate::protocol::{Request, Response};
 
-/// Unix Domain Socket server that exposes the Vault to local clients.
+/// Serveur de bridge local.
+/// - Unix/macOS/Linux : Unix Domain Socket (UDS)
+/// - Windows          : TCP loopback sur 127.0.0.1:47473
 pub struct BridgeServer {
     socket_path: PathBuf,
     vault: Arc<Vault>,
@@ -23,18 +24,30 @@ impl BridgeServer {
         }
     }
 
-    /// Start listening on the UDS socket.
     pub async fn serve(&self) -> Result<()> {
+        #[cfg(unix)]
+        return self.serve_unix().await;
+
+        #[cfg(windows)]
+        return self.serve_tcp().await;
+
+        #[cfg(not(any(unix, windows)))]
+        return self.serve_tcp().await;
+    }
+
+    // ── Unix Domain Socket (macOS / Linux) ────────────────────────────────────
+
+    #[cfg(unix)]
+    async fn serve_unix(&self) -> Result<()> {
+        use tokio::net::{UnixListener, UnixStream};
+
         let path = &self.socket_path;
 
-        // Create parent directory if needed
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 OsmozzError::Bridge(format!("Cannot create socket dir: {}", e))
             })?;
         }
-
-        // Remove stale socket file
         if path.exists() {
             std::fs::remove_file(path).map_err(|e| {
                 OsmozzError::Bridge(format!("Cannot remove stale socket: {}", e))
@@ -44,7 +57,6 @@ impl BridgeServer {
         let listener = UnixListener::bind(path)
             .map_err(|e| OsmozzError::Bridge(format!("Bind UDS: {}", e)))?;
 
-        // Set socket permissions to 600 (owner read/write only)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -52,58 +64,106 @@ impl BridgeServer {
                 .map_err(|e| OsmozzError::Bridge(format!("Set socket perms: {}", e)))?;
         }
 
-        info!("OSMOzzz bridge listening on: {}", path.display());
+        info!("OSMOzzz bridge (UDS) listening on: {}", path.display());
 
         loop {
             match listener.accept().await {
-                Ok((stream, _addr)) => {
+                Ok((stream, _)) => {
                     let vault = Arc::clone(&self.vault);
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, vault).await {
+                        if let Err(e) = handle_unix_connection(stream, vault).await {
                             error!("Connection error: {}", e);
                         }
                     });
                 }
-                Err(e) => {
-                    warn!("Accept error: {}", e);
+                Err(e) => warn!("Accept error: {}", e),
+            }
+        }
+    }
+
+    // ── TCP loopback (Windows + fallback) ─────────────────────────────────────
+
+    #[cfg(not(unix))]
+    async fn serve_tcp(&self) -> Result<()> {
+        use tokio::net::TcpListener;
+
+        let addr = "127.0.0.1:47473";
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| OsmozzError::Bridge(format!("Bind TCP bridge: {}", e)))?;
+
+        info!("OSMOzzz bridge (TCP) listening on: {}", addr);
+
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    let vault = Arc::clone(&self.vault);
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_tcp_connection(stream, vault).await {
+                            error!("Connection error: {}", e);
+                        }
+                    });
                 }
+                Err(e) => warn!("Accept error: {}", e),
             }
         }
     }
 }
 
-async fn handle_connection(stream: UnixStream, vault: Arc<Vault>) -> Result<()> {
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
+// ── Handlers de connexion ─────────────────────────────────────────────────────
 
-    while let Ok(Some(line)) = lines.next_line().await {
-        let line = line.trim().to_string();
-        if line.is_empty() {
-            continue;
+#[cfg(unix)]
+async fn handle_unix_connection(
+    stream: tokio::net::UnixStream,
+    vault: Arc<Vault>,
+) -> Result<()> {
+    let (reader, writer) = stream.into_split();
+    handle_lines(BufReader::new(reader), writer, vault).await
+}
+
+#[cfg(not(unix))]
+async fn handle_tcp_connection(
+    stream: tokio::net::TcpStream,
+    vault: Arc<Vault>,
+) -> Result<()> {
+    let (reader, writer) = stream.into_split();
+    handle_lines(BufReader::new(reader), writer, vault).await
+}
+
+async fn handle_lines<R, W>(
+    mut lines: BufReader<R>,
+    mut writer: W,
+    vault: Arc<Vault>,
+) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match lines.read_line(&mut line).await {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => { warn!("Read error: {}", e); break; }
         }
 
-        let response = match serde_json::from_str::<Request>(&line) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+
+        let response = match serde_json::from_str::<Request>(trimmed) {
             Ok(Request::Search { query, limit }) => {
                 match vault.search(&query, limit).await {
                     Ok(results) => Response::Search { results },
-                    Err(e) => Response::Error {
-                        error: e.to_string(),
-                    },
+                    Err(e) => Response::Error { error: e.to_string() },
                 }
             }
             Ok(Request::Status) => match vault.count().await {
-                Ok(count) => Response::Status {
-                    doc_count: count,
-                    status: "ok".to_string(),
-                },
-                Err(e) => Response::Error {
-                    error: e.to_string(),
-                },
+                Ok(count) => Response::Status { doc_count: count, status: "ok".to_string() },
+                Err(e) => Response::Error { error: e.to_string() },
             },
             Ok(Request::Ping) => Response::Pong { pong: true },
-            Err(e) => Response::Error {
-                error: format!("Invalid request: {}", e),
-            },
+            Err(e) => Response::Error { error: format!("Invalid request: {}", e) },
         };
 
         let mut json = serde_json::to_string(&response)
@@ -115,6 +175,5 @@ async fn handle_connection(stream: UnixStream, vault: Arc<Vault>) -> Result<()> 
             break;
         }
     }
-
     Ok(())
 }

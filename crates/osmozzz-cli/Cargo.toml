@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 osmozzz-core = { path = "../osmozzz-core" }
+osmozzz-p2p = { path = "../osmozzz-p2p" }
 osmozzz-harvester = { path = "../osmozzz-harvester" }
 osmozzz-embedder = { path = "../osmozzz-embedder" }
 osmozzz-bridge = { path = "../osmozzz-bridge" }

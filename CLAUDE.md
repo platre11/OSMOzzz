@@ -97,20 +97,28 @@ Jamais de modification manuelle des `.toml` par l'utilisateur.
 
 ## Build & Deploy
 
+### Build rapide (développement) — utiliser TOUJOURS cette méthode
 ```bash
-# 1. Builder le frontend (OBLIGATOIRE avant cargo install)
+# Depuis la racine du workspace
+./build.sh
+osmozzz daemon
+```
+`build.sh` fait :
+1. `npm run build` **seulement si** `dashboard/src/` a changé depuis le dernier build
+2. `cargo build --release -p osmozzz-cli` (incremental — ~30s si peu de changements)
+3. `cp target/release/osmozzz ~/.cargo/bin/osmozzz`
+
+### Build complet (première fois ou après changement de dépendances)
+```bash
 cd dashboard && npm run build
-
-# 2. Installer le binaire (embarque le frontend au moment de la compilation)
+touch crates/osmozzz-api/src/server.rs
 cargo install --path crates/osmozzz-cli --locked
-
-# 3. Redémarrer le daemon
 osmozzz daemon
 ```
 
-**Important :** `cargo install` embarque le `dashboard/dist/` dans le binaire via `include_dir!`.
-Si le frontend change, il faut impérativement `npm run build` PUIS `cargo install`.
-Si seul le Rust change sans toucher server.rs, cargo peut utiliser le cache → toujours `touch crates/osmozzz-api/src/server.rs` avant `cargo install` pour forcer le re-embed du frontend.
+**Important :** `include_dir!` dans `server.rs` embarque `dashboard/dist/` dans le binaire.
+- Frontend changé → `npm run build` + `touch server.rs` requis
+- Rust seul changé → `./build.sh` suffit (skip npm automatiquement)
 
 ## Architecture MCP — Comment fonctionne le système Claude ↔ OSMOzzz
 
@@ -179,3 +187,60 @@ Claude Desktop ──► osmozzz (process Rust)
 - Recherche hybride BM25 + vecteurs
 - PDF support
 - Proof of Context (HMAC-SHA256) — déjà commencé
+
+### En cours 🔧 — P2P Mesh Enterprise
+
+**Objectif :** Réseau de daemons OSMOzzz qui collaborent. Les données restent sur chaque machine. Seules les réponses (filtrées par le pare-feu) transitent.
+
+**Principe fondamental :**
+- Les index LanceDB ne bougent JAMAIS de la machine locale
+- Ton OSMOzzz envoie une requête → l'OSMOzzz du collègue cherche dans SES données → renvoie uniquement le texte de réponse filtré
+- Le pare-feu de confidentialité s'applique AVANT l'envoi vers un peer
+
+**Nouveau crate : `osmozzz-p2p`**
+```
+crates/osmozzz-p2p/src/
+├── identity.rs      ← clé Ed25519 par machine (persistée dans ~/.osmozzz/identity.toml)
+├── node.rs          ← serveur TCP/TLS + client (tokio + rustls)
+├── discovery.rs     ← mDNS pour réseau local auto (mdns-sd)
+├── protocol.rs      ← messages JSON entre daemons (Search, SearchResult, Ping, Info)
+├── permissions.rs   ← contrôle d'accès par source par peer
+├── store.rs         ← peers.toml (liste des peers connus + leurs permissions)
+└── history.rs       ← log des requêtes reçues (qui a cherché quoi quand)
+```
+
+**Transport choisi : Option A (simple, enterprise-ready)**
+- TCP + TLS (rustls + Ed25519)
+- Invitation via lien contenant IP:port + clé publique
+- mDNS pour auto-découverte sur réseau local
+- Fonctionne avec IPs fixes / VPN entreprise (pas de NAT traversal complexe)
+
+**Nouvelles routes API :**
+- GET  /api/network/peers         → liste des peers connectés
+- POST /api/network/invite        → génère un lien d'invitation
+- POST /api/network/connect       → connexion depuis un lien
+- DELETE /api/network/peer/:id    → déconnecte un peer
+- GET  /api/network/permissions   → mes permissions de partage
+- POST /api/network/permissions   → met à jour mes permissions
+- GET  /api/network/history       → historique des requêtes reçues
+
+**Nouveau tool MCP :**
+- `search_network(query, peer_id?)` → cherche chez tous les peers autorisés (ou un seul)
+
+**Dashboard — nouvelle page "Réseau" :**
+- Vue des connexions actives avec sources partagées par peer
+- Génération d'invitation (QR code + lien)
+- Permissions granulaires par source par peer
+- Historique des requêtes reçues
+- Notifications badge quand un collègue t'interroge
+
+**Recherche dashboard — filtre périmètre :**
+- Dropdown [Tout le monde ▾] par défaut
+- Options : Moi seulement | Thomas | Sarah | ...
+
+**Règles d'implémentation :**
+1. Le pare-feu (osmozzz-core::filter) s'applique TOUJOURS avant d'envoyer au peer
+2. Chaque résultat retourné à Claude identifie l'auteur (peer_id + peer_name)
+3. Un peer offline = ses résultats sont absents silencieusement (pas d'erreur)
+4. Permissions révocables instantanément (rechargées à chaque requête)
+5. Historique append-only en JSONL (~/.osmozzz/query_history.jsonl)

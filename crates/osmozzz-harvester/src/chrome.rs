@@ -8,6 +8,28 @@ use tracing::{debug, info};
 
 use crate::checksum;
 
+/// Retourne le chemin de l'historique Chrome selon la plateforme.
+fn chrome_history_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| PathBuf::from("~"))
+            .join("Library/Application Support/Google/Chrome/Default/History")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        dirs_next::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Google/Chrome/User Data/Default/History")
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| PathBuf::from("~"))
+            .join(".config/google-chrome/Default/History")
+    }
+}
+
 /// Chrome WebKit epoch: microseconds since 1601-01-01
 const CHROME_EPOCH_OFFSET_MICROS: i64 = 11_644_473_600_000_000;
 
@@ -22,11 +44,9 @@ pub struct ChromeHarvester {
 }
 
 impl ChromeHarvester {
-    /// Create with default macOS Chrome history path.
+    /// Create with default Chrome history path (cross-platform).
     pub fn new() -> Self {
-        let history_path = dirs_next::home_dir()
-            .unwrap_or_else(|| PathBuf::from("~"))
-            .join("Library/Application Support/Google/Chrome/Default/History");
+        let history_path = chrome_history_path();
         Self {
             history_path,
             known_checksums: Default::default(),

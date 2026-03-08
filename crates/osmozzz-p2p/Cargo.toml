@@ -1,0 +1,22 @@
+[package]
+name = "osmozzz-p2p"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+osmozzz-core = { path = "../osmozzz-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+dirs-next = { workspace = true }
+toml = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+# Transport P2P multi-réseaux : QUIC + relay n0.computer + STUN + hole punching
+iroh = { workspace = true }
+base64 = { workspace = true }

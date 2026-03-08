@@ -6,15 +6,35 @@ use tracing::{info, warn};
 
 use crate::checksum;
 
+/// Retourne le chemin de l'historique terminal selon la plateforme.
+fn terminal_history_path() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        // PowerShell history
+        dirs_next::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("~"));
+        // Préfère zsh, fallback bash
+        let zsh = home.join(".zsh_history");
+        if zsh.exists() {
+            zsh
+        } else {
+            home.join(".bash_history")
+        }
+    }
+}
+
 pub struct TerminalHarvester {
     history_path: PathBuf,
 }
 
 impl TerminalHarvester {
     pub fn new() -> Self {
-        let history_path = dirs_next::home_dir()
-            .unwrap_or_else(|| PathBuf::from("~"))
-            .join(".zsh_history");
+        let history_path = terminal_history_path();
         Self { history_path }
     }
 }

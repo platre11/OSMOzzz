@@ -773,6 +773,171 @@ pub async fn post_compact(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+// ─── Réseau P2P ──────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct PeerResponse {
+    pub peer_id: String,
+    pub display_name: String,
+    pub addresses: Vec<String>,
+    pub connected: bool,
+    pub last_seen: Option<i64>,
+    pub shared_sources: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct InviteResponse {
+    pub link: String,
+    pub peer_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct ConnectRequest {
+    pub link: String,
+    pub display_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct PermissionsBody {
+    pub allowed_sources: Vec<String>,
+    pub max_results_per_query: Option<usize>,
+}
+
+pub async fn get_network_peers(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::ok(Vec::<PeerResponse>::new()).into_response();
+    };
+    let peers = p2p.store.all();
+    let connected_ids = p2p.connected_peer_ids().await;
+    let response: Vec<PeerResponse> = peers.into_iter().map(|p| {
+        let connected = connected_ids.contains(&p.peer_id);
+        PeerResponse {
+            peer_id: p.peer_id,
+            display_name: p.display_name,
+            addresses: p.addresses,
+            connected,
+            last_seen: p.last_seen,
+            shared_sources: p.permissions.allowed_source_names(),
+        }
+    }).collect();
+    ApiResponse::ok(response).into_response()
+}
+
+pub async fn post_network_invite(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<InviteResponse>::err("P2P non initialisé").into_response();
+    };
+    match p2p.generate_invite_link().await {
+        Ok(link) => ApiResponse::ok(InviteResponse { link, peer_id: p2p.identity.id.clone() }).into_response(),
+        Err(e)   => ApiResponse::<InviteResponse>::err(e.to_string()).into_response(),
+    }
+}
+
+pub async fn post_network_connect(
+    State(state): State<AppState>,
+    Json(body): Json<ConnectRequest>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<String>::err("P2P non initialisé").into_response();
+    };
+    match p2p.accept_invite(&body.link, &body.display_name) {
+        Ok(peer) => {
+            // Tente la connexion TCP en arrière-plan
+            let node = p2p.clone();
+            let address = peer.addresses.first().cloned().unwrap_or_default();
+            tokio::spawn(async move {
+                if !address.is_empty() {
+                    if let Err(e) = node.connect_to_peer(&address).await {
+                        tracing::warn!("[P2P] Connexion sortante échouée : {}", e);
+                    }
+                }
+            });
+            ApiResponse::ok("Peer ajouté — connexion en cours".to_string()).into_response()
+        }
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+pub async fn delete_network_peer(
+    State(state): State<AppState>,
+    axum::extract::Path(peer_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<String>::err("P2P non initialisé").into_response();
+    };
+    match p2p.store.remove(&peer_id) {
+        Ok(_) => ApiResponse::ok("Peer supprimé".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+pub async fn get_network_permissions(
+    State(state): State<AppState>,
+    axum::extract::Path(peer_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<osmozzz_p2p::PeerPermissions>::err("P2P non initialisé").into_response();
+    };
+    match p2p.store.get(&peer_id) {
+        Some(peer) => ApiResponse::ok(peer.permissions).into_response(),
+        None => ApiResponse::<osmozzz_p2p::PeerPermissions>::err("Peer introuvable").into_response(),
+    }
+}
+
+pub async fn post_network_permissions(
+    State(state): State<AppState>,
+    axum::extract::Path(peer_id): axum::extract::Path<String>,
+    Json(body): Json<PermissionsBody>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<String>::err("P2P non initialisé").into_response();
+    };
+    let allowed = body.allowed_sources.iter()
+        .filter_map(|s| source_str_to_enum(s))
+        .collect();
+    let perms = osmozzz_p2p::PeerPermissions {
+        allowed_sources: allowed,
+        max_results_per_query: body.max_results_per_query.unwrap_or(10),
+    };
+    match p2p.store.update_permissions(&peer_id, perms) {
+        Ok(_) => ApiResponse::ok("Permissions mises à jour".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+pub async fn get_network_history(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::ok(Vec::<osmozzz_p2p::QueryHistoryEntry>::new()).into_response();
+    };
+    let entries = p2p.history.recent(100);
+    ApiResponse::ok(entries).into_response()
+}
+
+fn source_str_to_enum(s: &str) -> Option<osmozzz_p2p::SharedSource> {
+    use osmozzz_p2p::SharedSource;
+    match s {
+        "chrome"   => Some(SharedSource::Chrome),
+        "safari"   => Some(SharedSource::Safari),
+        "email"    => Some(SharedSource::Email),
+        "imessage" => Some(SharedSource::IMessage),
+        "notes"    => Some(SharedSource::Notes),
+        "calendar" => Some(SharedSource::Calendar),
+        "terminal" => Some(SharedSource::Terminal),
+        "file"     => Some(SharedSource::File),
+        "notion"   => Some(SharedSource::Notion),
+        "github"   => Some(SharedSource::Github),
+        "linear"   => Some(SharedSource::Linear),
+        "jira"     => Some(SharedSource::Jira),
+        "slack"    => Some(SharedSource::Slack),
+        "trello"   => Some(SharedSource::Trello),
+        "todoist"  => Some(SharedSource::Todoist),
+        "gitlab"   => Some(SharedSource::Gitlab),
+        "airtable" => Some(SharedSource::Airtable),
+        "obsidian" => Some(SharedSource::Obsidian),
+        _ => None,
+    }
+}
+
 // ─── GET /api/privacy ────────────────────────────────────────────────────────
 
 pub async fn get_privacy() -> impl IntoResponse {

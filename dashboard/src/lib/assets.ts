@@ -38,6 +38,20 @@ import {
   Clock,
   Database,
   Trello,
+  // Réseau
+  Network,
+  UserPlus,
+  UserCheck,
+  UserX,
+  Link,
+  History,
+  Shield,
+  Wifi,
+  WifiOff,
+  QrCode,
+  Copy,
+  Check,
+  Sparkles,
 } from 'lucide-react'
 
 export const icons = {
@@ -72,4 +86,18 @@ export const icons = {
   LayoutDashboard,
   Clock,
   Database,
+  // Réseau
+  Network,
+  UserPlus,
+  UserCheck,
+  UserX,
+  Link,
+  History,
+  Shield,
+  Wifi,
+  WifiOff,
+  QrCode,
+  Copy,
+  Check,
+  Sparkles,
 } as const
