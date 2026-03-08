@@ -2,11 +2,13 @@ use anyhow::{bail, Context, Result};
 use osmozzz_core::{Embedder, Harvester};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{
-    AirtableHarvester, CalendarHarvester, ChromeHarvester, FileHarvester, GithubHarvester,
-    GitlabHarvester, GmailConfig, GmailHarvester, IMessageHarvester, JiraHarvester,
-    LinearHarvester, NotionHarvester, NotesHarvester, ObsidianHarvester, SafariHarvester,
+    AirtableHarvester, ChromeHarvester, FileHarvester, GithubHarvester,
+    GitlabHarvester, GmailConfig, GmailHarvester, JiraHarvester,
+    LinearHarvester, NotionHarvester, ObsidianHarvester,
     SlackHarvester, TerminalHarvester, TodoistHarvester, TrelloHarvester,
 };
+#[cfg(target_os = "macos")]
+use osmozzz_harvester::{CalendarHarvester, IMessageHarvester, NotesHarvester, SafariHarvester};
 
 use crate::cli::IndexArgs;
 use crate::config::Config;
@@ -165,31 +167,51 @@ pub async fn run(args: IndexArgs, cfg: Config) -> Result<()> {
         }
 
         "imessage" => {
-            println!("Indexation des iMessages (~/Library/Messages/chat.db)...");
-            let harvester = IMessageHarvester::new();
-            let documents = harvester.harvest().await.context("iMessage harvest failed")?;
-            index_documents(&vault, documents, "iMessage").await?;
+            #[cfg(not(target_os = "macos"))]
+            bail!("iMessage n'est disponible que sur macOS.");
+            #[cfg(target_os = "macos")]
+            {
+                println!("Indexation des iMessages (~/Library/Messages/chat.db)...");
+                let harvester = IMessageHarvester::new();
+                let documents = harvester.harvest().await.context("iMessage harvest failed")?;
+                index_documents(&vault, documents, "iMessage").await?;
+            }
         }
 
         "safari" => {
-            println!("Indexation de l'historique Safari...");
-            let harvester = SafariHarvester::new();
-            let documents = harvester.harvest().await.context("Safari harvest failed")?;
-            index_documents(&vault, documents, "Safari").await?;
+            #[cfg(not(target_os = "macos"))]
+            bail!("Safari n'est disponible que sur macOS.");
+            #[cfg(target_os = "macos")]
+            {
+                println!("Indexation de l'historique Safari...");
+                let harvester = SafariHarvester::new();
+                let documents = harvester.harvest().await.context("Safari harvest failed")?;
+                index_documents(&vault, documents, "Safari").await?;
+            }
         }
 
         "notes" => {
-            println!("Indexation des Apple Notes...");
-            let harvester = NotesHarvester::new();
-            let documents = harvester.harvest().await.context("Notes harvest failed")?;
-            index_documents(&vault, documents, "Notes").await?;
+            #[cfg(not(target_os = "macos"))]
+            bail!("Apple Notes n'est disponible que sur macOS.");
+            #[cfg(target_os = "macos")]
+            {
+                println!("Indexation des Apple Notes...");
+                let harvester = NotesHarvester::new();
+                let documents = harvester.harvest().await.context("Notes harvest failed")?;
+                index_documents(&vault, documents, "Notes").await?;
+            }
         }
 
         "calendar" => {
-            println!("Indexation du calendrier Apple...");
-            let harvester = CalendarHarvester::new();
-            let documents = harvester.harvest().await.context("Calendar harvest failed")?;
-            index_documents(&vault, documents, "Calendar").await?;
+            #[cfg(not(target_os = "macos"))]
+            bail!("Apple Calendar n'est disponible que sur macOS.");
+            #[cfg(target_os = "macos")]
+            {
+                println!("Indexation du calendrier Apple...");
+                let harvester = CalendarHarvester::new();
+                let documents = harvester.harvest().await.context("Calendar harvest failed")?;
+                index_documents(&vault, documents, "Calendar").await?;
+            }
         }
 
         "terminal" => {

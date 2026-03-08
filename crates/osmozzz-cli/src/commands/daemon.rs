@@ -14,11 +14,13 @@ use chrono::{NaiveDate, Utc};
 use osmozzz_core::{Embedder, Harvester, OsmozzError};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{
-    start_watcher, AirtableHarvester, CalendarHarvester, GithubHarvester, GitlabHarvester,
-    GmailConfig, GmailHarvester, IMessageHarvester, JiraHarvester, LinearHarvester,
-    NotionHarvester, NotesHarvester, ObsidianHarvester, SafariHarvester, SlackHarvester,
+    start_watcher, AirtableHarvester, GithubHarvester, GitlabHarvester,
+    GmailConfig, GmailHarvester, JiraHarvester, LinearHarvester,
+    NotionHarvester, ObsidianHarvester, SlackHarvester,
     TerminalHarvester, TodoistHarvester, TrelloHarvester, WatchEvent,
 };
+#[cfg(target_os = "macos")]
+use osmozzz_harvester::{CalendarHarvester, IMessageHarvester, NotesHarvester, SafariHarvester};
 
 use osmozzz_api;
 use osmozzz_embedder::Blacklist;
@@ -136,70 +138,84 @@ pub async fn run(cfg: Config) -> Result<()> {
         }
     });
 
-    // iMessage auto-sync
-    let v = Arc::clone(&vault);
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(IMESSAGE_SYNC_INTERVAL_SECS)
-        );
-        loop {
-            interval.tick().await;
-            let docs = IMessageHarvester::new().harvest().await.unwrap_or_default();
-            sync_docs(&v, "iMessage", docs).await;
-        }
-    });
+    // iMessage auto-sync (macOS uniquement)
+    #[cfg(target_os = "macos")]
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(IMESSAGE_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = IMessageHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "iMessage", docs).await;
+            }
+        });
+    }
 
-    // Safari auto-sync
-    let v = Arc::clone(&vault);
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(SAFARI_SYNC_INTERVAL_SECS)
-        );
-        loop {
-            interval.tick().await;
-            let docs = SafariHarvester::new().harvest().await.unwrap_or_default();
-            sync_docs(&v, "Safari", docs).await;
-        }
-    });
+    // Safari auto-sync (macOS uniquement)
+    #[cfg(target_os = "macos")]
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(SAFARI_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = SafariHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "Safari", docs).await;
+            }
+        });
+    }
 
-    // Notes auto-sync
-    let v = Arc::clone(&vault);
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(NOTES_SYNC_INTERVAL_SECS)
-        );
-        loop {
-            interval.tick().await;
-            let docs = NotesHarvester::new().harvest().await.unwrap_or_default();
-            sync_docs(&v, "Notes", docs).await;
-        }
-    });
+    // Notes auto-sync (macOS uniquement)
+    #[cfg(target_os = "macos")]
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(NOTES_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = NotesHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "Notes", docs).await;
+            }
+        });
+    }
 
-    // Terminal auto-sync
-    let v = Arc::clone(&vault);
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(TERMINAL_SYNC_INTERVAL_SECS)
-        );
-        loop {
-            interval.tick().await;
-            let docs = TerminalHarvester::new().harvest().await.unwrap_or_default();
-            sync_docs(&v, "Terminal", docs).await;
-        }
-    });
+    // Terminal auto-sync (tous OS)
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(TERMINAL_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = TerminalHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "Terminal", docs).await;
+            }
+        });
+    }
 
-    // Calendar auto-sync
-    let v = Arc::clone(&vault);
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(CALENDAR_SYNC_INTERVAL_SECS)
-        );
-        loop {
-            interval.tick().await;
-            let docs = CalendarHarvester::new().harvest().await.unwrap_or_default();
-            sync_docs(&v, "Calendar", docs).await;
-        }
-    });
+    // Calendar auto-sync (macOS uniquement)
+    #[cfg(target_os = "macos")]
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(CALENDAR_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = CalendarHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "Calendar", docs).await;
+            }
+        });
+    }
 
     // Notion auto-sync (1h)
     let v = Arc::clone(&vault);

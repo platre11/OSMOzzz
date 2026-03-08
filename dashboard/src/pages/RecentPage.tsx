@@ -651,12 +651,201 @@ function extractIdentifier(doc: RecentDoc): string | null {
   return null
 }
 
+// ─── File result cards ────────────────────────────────────────────────────────
+
+const FileCard = styled.div`
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: box-shadow .15s;
+  &:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+`
+
+const FileCardName = styled.span`
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`
+
+const FileCardMeta = styled.span`
+  font-size: 11px;
+  color: #9ca3af;
+`
+
+const FileCardSnippet = styled.p`
+  font-size: 12px;
+  color: #4b5563;
+  margin: 0;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+`
+
+// ─── FileTypeSelector ────────────────────────────────────────────────────────
+
+const ExtChipRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+`
+
+const ExtChip = styled.button<{ $active: boolean }>`
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all .15s;
+  background: ${({ $active }) => $active ? '#5b5ef4' : '#f3f4f6'};
+  color: ${({ $active }) => $active ? '#fff' : '#374151'};
+  border: 1px solid ${({ $active }) => $active ? '#5b5ef4' : '#e5e7eb'};
+  &:hover { opacity: .85; }
+`
+
+const TypeSelectorWrap = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`
+
+const TypeSelectorHeader = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  &:hover span { color: #374151; }
+`
+
+const TypeSelectorLabel = styled.span`
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  transition: color .15s;
+`
+
+const CollapseArrow = styled.span<{ $open: boolean }>`
+  font-size: 10px;
+  color: #9ca3af;
+  transition: transform .2s;
+  transform: rotate(${({ $open }) => $open ? '0deg' : '-90deg'});
+  display: inline-block;
+`
+
+const ActiveBadge = styled.span`
+  font-size: 10px;
+  font-weight: 600;
+  background: #5b5ef4;
+  color: #fff;
+  border-radius: 99px;
+  padding: 1px 7px;
+`
+
+const FileSearchInput = styled.input`
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px 10px 36px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7' stroke='%239ca3af' stroke-width='2'/%3E%3Cpath d='M20 20l-3-3' stroke='%239ca3af' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat 12px center;
+  transition: border-color .15s, box-shadow .15s;
+  &:focus { border-color: #5b5ef4; box-shadow: 0 0 0 3px rgba(91,94,244,.1); }
+  &::placeholder { color: #9ca3af; }
+`
+
+interface FileTypeSelectorProps {
+  selected: Set<string>
+  onToggle: (ext: string) => void
+  searchQ: string
+  onSearchChange: (q: string) => void
+}
+
+function FileTypeSelector({ selected, onToggle, searchQ, onSearchChange }: FileTypeSelectorProps) {
+  const [open, setOpen] = useState(false)
+
+  const { data: preview } = useQuery<Record<string, number>>({
+    queryKey: ['index-preview'],
+    queryFn:  api.indexPreview,
+    staleTime: 300_000,
+    refetchOnWindowFocus: false,
+  })
+
+  const sortedExts = Object.entries(preview ?? {})
+    .sort(([a, ca], [b, cb]) => {
+      if (a === 'pdf') return -1
+      if (b === 'pdf') return 1
+      return cb - ca
+    })
+
+  const placeholder = selected.size === 0
+    ? 'Chercher dans tous les fichiers…'
+    : `Chercher dans ${[...selected].map(e => `.${e}`).join(', ')}…`
+
+  return (
+    <TypeSelectorWrap>
+      <TypeSelectorHeader onClick={() => setOpen(o => !o)}>
+        <CollapseArrow $open={open}>▼</CollapseArrow>
+        <TypeSelectorLabel>Filtrer par type</TypeSelectorLabel>
+        {selected.size > 0 && <ActiveBadge>{[...selected].map(e => `.${e}`).join(' ')}</ActiveBadge>}
+      </TypeSelectorHeader>
+
+      {open && (
+        <ExtChipRow>
+          {sortedExts.map(([ext, count]) => (
+            <ExtChip key={ext} $active={selected.has(ext)} onClick={() => onToggle(ext)}>
+              .{ext} <span style={{ opacity: .6, marginLeft: 4 }}>{count}</span>
+            </ExtChip>
+          ))}
+        </ExtChipRow>
+      )}
+
+      <FileSearchInput
+        placeholder={placeholder}
+        value={searchQ}
+        onChange={e => onSearchChange(e.target.value)}
+      />
+    </TypeSelectorWrap>
+  )
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+  return debounced
+}
+
 export default function RecentPage() {
   const [page, setPage]             = useState(0)
   const [showBannis, setShowBannis] = useState(false)
   const [filterQ,    setFilterQ]    = useState('')
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo,   setFilterTo]   = useState('')
+  // File type selector state — default: pdf only
+  const [fileTypes, setFileTypes]   = useState<Set<string>>(new Set(['pdf']))
+  const [fileQ,     setFileQ]       = useState('')
+  const debouncedFileQ = useDebounce(fileQ, 500)
   const limit = 20
   const queryClient = useQueryClient()
 
@@ -682,11 +871,23 @@ export default function RecentPage() {
   // Pour iMessage sans filtre → pas besoin de la query (ImessageView gère ses propres queries)
   const isImessageNoFilter = displaySource === 'imessage' && !hasFilters
 
+  const isFileSource = displaySource === 'file'
+  const isFileSearch = isFileSource && debouncedFileQ.trim().length >= 3
+
   const { data, isLoading } = useQuery<RecentDoc[]>({
     queryKey: ['recent', displaySource, page, filterQ, filterFrom, filterTo],
     queryFn:  () => api.getRecent(displaySource, limit, page * limit, filters),
-    enabled:  activeSources.length > 0 && !isImessageNoFilter,
+    enabled:  activeSources.length > 0 && !isImessageNoFilter && !isFileSource,
     refetchInterval: false,
+  })
+
+  const { data: fileSearchResults, isFetching: fileSearchLoading } = useQuery({
+    queryKey: ['files-live-search', debouncedFileQ, [...fileTypes].sort().join(',')],
+    queryFn:  () => api.filesSearch(debouncedFileQ, [...fileTypes].join(',')),
+    enabled:  isFileSearch,
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   })
 
   return (
@@ -708,32 +909,49 @@ export default function RecentPage() {
         ))}
       </TabRow>
 
-      <FilterBar>
-        <FilterGroup style={{ flex: 1, minWidth: 160 }}>
-          <FilterLabel>🔍</FilterLabel>
-          <FilterInput
-            type="text"
-            placeholder={`Chercher dans ${SOURCE_LABELS[displaySource] ?? displaySource}...`}
-            value={filterQ}
-            onChange={e => { setFilterQ(e.target.value); setPage(0) }}
-            style={{ width: '100%' }}
-          />
-        </FilterGroup>
+      {/* Fichiers : type selector + barre de recherche dédiée */}
+      {isFileSource && (
+        <FileTypeSelector
+          selected={fileTypes}
+          onToggle={ext => setFileTypes(prev => {
+            const next = new Set(prev)
+            next.has(ext) ? next.delete(ext) : next.add(ext)
+            return next
+          })}
+          searchQ={fileQ}
+          onSearchChange={q => setFileQ(q)}
+        />
+      )}
 
-        <FilterGroup>
-          <FilterLabel>Du</FilterLabel>
-          <FilterInput type="date" value={filterFrom} onChange={e => { setFilterFrom(e.target.value); setPage(0) }} />
-        </FilterGroup>
+      {/* Autres sources : FilterBar standard */}
+      {!isFileSource && (
+        <FilterBar>
+          <FilterGroup style={{ flex: 1, minWidth: 160 }}>
+            <FilterLabel>🔍</FilterLabel>
+            <FilterInput
+              type="text"
+              placeholder={`Chercher dans ${SOURCE_LABELS[displaySource] ?? displaySource}...`}
+              value={filterQ}
+              onChange={e => { setFilterQ(e.target.value); setPage(0) }}
+              style={{ width: '100%' }}
+            />
+          </FilterGroup>
 
-        <FilterGroup>
-          <FilterLabel>Au</FilterLabel>
-          <FilterInput type="date" value={filterTo} onChange={e => { setFilterTo(e.target.value); setPage(0) }} />
-        </FilterGroup>
+          <FilterGroup>
+            <FilterLabel>Du</FilterLabel>
+            <FilterInput type="date" value={filterFrom} onChange={e => { setFilterFrom(e.target.value); setPage(0) }} />
+          </FilterGroup>
 
-        {hasFilters && (
-          <ClearBtn onClick={clearFilters}>✕ Effacer</ClearBtn>
-        )}
-      </FilterBar>
+          <FilterGroup>
+            <FilterLabel>Au</FilterLabel>
+            <FilterInput type="date" value={filterTo} onChange={e => { setFilterTo(e.target.value); setPage(0) }} />
+          </FilterGroup>
+
+          {hasFilters && (
+            <ClearBtn onClick={clearFilters}>✕ Effacer</ClearBtn>
+          )}
+        </FilterBar>
+      )}
 
       {/* iMessage sans filtre → vue deux colonnes */}
       {isImessageNoFilter && <ImessageView />}
@@ -756,8 +974,27 @@ export default function RecentPage() {
         </>
       )}
 
+      {/* Résultats live fichiers (source=file + query) */}
+      {isFileSearch && (
+        <>
+          {fileSearchLoading && <Loader />}
+          {!fileSearchLoading && fileSearchResults?.length === 0 && (
+            <EmptyMsg>Aucun fichier trouvé pour « {fileQ} »</EmptyMsg>
+          )}
+          <DocList>
+            {fileSearchResults?.map((f, i) => (
+              <FileCard key={i} onClick={() => window.open(`file://${f.path}`, '_blank')}>
+                <FileCardName>{f.name}</FileCardName>
+                <FileCardMeta>.{f.ext} · {f.size_kb > 0 ? `${f.size_kb} KB` : '< 1 KB'} · {f.path}</FileCardMeta>
+                {f.snippet && <FileCardSnippet>{highlightText(f.snippet, fileQ)}</FileCardSnippet>}
+              </FileCard>
+            ))}
+          </DocList>
+        </>
+      )}
+
       {/* Autres sources → cartes standard */}
-      {displaySource !== 'imessage' && (
+      {displaySource !== 'imessage' && !isFileSource && (
         <>
           {isLoading && <Loader />}
           {!isLoading && data?.length === 0 && (

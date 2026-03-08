@@ -21,7 +21,11 @@ pub async fn start_server(
     p2p: Option<Arc<P2pNode>>,
     port: u16,
 ) -> Result<()> {
-    let state = AppState { vault, p2p };
+    let state = AppState {
+        vault,
+        p2p,
+        index_progress: Arc::new(std::sync::Mutex::new(Default::default())),
+    };
 
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:5173".parse::<HeaderValue>()?)
@@ -51,6 +55,10 @@ pub async fn start_server(
         .route("/unban", post(routes::post_unban))
         .route("/blacklist", get(routes::get_blacklist))
         .route("/compact", post(routes::post_compact))
+        .route("/files/search", get(routes::get_files_search))
+        .route("/index/preview", get(routes::get_index_preview))
+        .route("/index/progress", get(routes::get_index_progress))
+        .route("/index", post(routes::post_index))
         .route("/privacy", get(routes::get_privacy).post(routes::post_privacy))
         .route("/network/peers", get(routes::get_network_peers))
         .route("/network/invite", post(routes::post_network_invite))

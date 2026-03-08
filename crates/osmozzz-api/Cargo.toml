@@ -21,3 +21,6 @@ tower-http = { version = "0.5", features = ["cors", "fs"] }
 include_dir = "0.7"
 toml = "0.8"
 dirs-next = { workspace = true }
+shellexpand = { workspace = true }
+walkdir = { workspace = true }
+pdf-extract = { workspace = true }

@@ -164,6 +164,14 @@ impl VectorStore {
         Ok(())
     }
 
+    /// Stocke un document SANS calculer d'embedding ONNX.
+    /// Vecteur = zéros (384 floats). Cherchable par mot-clé (.contains()),
+    /// mais pas par recherche vectorielle sémantique.
+    pub async fn store_text_only(&self, doc: &Document) -> Result<()> {
+        let zero_embedding = vec![0.0f32; EMBEDDING_DIM as usize];
+        self.upsert(doc, zero_embedding).await
+    }
+
     pub async fn delete_by_source(&self, source: &str) -> Result<()> {
         let table = self.get_table().await?;
         table

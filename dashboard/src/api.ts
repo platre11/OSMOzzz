@@ -231,6 +231,30 @@ export const api = {
     await axios.post(`${BASE}/compact`)
   },
 
+  indexPreview: async (): Promise<Record<string, number>> => {
+    const r = await axios.get(`${BASE}/index/preview`)
+    return r.data.data?.extensions ?? {}
+  },
+
+  indexProgress: async (): Promise<{
+    running: boolean; total: number; processed: number;
+    indexed: number; skipped: number; current_file: string
+  }> => {
+    const r = await axios.get(`${BASE}/index/progress`)
+    return r.data.data ?? { running: false, total: 0, processed: 0, indexed: 0, skipped: 0, current_file: '' }
+  },
+
+  indexFiles: async (extensions?: string[], path?: string): Promise<void> => {
+    await axios.post(`${BASE}/index`, { path, extensions })
+  },
+
+  filesSearch: async (q: string, exts?: string): Promise<Array<{
+    path: string; name: string; ext: string; size_kb: number; snippet: string
+  }>> => {
+    const r = await axios.get(`${BASE}/files/search`, { params: { q, exts: exts ?? '', limit: 40 } })
+    return r.data.data ?? []
+  },
+
   // ─── Réseau P2P ─────────────────────────────────────────────────────────────
 
   getNetworkPeers: async (): Promise<PeerResponse[]> => {

@@ -15,11 +15,13 @@ const OVERLAP_CHARS: usize = 160;
 const MAX_TEXT_BYTES: u64 = 2 * 1024 * 1024;
 // Fichiers binaires : pas de limite de taille (on stocke juste le nom/chemin)
 const MAX_BINARY_SIZE: u64 = 500 * 1024 * 1024;
+// PDFs > 5 Mo → métadonnées seulement (pdf_extract est trop gourmand en RAM)
+pub const MAX_PDF_BYTES: u64 = 5 * 1024 * 1024;
 // Dans le watcher : PDFs > 10 Mo → métadonnées seulement (évite les explosions RAM)
 pub const MAX_PDF_WATCHER_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Dossiers à ignorer systématiquement (bruit, dépendances, caches)
-pub(crate) const SKIP_DIRS: &[&str] = &[
+pub const SKIP_DIRS: &[&str] = &[
     "node_modules",
     ".git",
     "target",
@@ -43,7 +45,7 @@ pub(crate) const SKIP_DIRS: &[&str] = &[
 ];
 
 /// Extensions connues comme texte lisible
-pub(crate) const TEXT_EXTENSIONS: &[&str] = &[
+pub const TEXT_EXTENSIONS: &[&str] = &[
     // Langages de programmation
     "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h",
     "hpp", "cs", "swift", "kt", "rb", "php", "lua", "r", "scala", "dart",
@@ -315,9 +317,19 @@ pub fn harvest_file(
         }
 
         FileKind::Pdf => {
-            if file_size > MAX_BINARY_SIZE {
-                debug!("Skipping very large PDF: {}", path.display());
-                return vec![];
+            if file_size > MAX_PDF_BYTES {
+                debug!("PDF too large ({}KB > 5MB), indexing metadata only: {}", file_size / 1024, path.display());
+                // Métadonnées seulement pour les gros PDFs
+                let content = format!(
+                    "File: {}\nExtension: .pdf\nPath: {}\n(large PDF: {} KB)",
+                    file_name, path.display(), file_size / 1024
+                );
+                let ck = checksum::compute(&content);
+                if known_checksums.contains(&ck) { return vec![]; }
+                let mut doc = Document::new(SourceType::File, &base_url, &content, &ck)
+                    .with_title(&file_name);
+                if let Some(ts) = modified_ts { doc = doc.with_source_ts(ts); }
+                return vec![doc];
             }
 
             let full_text = match pdf_extract::extract_text(path) {

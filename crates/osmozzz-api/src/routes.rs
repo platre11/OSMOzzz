@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::state::AppState;
-use osmozzz_harvester::GmailConfig;
+use osmozzz_core::Embedder;
+use osmozzz_harvester::{GmailConfig, SKIP_DIRS, TEXT_EXTENSIONS, harvest_file};
 
 // ─── Types de réponse ────────────────────────────────────────────────────────
 
@@ -155,8 +156,11 @@ fn default_limit() -> usize { 200 }
 // ─── GET /api/status ─────────────────────────────────────────────────────────
 
 pub async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
-    // Sources locales : toujours présentes
+    // Sources locales : selon l'OS
+    #[cfg(target_os = "macos")]
     let local_sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
+    #[cfg(not(target_os = "macos"))]
+    let local_sources = ["email", "chrome", "file", "terminal"];
     // Sources cloud : présentes seulement si le .toml de config existe
     let cloud_sources = [
         ("notion",   "notion.toml"),
@@ -210,12 +214,34 @@ pub async fn get_search(
     let from_ts = params.from.as_deref().and_then(parse_date_ts);
     let to_ts   = params.to.as_deref().and_then(|s| parse_date_ts_end(s));
 
-    let grouped = match state.vault.search_grouped_by_keyword(q, 5).await {
+    let file_q = q.to_lowercase();
+    let (grouped_res, live_files) = tokio::join!(
+        state.vault.search_grouped_by_keyword(q, 5),
+        tokio::task::spawn_blocking(move || live_file_search_sync(file_q, std::collections::HashSet::new(), 5))
+    );
+
+    let mut grouped = match grouped_res {
         Ok(g) => g,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, ApiResponse::<GroupedSearchResponse>::err(e.to_string())).into_response(),
     };
 
+    // Merge résultats disque dans le groupe "file" (dédupliqués par path)
+    let live_files = live_files.unwrap_or_default();
+    if !live_files.is_empty() {
+        let file_entries = grouped.entry("file".to_string()).or_insert_with(Vec::new);
+        let existing: std::collections::HashSet<String> = file_entries.iter().map(|(_, _, url, _)| url.clone()).collect();
+        for fr in live_files {
+            if !existing.contains(&fr.path) {
+                file_entries.push((0, Some(fr.name), fr.path, fr.snippet));
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
     let source_order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar",
+                        "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+    #[cfg(not(target_os = "macos"))]
+    let source_order = ["email", "chrome", "file", "terminal",
                         "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
 
     let groups: Vec<SourceGroup> = source_order.iter()
@@ -1018,6 +1044,337 @@ pub async fn post_privacy(Json(body): Json<osmozzz_core::filter::PrivacyConfig>)
         Ok(_)  => ApiResponse::ok("ok".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
+}
+
+// ─── POST /api/index ─────────────────────────────────────────────────────────
+
+// ─── GET /api/files/search?q=... ─────────────────────────────────────────────
+// Recherche directe sur le disque, SANS index LanceDB.
+// Même principe que le MCP tool find_file.
+
+#[derive(Deserialize)]
+pub struct FilesSearchQuery {
+    pub q: String,
+    #[serde(default = "default_files_limit")]
+    pub limit: usize,
+    /// Extensions filtrées, séparées par virgule : "pdf,md,txt"
+    #[serde(default)]
+    pub exts: String,
+}
+fn default_files_limit() -> usize { 40 }
+
+#[derive(Serialize, Clone)]
+pub struct FilesSearchResult {
+    pub path: String,
+    pub name: String,
+    pub ext: String,
+    pub size_kb: u64,
+    pub snippet: String,
+}
+
+/// Recherche synchrone sur disque (Desktop/Documents/Downloads).
+/// `allowed_exts` vide = toutes les extensions.
+fn live_file_search_sync(
+    query: String,
+    allowed_exts: std::collections::HashSet<String>,
+    limit: usize,
+) -> Vec<FilesSearchResult> {
+    let home = dirs_next::home_dir().unwrap_or_default();
+    let roots = vec![home.join("Desktop"), home.join("Documents"), home.join("Downloads")];
+    let mut found = Vec::new();
+
+    for root in &roots {
+        if !root.exists() { continue; }
+        for entry in walkdir::WalkDir::new(root)
+            .follow_links(false)
+            .max_depth(20)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !name.starts_with('.') && !SKIP_DIRS.contains(&&*name.to_string())
+            })
+            .filter_map(|e| e.ok())
+        {
+            if found.len() >= limit { break; }
+            let path = entry.path();
+            if !path.is_file() { continue; }
+
+            let name = path.file_name()
+                .and_then(|n| n.to_str()).unwrap_or("").to_string();
+            let ext = path.extension()
+                .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+            if !allowed_exts.is_empty() && !allowed_exts.contains(&ext) { continue; }
+
+            let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+            let size_kb = size_bytes / 1024;
+
+            let name_match = name.to_lowercase().contains(&query);
+
+            let extracted_text: Option<String> = if ext == "pdf" && size_bytes < 10 * 1024 * 1024 {
+                pdf_extract::extract_text(path).ok()
+            } else if TEXT_EXTENSIONS.contains(&ext.as_str()) && size_bytes < 2 * 1024 * 1024 {
+                std::fs::read_to_string(path).ok()
+            } else { None };
+
+            let content_match = if !name_match {
+                extracted_text.as_ref().map(|t| t.to_lowercase().contains(&query)).unwrap_or(false)
+            } else { false };
+
+            if !name_match && !content_match { continue; }
+
+            let snippet = if let Some(ref text) = extracted_text {
+                let lower = text.to_lowercase();
+                if let Some(pos) = lower.find(&query) {
+                    let mut start = pos.saturating_sub(120);
+                    while !text.is_char_boundary(start) { start += 1; }
+                    let mut end = (pos + query.len() + 200).min(text.len());
+                    while !text.is_char_boundary(end) { end -= 1; }
+                    format!("...{}...", text[start..end].trim())
+                } else { String::new() }
+            } else { String::new() };
+
+            found.push(FilesSearchResult { path: path.display().to_string(), name, ext, size_kb, snippet });
+        }
+    }
+    found
+}
+
+pub async fn get_files_search(
+    Query(params): Query<FilesSearchQuery>,
+) -> impl IntoResponse {
+    let query = params.q.to_lowercase();
+    if query.trim().is_empty() {
+        return ApiResponse::ok(Vec::<FilesSearchResult>::new()).into_response();
+    }
+
+    let allowed_exts: std::collections::HashSet<String> = params.exts
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let limit = params.limit;
+    let results = tokio::task::spawn_blocking(move || {
+        live_file_search_sync(query, allowed_exts, limit)
+    }).await.unwrap_or_default();
+
+    ApiResponse::ok(results).into_response()
+}
+
+// ─── GET /api/index/preview ───────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct IndexPreview {
+    /// extension → nombre de fichiers (ex: {"pdf": 12, "md": 45})
+    pub extensions: HashMap<String, usize>,
+}
+
+pub async fn get_index_preview() -> impl IntoResponse {
+    use osmozzz_harvester::SKIP_DIRS;
+    use walkdir::WalkDir;
+
+    let home = dirs_next::home_dir().unwrap_or_default();
+    let paths = vec![
+        home.join("Desktop"),
+        home.join("Documents"),
+        home.join("Downloads"),
+    ];
+
+    let mut counts: HashMap<String, usize> = HashMap::new();
+
+    // Walkdir léger : on ne lit pas les fichiers, juste les extensions
+    for root in &paths {
+        if !root.exists() { continue; }
+        for entry in WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e: &walkdir::DirEntry| {
+                let name = e.file_name().to_string_lossy();
+                !name.starts_with('.') && !SKIP_DIRS.contains(&&*name)
+            })
+            .filter_map(|e: Result<walkdir::DirEntry, _>| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() { continue; }
+            let ext = path.extension()
+                .and_then(|e: &std::ffi::OsStr| e.to_str())
+                .unwrap_or("other")
+                .to_lowercase();
+            *counts.entry(ext).or_insert(0) += 1;
+        }
+    }
+
+    // Filtrer les extensions avec moins de 1 fichier + trier par count desc
+    let mut counts: HashMap<String, usize> = counts.into_iter()
+        .filter(|(_, c)| *c >= 1)
+        .collect();
+
+    // Regrouper les extensions très mineures (< 3 fichiers) dans "other"
+    let minor: Vec<String> = counts.iter()
+        .filter(|(k, v)| **v < 3 && k.as_str() != "pdf")
+        .map(|(k, _)| k.clone())
+        .collect();
+    let minor_count: usize = minor.iter().map(|k| counts[k]).sum();
+    for k in &minor { counts.remove(k); }
+    if minor_count > 0 {
+        *counts.entry("other".to_string()).or_insert(0) += minor_count;
+    }
+
+    ApiResponse::ok(IndexPreview { extensions: counts }).into_response()
+}
+
+// ─── POST /api/index ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct IndexBody {
+    pub path: Option<String>,
+    /// Extensions à indexer — vide = toutes (ex: ["pdf", "md", "txt"])
+    pub extensions: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+pub struct IndexResult {
+    pub indexed: usize,
+    pub skipped: usize,
+}
+
+// ─── GET /api/index/progress ─────────────────────────────────────────────────
+
+pub async fn get_index_progress(State(state): State<AppState>) -> impl IntoResponse {
+    let p = state.index_progress.lock().unwrap().clone();
+    ApiResponse::ok(p).into_response()
+}
+
+// ─── POST /api/index ─────────────────────────────────────────────────────────
+
+pub async fn post_index(
+    State(state): State<AppState>,
+    Json(body): Json<IndexBody>,
+) -> impl IntoResponse {
+    use crate::state::IndexProgress;
+
+    // Refuse if already running
+    {
+        let p = state.index_progress.lock().unwrap();
+        if p.running {
+            return ApiResponse::<String>::err("Indexation déjà en cours".to_string()).into_response();
+        }
+    }
+
+    let roots: Vec<std::path::PathBuf> = if let Some(ref p) = body.path {
+        vec![std::path::PathBuf::from(::shellexpand::tilde(p).to_string())]
+    } else {
+        let home = dirs_next::home_dir().unwrap_or_default();
+        vec![home.join("Desktop"), home.join("Documents"), home.join("Downloads")]
+    };
+
+    let ext_filter: std::collections::HashSet<String> = body.extensions
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.to_lowercase())
+        .collect();
+
+    // Count total files first for progress bar
+    let total = {
+        let mut n = 0usize;
+        for root in &roots {
+            if !root.exists() { continue; }
+            for entry in walkdir::WalkDir::new(root).follow_links(false).into_iter()
+                .filter_entry(|e| {
+                    let name = e.file_name().to_string_lossy();
+                    !name.starts_with('.') && !SKIP_DIRS.contains(&&*name.to_string())
+                })
+                .filter_map(|e| e.ok())
+            {
+                if !entry.path().is_file() { continue; }
+                if ext_filter.is_empty() { n += 1; continue; }
+                let ext = entry.path().extension()
+                    .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                if ext_filter.contains(&ext) { n += 1; }
+            }
+        }
+        n
+    };
+
+    {
+        let mut p = state.index_progress.lock().unwrap();
+        *p = IndexProgress { running: true, total, ..Default::default() };
+    }
+
+    let progress = state.index_progress.clone();
+    let vault = state.vault.clone();
+
+    tokio::spawn(async move {
+        let mut indexed = 0usize;
+        let mut skipped = 0usize;
+
+        for root in &roots {
+            if !root.exists() { continue; }
+
+            for entry in walkdir::WalkDir::new(root).follow_links(false).into_iter()
+                .filter_entry(|e| {
+                    let name = e.file_name().to_string_lossy();
+                    !name.starts_with('.') && !SKIP_DIRS.contains(&&*name.to_string())
+                })
+                .filter_map(|e| e.ok())
+            {
+                let path = entry.path();
+                if !path.is_file() { continue; }
+
+                // Extension filter
+                let ext = path.extension()
+                    .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                if !ext_filter.is_empty() && !ext_filter.contains(&ext) { continue; }
+
+                let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                let file_name = path.file_name()
+                    .and_then(|n| n.to_str()).unwrap_or("").to_string();
+
+                // Update progress
+                {
+                    let mut p = progress.lock().unwrap();
+                    p.processed += 1;
+                    p.current_file = file_name.clone();
+                    p.indexed = indexed;
+                    p.skipped = skipped;
+                }
+
+                let docs = tokio::task::spawn_blocking({
+                    let path = path.to_path_buf();
+                    move || harvest_file(&path, file_size, &Default::default())
+                }).await.unwrap_or_default();
+
+                if docs.is_empty() {
+                    skipped += 1;
+                    continue;
+                }
+
+                let mut any_indexed = false;
+                for doc in &docs {
+                    // PDFs: store text only (no ONNX = no OOM)
+                    let result = if ext == "pdf" {
+                        vault.store_text_only(doc).await
+                    } else {
+                        vault.upsert(doc).await
+                    };
+                    match result {
+                        Ok(_) => { any_indexed = true; }
+                        Err(_) => {}
+                    }
+                }
+                if any_indexed { indexed += 1; } else { skipped += 1; }
+            }
+        }
+
+        let mut p = progress.lock().unwrap();
+        p.running = false;
+        p.indexed = indexed;
+        p.skipped = skipped;
+        p.current_file = String::new();
+    });
+
+    ApiResponse::ok(IndexResult { indexed: 0, skipped: 0 }).into_response()
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

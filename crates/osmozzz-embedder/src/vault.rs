@@ -48,6 +48,13 @@ impl Vault {
         self.store.delete_by_source(source).await
     }
 
+    /// Stocke un document SANS ONNX — texte brut uniquement.
+    /// Idéal pour les PDFs et fichiers volumineux.
+    /// Cherchable par mot-clé, pas par recherche vectorielle.
+    pub async fn store_text_only(&self, doc: &Document) -> osmozzz_core::Result<()> {
+        self.store.store_text_only(doc).await
+    }
+
     pub async fn get_full_content_by_url(&self, url: &str) -> osmozzz_core::Result<Option<(Option<String>, String)>> {
         self.store.get_full_content_by_url(url).await
     }
