@@ -60,6 +60,21 @@ pub struct RecentDoc {
     pub title: Option<String>,
     pub content: String,
     pub source: String,
+    pub source_ts: Option<i64>,
+}
+
+/// Parse "YYYY-MM-DD" → timestamp Unix début de journée (00:00:00)
+fn parse_date_ts(s: &str) -> Option<i64> {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .map(|dt| dt.and_utc().timestamp())
+}
+
+/// Parse "YYYY-MM-DD" → timestamp Unix fin de journée (23:59:59)
+fn parse_date_ts_end(s: &str) -> Option<i64> {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
+        .and_then(|d| d.and_hms_opt(23, 59, 59))
+        .map(|dt| dt.and_utc().timestamp())
 }
 
 #[derive(Serialize)]
@@ -83,6 +98,9 @@ impl<T: Serialize> ApiResponse<T> {
 #[derive(Deserialize)]
 pub struct SearchQuery {
     pub q: String,
+    pub source: Option<String>,  // filtre source unique
+    pub from:   Option<String>,  // YYYY-MM-DD
+    pub to:     Option<String>,  // YYYY-MM-DD
 }
 
 #[derive(Deserialize)]
@@ -93,6 +111,9 @@ pub struct OpenQuery {
 #[derive(Deserialize)]
 pub struct RecentQuery {
     pub source: Option<String>,
+    pub q:      Option<String>,  // recherche mot-clé dans la source
+    pub from:   Option<String>,  // YYYY-MM-DD
+    pub to:     Option<String>,  // YYYY-MM-DD
     #[serde(default = "default_limit")]
     pub limit: usize,
     #[serde(default)]
@@ -186,29 +207,41 @@ pub async fn get_search(
     Query(params): Query<SearchQuery>,
 ) -> impl IntoResponse {
     let q = &params.q;
+    let from_ts = params.from.as_deref().and_then(parse_date_ts);
+    let to_ts   = params.to.as_deref().and_then(|s| parse_date_ts_end(s));
 
     let grouped = match state.vault.search_grouped_by_keyword(q, 5).await {
         Ok(g) => g,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, ApiResponse::<GroupedSearchResponse>::err(e.to_string())).into_response(),
     };
 
-    // Ordre d'affichage fixe — sources vides filtrées automatiquement
-    let source_order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar"];
+    let source_order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar",
+                        "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+
     let groups: Vec<SourceGroup> = source_order.iter()
+        .filter(|src| params.source.as_deref().map_or(true, |f| f == **src))
         .filter_map(|src| {
-            grouped.get(*src).map(|results| SourceGroup {
-                source: src.to_string(),
-                results: results.iter().map(|(ts, title, url, content)| SearchDoc {
-                    url: url.clone(),
-                    title: title.clone(),
-                    content: truncate(content, 300),
-                    date: if *ts > 0 {
-                        chrono::DateTime::from_timestamp(*ts, 0)
-                            .map(|dt: chrono::DateTime<chrono::Utc>| dt.format("%d/%m/%Y").to_string())
-                    } else { None },
-                }).collect(),
+            grouped.get(*src).map(|results| {
+                let filtered: Vec<SearchDoc> = results.iter()
+                    .filter(|(ts, _, _, _)| {
+                        from_ts.map_or(true, |f| *ts >= f) &&
+                        to_ts.map_or(true,   |t| *ts <= t)
+                    })
+                    .map(|(ts, title, url, content)| SearchDoc {
+                        url: url.clone(),
+                        title: title.clone(),
+                        content: truncate(content, 300),
+                        date: if *ts > 0 {
+                            chrono::DateTime::from_timestamp(*ts, 0)
+                                .map(|dt: chrono::DateTime<chrono::Utc>| dt.format("%d/%m/%Y").to_string())
+                        } else { None },
+                    })
+                    .collect();
+                (src, filtered)
             })
         })
+        .filter(|(_, results)| !results.is_empty())
+        .map(|(src, results)| SourceGroup { source: src.to_string(), results })
         .collect();
 
     ApiResponse::ok(GroupedSearchResponse { groups }).into_response()
@@ -220,7 +253,39 @@ pub async fn get_recent(
     State(state): State<AppState>,
     Query(params): Query<RecentQuery>,
 ) -> impl IntoResponse {
-    let source = params.source.as_deref().unwrap_or("email");
+    let source  = params.source.as_deref().unwrap_or("email");
+    let keyword = params.q.as_deref().unwrap_or("");
+    let from_ts = params.from.as_deref().and_then(parse_date_ts);
+    let to_ts   = params.to.as_deref().and_then(|s| parse_date_ts_end(s));
+    let has_filters = !keyword.is_empty() || from_ts.is_some() || to_ts.is_some();
+
+    // Si filtres actifs : passer par la recherche datée (keyword + date range)
+    // Sinon : chemin rapide recent_by_source
+    if has_filters {
+        let raw = match state.vault.search_by_keyword_dated(keyword, params.limit + params.offset + 200, source).await {
+            Ok(r) => r,
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, ApiResponse::<Vec<RecentDoc>>::err(e.to_string())).into_response(),
+        };
+
+        let docs: Vec<RecentDoc> = raw.into_iter()
+            .filter(|(ts, _, _, _)| {
+                from_ts.map_or(true, |f| *ts >= f) &&
+                to_ts.map_or(true,   |t| *ts <= t)
+            })
+            .skip(params.offset)
+            .take(params.limit)
+            .map(|(ts, title, url, content): (i64, Option<String>, String, String)| RecentDoc {
+                url,
+                title,
+                content: truncate(&content, 300),
+                source: source.to_string(),
+                source_ts: if ts > 0 { Some(ts) } else { None },
+            })
+            .collect();
+
+        return ApiResponse::ok(docs).into_response();
+    }
+
     let results = match state.vault.recent_by_source(source, params.limit + params.offset).await {
         Ok(r) => r,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, ApiResponse::<Vec<RecentDoc>>::err(e.to_string())).into_response(),
@@ -235,6 +300,7 @@ pub async fn get_recent(
             title: r.title,
             content: truncate(&r.content, 300),
             source: r.source,
+            source_ts: None,
         })
         .collect();
 

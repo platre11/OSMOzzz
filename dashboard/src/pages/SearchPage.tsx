@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import styled, { keyframes } from 'styled-components'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -6,6 +6,7 @@ import type { GroupedSearchResponse, SearchDoc } from '../api'
 import { icons } from '../lib/assets'
 import type { LucideIcon } from 'lucide-react'
 import BlacklistPanel, { BannisBtn } from '../components/BlacklistPanel'
+import { highlightText, renderEmailContent } from '../lib/highlight'
 
 const SOURCE_LABELS: Record<string, string> = {
   email: 'Gmail', chrome: 'Chrome', file: 'Fichiers', imessage: 'iMessage',
@@ -22,7 +23,6 @@ const SOURCE_ICONS: Record<string, LucideIcon> = {
 }
 
 const CLICKABLE_SOURCES = new Set(['file', 'imessage', 'notes', 'calendar', 'terminal', 'chrome', 'safari'])
-const LINK_RE = /(https?:\/\/[^\s<>"'[\]()]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
 
 const spin = keyframes`to { transform: rotate(360deg); }`
 
@@ -74,6 +74,66 @@ const SearchInput = styled.input`
 
   &::placeholder { color: #9ca3af; }
 `
+
+// ─── Filter bar ───────────────────────────────────────────────────────────────
+
+const FilterSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`
+
+
+const DateRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+`
+
+const DateGroup = styled.div<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1.5px solid ${({ $active }) => $active ? '#5b5ef4' : '#e5e7eb'};
+  border-radius: 10px;
+  padding: 6px 10px;
+  box-shadow: ${({ $active }) => $active ? '0 0 0 2px rgba(91,94,244,.12)' : 'none'};
+  transition: all .15s;
+`
+
+const FilterLabel = styled.span`
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+`
+
+const FilterDate = styled.input`
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: #1a1d23;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  &::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
+`
+
+const ClearBtn = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #6b7280;
+  cursor: pointer;
+  &:hover { background: #e5e7eb; }
+`
+
 
 // ─── Brut results ─────────────────────────────────────────────────────────────
 
@@ -201,21 +261,6 @@ const CardUrl = styled.code`
   white-space: nowrap;
 `
 
-const Highlight = styled.mark`
-  background: rgba(91, 94, 244, 0.18);
-  color: inherit;
-  border-radius: 3px;
-  padding: 0 1px;
-`
-
-const InlineLink = styled.a`
-  color: #5b5ef4;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  word-break: break-all;
-
-  &:hover { color: #4a4de3; }
-`
 
 const CardActions = styled.div`
   position: absolute;
@@ -272,44 +317,6 @@ const BanMenuItem = styled.button`
 `
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function highlightText(text: string, query: string): React.ReactNode {
-  if (!query || query.length < 2) return text
-  const idx = text.toLowerCase().indexOf(query.toLowerCase())
-  if (idx === -1) return text
-  return (
-    <>
-      {text.slice(0, idx)}
-      <Highlight>{text.slice(idx, idx + query.length)}</Highlight>
-      {highlightText(text.slice(idx + query.length), query)}
-    </>
-  )
-}
-
-function renderEmailContent(text: string, query: string): React.ReactNode {
-  const parts = text.split(LINK_RE)
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (/^https?:\/\//.test(part)) {
-          return (
-            <InlineLink key={i} href={part} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
-              {highlightText(part, query)}
-            </InlineLink>
-          )
-        }
-        if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(part)) {
-          return (
-            <InlineLink key={i} href={`mailto:${part}`} onClick={e => e.stopPropagation()}>
-              {highlightText(part, query)}
-            </InlineLink>
-          )
-        }
-        return <span key={i}>{highlightText(part, query)}</span>
-      })}
-    </>
-  )
-}
 
 function resolveUrl(source: string, doc: SearchDoc): string {
   if (source === 'imessage') {
@@ -409,9 +416,11 @@ function ResultCard({ doc, source, query, onBanned }: { doc: SearchDoc; source: 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SearchPage() {
-  const [query, setQuery]              = useState('')
-  const [debouncedQuery, setDebounced] = useState('')
-  const [showBannis, setShowBannis]    = useState(false)
+  const [query, setQuery]                     = useState('')
+  const [debouncedQuery, setDebounced]        = useState('')
+  const [showBannis, setShowBannis]           = useState(false)
+  const [filterFrom, setFilterFrom]           = useState('')
+  const [filterTo,   setFilterTo]             = useState('')
   const queryClient = useQueryClient()
 
   const debounce = useCallback((value: string) => {
@@ -421,14 +430,21 @@ export default function SearchPage() {
 
   const handleChange = (v: string) => { setQuery(v); debounce(v) }
 
+  const hasActiveFilters = !!filterFrom || !!filterTo
+  const clearFilters = () => { setFilterFrom(''); setFilterTo('') }
+
   const { data, isLoading } = useQuery<GroupedSearchResponse>({
-    queryKey: ['search', debouncedQuery],
-    queryFn:  () => api.search(debouncedQuery),
+    queryKey: ['search', debouncedQuery, filterFrom, filterTo],
+    queryFn:  () => api.search(debouncedQuery, {
+      from: filterFrom || undefined,
+      to:   filterTo   || undefined,
+    }),
     enabled:  debouncedQuery.length > 1,
     refetchInterval: false,
   })
 
-  const hasResults = (data?.groups?.length ?? 0) > 0
+  const filteredGroups = data?.groups ?? []
+  const hasResults = filteredGroups.length > 0
 
   return (
     <Page>
@@ -445,14 +461,31 @@ export default function SearchPage() {
             autoFocus
           />
         </SearchWrapper>
-
         <BannisBtn onClick={() => setShowBannis(true)}>Ban</BannisBtn>
       </TopRow>
+
+      <FilterSection>
+        <DateRow>
+          <DateGroup $active={!!filterFrom}>
+            <FilterLabel>Du</FilterLabel>
+            <FilterDate type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} />
+          </DateGroup>
+
+          <DateGroup $active={!!filterTo}>
+            <FilterLabel>Au</FilterLabel>
+            <FilterDate type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} />
+          </DateGroup>
+
+          {hasActiveFilters && (
+            <ClearBtn onClick={clearFilters}>✕ Effacer les filtres</ClearBtn>
+          )}
+        </DateRow>
+      </FilterSection>
 
       {isLoading && <Loader />}
 
       {!isLoading && debouncedQuery.length > 1 && !hasResults && (
-        <EmptyMsg>Aucun resultat pour « {debouncedQuery} »</EmptyMsg>
+        <EmptyMsg>Aucun resultat pour « {debouncedQuery} »{hasActiveFilters ? ' avec ces filtres' : ''}</EmptyMsg>
       )}
 
       {!debouncedQuery && (
@@ -461,7 +494,7 @@ export default function SearchPage() {
 
       {hasResults && (
         <GroupsContainer>
-          {data!.groups.map(group => {
+          {filteredGroups.map(group => {
             const Icon = SOURCE_ICONS[group.source]
             return (
               <Group key={group.source}>

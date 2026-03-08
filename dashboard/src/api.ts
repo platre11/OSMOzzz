@@ -133,13 +133,13 @@ export const api = {
     return r.data.data
   },
 
-  search: async (q: string): Promise<GroupedSearchResponse> => {
-    const r = await axios.get(`${BASE}/search`, { params: { q } })
+  search: async (q: string, filters?: { source?: string; from?: string; to?: string }): Promise<GroupedSearchResponse> => {
+    const r = await axios.get(`${BASE}/search`, { params: { q, ...filters } })
     return r.data.data ?? { groups: [] }
   },
 
-  getRecent: async (source: string, limit = 20, offset = 0): Promise<RecentDoc[]> => {
-    const r = await axios.get(`${BASE}/recent`, { params: { source, limit, offset } })
+  getRecent: async (source: string, limit = 20, offset = 0, filters?: { q?: string; from?: string; to?: string }): Promise<RecentDoc[]> => {
+    const r = await axios.get(`${BASE}/recent`, { params: { source, limit, offset, ...filters } })
     return r.data.data ?? []
   },
 

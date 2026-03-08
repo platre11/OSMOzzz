@@ -132,6 +132,17 @@ impl Vault {
         Ok(grouped)
     }
 
+    /// Recherche keyword dans une source avec timestamps — utilisé pour les filtres date.
+    /// keyword="" → retourne tous les docs de la source triés par date.
+    pub async fn search_by_keyword_dated(
+        &self,
+        keyword: &str,
+        limit: usize,
+        source: &str,
+    ) -> osmozzz_core::Result<Vec<(i64, Option<String>, String, String)>> {
+        self.store.search_by_keyword_source_dated(keyword, limit, source).await
+    }
+
     // ─── Blacklist ────────────────────────────────────────────────────────────
 
     pub fn load_blacklist(&self) -> Blacklist {
