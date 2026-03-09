@@ -256,9 +256,16 @@ const CardList = styled.div`display: flex; flex-direction: column; gap: 8px;`
 // ─── Bannis inline ────────────────────────────────────────────────────────────
 
 const BannisActiveBanner = styled.div`
-  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  display: flex; align-items: center; justify-content: space-between; padding: 8px 14px;
   background: #fef2f2; border: 1px solid #fca5a5; border-radius: 10px;
   font-size: 12px; color: #dc2626; font-weight: 500;
+`
+
+const BannisDeactivateBtn = styled.button`
+  padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: inherit;
+  border: 1px solid #fca5a5; background: #fff; color: #dc2626; cursor: pointer;
+  transition: all .15s;
+  &:hover { background: #fee2e2; }
 `
 
 const BannisItem = styled.div`
@@ -761,6 +768,7 @@ export default function RecentPage() {
         )}
 
         <DotsMenuWrap ref={menuRef}>
+          
           <DotsBtn $active={menuOpen || showBannis || hasDateFilters} onClick={() => setMenuOpen(v => !v)}>
             ···
           </DotsBtn>
@@ -785,7 +793,10 @@ export default function RecentPage() {
       {/* Bannis mode (inline) */}
       {showBannis && (
         <>
-          <BannisActiveBanner>⊘ Mode bannis actif — décochez dans ··· pour revenir aux résultats</BannisActiveBanner>
+          <BannisActiveBanner>
+            <span>⊘ Mode bannis actif</span>
+            <BannisDeactivateBtn onClick={() => setShowBannis(false)}>Désactiver</BannisDeactivateBtn>
+          </BannisActiveBanner>
           <BannisInline source={isGlobal ? 'all' : activeTab} />
         </>
       )}
