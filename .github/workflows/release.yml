@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install onnxruntime
+        run: brew install onnxruntime
+
+      - name: Build frontend
+        run: cd dashboard && npm ci && npm run build
+
+      - name: Build binary
+        env:
+          ORT_DYLIB_PATH: /opt/homebrew/lib/libonnxruntime.dylib
+        run: |
+          touch crates/osmozzz-api/src/server.rs
+          cargo build --release -p osmozzz-cli
+
+      - name: Package
+        run: |
+          mkdir -p release
+          cp target/release/osmozzz release/osmozzz
+          cp /opt/homebrew/lib/libonnxruntime.dylib release/
+          cd release
+          zip -r ../osmozzz-macos.zip .
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: osmozzz-macos.zip
+          body: |
+            ## Install
+
+            1. Download `osmozzz-macos.zip`
+            2. Unzip
+            3. In terminal: `./osmozzz install`
