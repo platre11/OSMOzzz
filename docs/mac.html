@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>macOS Setup — OSMOzzz</title>
+  <meta name="description" content="How to install and configure OSMOzzz on macOS." />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="docs.css" />
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="index.html" class="logo">OSMOzzz</a>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a class="btn-ghost" href="mac.html" style="color:#a5b4fc;border-color:#5b5ef4">macOS</a>
+        <a class="btn-ghost" href="windows.html">Windows</a>
+        <a class="btn-ghost" href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="doc-layout">
+    <aside class="sidebar">
+      <div class="sidebar-title">macOS Setup</div>
+      <ul>
+        <li><a href="#download">1. Download</a></li>
+        <li><a href="#install">2. Install</a></li>
+        <li><a href="#permissions">3. Permissions</a></li>
+        <li><a href="#daemon">4. Start daemon</a></li>
+        <li><a href="#claude">5. Claude Desktop</a></li>
+        <li><a href="#verify">6. Verify</a></li>
+      </ul>
+      <div class="sidebar-sep"></div>
+      <a href="windows.html" class="sidebar-os-link">Windows guide →</a>
+    </aside>
+
+    <main class="doc-content">
+      <div class="doc-badge">macOS 12+</div>
+      <h1>macOS Setup</h1>
+      <p class="doc-lead">Get OSMOzzz running on your Mac in under 5 minutes.</p>
+
+      <!-- STEP 1 -->
+      <div class="step-block" id="download">
+        <div class="step-header">
+          <div class="step-pill">Step 1</div>
+          <h2>Download</h2>
+        </div>
+        <p>Click the button below to download the latest release.</p>
+        <a class="btn-download" href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-macos.zip">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download osmozzz-macos.zip
+        </a>
+        <p style="margin-top:12px">Once downloaded, <strong>unzip</strong> the file. You'll get a folder with two files:</p>
+        <div class="code-block">
+          <span class="code-comment"># Contents of osmozzz-macos.zip</span><br/>
+          osmozzz<br/>
+          libonnxruntime.dylib
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step-block" id="install">
+        <div class="step-header">
+          <div class="step-pill">Step 2</div>
+          <h2>Install</h2>
+        </div>
+        <p>Open <strong>Terminal</strong>, navigate to the unzipped folder and run:</p>
+        <div class="code-block">
+          <span class="code-comment"># Go to the unzipped folder</span><br/>
+          cd ~/Downloads/osmozzz-macos<br/><br/>
+          <span class="code-comment"># Make it executable</span><br/>
+          chmod +x osmozzz<br/><br/>
+          <span class="code-comment"># Install (copies binary + registers as MCP server)</span><br/>
+          ./osmozzz install
+        </div>
+        <div class="info-box">
+          <strong>macOS Gatekeeper warning?</strong> If macOS says "cannot be opened because it is from an unidentified developer", go to <strong>System Settings → Privacy & Security</strong> and click <strong>"Allow Anyway"</strong>.
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step-block" id="permissions">
+        <div class="step-header">
+          <div class="step-pill">Step 3</div>
+          <h2>Grant Full Disk Access</h2>
+        </div>
+        <p>OSMOzzz needs <strong>Full Disk Access</strong> to read your Chrome history, iMessage, Safari, Notes and Calendar.</p>
+        <div class="steps-list">
+          <div class="steps-list-item">
+            <span class="steps-list-num">1</span>
+            Open <strong>System Settings → Privacy & Security → Full Disk Access</strong>
+          </div>
+          <div class="steps-list-item">
+            <span class="steps-list-num">2</span>
+            Click the <strong>+</strong> button
+          </div>
+          <div class="steps-list-item">
+            <span class="steps-list-num">3</span>
+            Navigate to <code>~/.cargo/bin/</code> and select <strong>osmozzz</strong>
+          </div>
+          <div class="steps-list-item">
+            <span class="steps-list-num">4</span>
+            Make sure the toggle is <strong>ON</strong>
+          </div>
+        </div>
+        <div class="warn-box">
+          Without Full Disk Access, Chrome, Safari, iMessage, Notes and Calendar will not be indexed.
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step-block" id="daemon">
+        <div class="step-header">
+          <div class="step-pill">Step 4</div>
+          <h2>Start the daemon</h2>
+        </div>
+        <p>The daemon indexes your data in the background and keeps it up to date.</p>
+        <div class="code-block">
+          osmozzz daemon
+        </div>
+        <p style="margin-top:12px">The daemon starts automatically on login (installed by <code>osmozzz install</code>). You can also open the <strong>local dashboard</strong> at:</p>
+        <div class="code-block">
+          http://localhost:7523
+        </div>
+        <p style="margin-top:12px">The dashboard lets you see indexed sources, search your data, and configure cloud connectors.</p>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step-block" id="claude">
+        <div class="step-header">
+          <div class="step-pill">Step 5</div>
+          <h2>Connect Claude Desktop</h2>
+        </div>
+        <p><code>osmozzz install</code> automatically registers OSMOzzz as an MCP server in Claude Desktop. Just <strong>restart Claude Desktop</strong> and it's done.</p>
+        <p style="margin-top:12px">To verify, open Claude Desktop → Settings → Developer → you should see <strong>osmozzz</strong> listed as an MCP server.</p>
+        <div class="info-box">
+          Don't have Claude Desktop yet? <a href="https://claude.ai/download" target="_blank" rel="noreferrer">Download it here →</a>
+        </div>
+      </div>
+
+      <!-- STEP 6 -->
+      <div class="step-block" id="verify">
+        <div class="step-header">
+          <div class="step-pill">Step 6</div>
+          <h2>Verify it works</h2>
+        </div>
+        <p>Open Claude Desktop and ask:</p>
+        <div class="code-block" style="background:rgba(91,94,244,.08);border-color:rgba(91,94,244,.2)">
+          "What are my most recent emails?"
+        </div>
+        <p style="margin-top:12px">Or check how many documents are indexed:</p>
+        <div class="code-block">
+          osmozzz status
+        </div>
+        <div class="success-box">
+          ✓ OSMOzzz is ready. Your local sources (Chrome, Safari, iMessage, Notes, Calendar, Terminal, Files) are being indexed automatically.
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <span class="logo" style="font-size:14px">OSMOzzz</span>
+      <span style="color:#4b5563;font-size:13px">MIT License · Built with Rust + React</span>
+      <a href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer" style="color:#6b7280;font-size:13px">GitHub →</a>
+    </div>
+  </footer>
+
+</body>
+</html>

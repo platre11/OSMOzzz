@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Windows Setup — OSMOzzz</title>
+  <meta name="description" content="How to install and configure OSMOzzz on Windows." />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="docs.css" />
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="index.html" class="logo">OSMOzzz</a>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a class="btn-ghost" href="mac.html">macOS</a>
+        <a class="btn-ghost" href="windows.html" style="color:#a5b4fc;border-color:#5b5ef4">Windows</a>
+        <a class="btn-ghost" href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="doc-layout">
+    <aside class="sidebar">
+      <div class="sidebar-title">Windows Setup</div>
+      <ul>
+        <li><a href="#download">1. Download</a></li>
+        <li><a href="#install">2. Install</a></li>
+        <li><a href="#daemon">3. Start daemon</a></li>
+        <li><a href="#claude">4. Claude Desktop</a></li>
+        <li><a href="#verify">5. Verify</a></li>
+        <li><a href="#sources">Available sources</a></li>
+      </ul>
+      <div class="sidebar-sep"></div>
+      <a href="mac.html" class="sidebar-os-link">macOS guide →</a>
+    </aside>
+
+    <main class="doc-content">
+      <div class="doc-badge" style="background:rgba(14,165,233,.1);border-color:rgba(14,165,233,.25);color:#38bdf8">Windows 10+</div>
+      <h1>Windows Setup</h1>
+      <p class="doc-lead">Get OSMOzzz running on Windows in under 5 minutes.</p>
+
+      <div class="warn-box" style="margin-bottom:32px">
+        <strong>Note:</strong> On Windows, macOS-specific sources (iMessage, Safari, Apple Notes, Apple Calendar) are not available. Chrome history, Files, Terminal and cloud connectors work normally.
+      </div>
+
+      <!-- STEP 1 -->
+      <div class="step-block" id="download">
+        <div class="step-header">
+          <div class="step-pill">Step 1</div>
+          <h2>Download</h2>
+        </div>
+        <p>Click the button below to download the latest Windows release.</p>
+        <a class="btn-download" href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-windows.zip">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download osmozzz-windows.zip
+        </a>
+        <p style="margin-top:12px">Once downloaded, <strong>unzip</strong> the file. You'll get:</p>
+        <div class="code-block">
+          <span class="code-comment"># Contents of osmozzz-windows.zip</span><br/>
+          osmozzz.exe<br/>
+          onnxruntime.dll
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step-block" id="install">
+        <div class="step-header">
+          <div class="step-pill">Step 2</div>
+          <h2>Install</h2>
+        </div>
+        <p>Open <strong>PowerShell as Administrator</strong>, navigate to the unzipped folder and run:</p>
+        <div class="code-block">
+          <span class="code-comment"># Go to the unzipped folder</span><br/>
+          cd $env:USERPROFILE\Downloads\osmozzz-windows<br/><br/>
+          <span class="code-comment"># Install (copies binary + registers as MCP server)</span><br/>
+          .\osmozzz.exe install
+        </div>
+        <div class="info-box">
+          <strong>Windows Defender warning?</strong> Click <strong>"More info" → "Run anyway"</strong>. OSMOzzz is open source — you can verify the code on GitHub.
+        </div>
+        <p style="margin-top:16px">This will copy <code>osmozzz.exe</code> to <code>%USERPROFILE%\.cargo\bin\</code> and register it as a Claude Desktop MCP server.</p>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step-block" id="daemon">
+        <div class="step-header">
+          <div class="step-pill">Step 3</div>
+          <h2>Start the daemon</h2>
+        </div>
+        <p>The daemon indexes your data in the background. Open PowerShell and run:</p>
+        <div class="code-block">
+          osmozzz daemon
+        </div>
+        <p style="margin-top:12px">Open the local dashboard in your browser:</p>
+        <div class="code-block">
+          http://localhost:7523
+        </div>
+        <p style="margin-top:12px">The dashboard shows all indexed sources and lets you configure cloud connectors (Notion, GitHub, Slack…).</p>
+        <div class="info-box">
+          To start the daemon automatically on Windows startup, add it to <strong>Task Scheduler</strong> or add it to your startup folder.
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step-block" id="claude">
+        <div class="step-header">
+          <div class="step-pill">Step 4</div>
+          <h2>Connect Claude Desktop</h2>
+        </div>
+        <p><code>osmozzz install</code> automatically registers OSMOzzz as an MCP server in Claude Desktop. Just <strong>restart Claude Desktop</strong> and it's done.</p>
+        <p style="margin-top:12px">To verify: Claude Desktop → Settings → Developer → you should see <strong>osmozzz</strong> listed as an MCP server.</p>
+        <div class="info-box">
+          Don't have Claude Desktop yet? <a href="https://claude.ai/download" target="_blank" rel="noreferrer">Download it here →</a>
+        </div>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step-block" id="verify">
+        <div class="step-header">
+          <div class="step-pill">Step 5</div>
+          <h2>Verify it works</h2>
+        </div>
+        <p>Open Claude Desktop and ask:</p>
+        <div class="code-block" style="background:rgba(91,94,244,.08);border-color:rgba(91,94,244,.2)">
+          "Search my files for anything about project X"
+        </div>
+        <p style="margin-top:12px">Or check the status in PowerShell:</p>
+        <div class="code-block">
+          osmozzz status
+        </div>
+        <div class="success-box">
+          ✓ OSMOzzz is ready. Chrome history, Files (Desktop/Documents/Downloads) and Terminal history are being indexed automatically.
+        </div>
+      </div>
+
+      <!-- SOURCES -->
+      <div class="step-block" id="sources">
+        <div class="step-header">
+          <h2>Available sources on Windows</h2>
+        </div>
+        <div class="sources-table">
+          <div class="sources-row sources-row-header">
+            <span>Source</span><span>Status</span>
+          </div>
+          <div class="sources-row">
+            <span>🌐 Chrome history</span>
+            <span class="badge-ok">✓ Available</span>
+          </div>
+          <div class="sources-row">
+            <span>📁 Files (Desktop, Documents, Downloads)</span>
+            <span class="badge-ok">✓ Available</span>
+          </div>
+          <div class="sources-row">
+            <span>💻 Terminal / PowerShell history</span>
+            <span class="badge-ok">✓ Available</span>
+          </div>
+          <div class="sources-row">
+            <span>📧 Gmail</span>
+            <span class="badge-ok">✓ Via config</span>
+          </div>
+          <div class="sources-row">
+            <span>◻ Notion, ⌥ GitHub, # Slack…</span>
+            <span class="badge-ok">✓ Via config</span>
+          </div>
+          <div class="sources-row">
+            <span>💬 iMessage</span>
+            <span class="badge-na">macOS only</span>
+          </div>
+          <div class="sources-row">
+            <span>🧭 Safari</span>
+            <span class="badge-na">macOS only</span>
+          </div>
+          <div class="sources-row">
+            <span>📝 Apple Notes</span>
+            <span class="badge-na">macOS only</span>
+          </div>
+          <div class="sources-row">
+            <span>📅 Apple Calendar</span>
+            <span class="badge-na">macOS only</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <span class="logo" style="font-size:14px">OSMOzzz</span>
+      <span style="color:#4b5563;font-size:13px">MIT License · Built with Rust + React</span>
+      <a href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer" style="color:#6b7280;font-size:13px">GitHub →</a>
+    </div>
+  </footer>
+
+</body>
+</html>
