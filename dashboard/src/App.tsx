@@ -3,7 +3,6 @@ import styled from 'styled-components'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { icons } from './lib/assets'
 import StatusPage from './pages/StatusPage'
-import SearchPage from './pages/SearchPage'
 import RecentPage from './pages/RecentPage'
 import ConfigPage from './pages/ConfigPage'
 import NetworkPage from './pages/NetworkPage'
@@ -12,7 +11,7 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchInterval: 10000 } },
 })
 
-type Page = 'status' | 'search' | 'recent' | 'config' | 'network'
+type Page = 'status' | 'recent' | 'config' | 'network'
 
 const NavBar = styled.nav`
   position: sticky;
@@ -71,7 +70,6 @@ const PageWrapper = styled.main`
 
 const PAGES: { id: Page; label: string; Icon: React.ElementType }[] = [
   { id: 'status',  label: 'Statut',        Icon: icons.LayoutDashboard },
-  { id: 'search',  label: 'Recherche',     Icon: icons.Search },
   { id: 'recent',  label: 'Récents',       Icon: icons.Clock },
   { id: 'network', label: 'Réseau',        Icon: icons.Network },
   { id: 'config',  label: 'Configuration', Icon: icons.Settings },
@@ -93,7 +91,6 @@ export default function App() {
       </NavBar>
       <PageWrapper>
         {page === 'status'  && <StatusPage />}
-        {page === 'search'  && <SearchPage />}
         {page === 'recent'  && <RecentPage />}
         {page === 'network' && <NetworkPage />}
         {page === 'config'  && <ConfigPage />}
