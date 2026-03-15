@@ -20,8 +20,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install onnxruntime
-        run: brew install onnxruntime
+      - name: Install dependencies
+        run: brew install onnxruntime protobuf
 
       - name: Download ONNX model
         run: |
