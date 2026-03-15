@@ -18,21 +18,26 @@ impl Config {
         let data_dir = home.join(".osmozzz");
         let db_path = data_dir.join("vault");
 
-        // Look for model in <workspace>/models/ relative to executable, then home
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."));
+        // 1. ~/.osmozzz/models/ (prioritaire — fonctionne après reboot)
+        // 2. workspace/models/ (fallback dev — remonte les ancêtres du binaire)
+        let osmozzz_models = data_dir.join("models");
 
-        // Try workspace root (3 levels up from target/debug/osmozzz)
-        let workspace_models = exe_dir
-            .ancestors()
-            .find(|p| p.join("models").exists())
-            .map(|p| p.join("models"))
-            .unwrap_or_else(|| PathBuf::from("models"));
+        let models_dir = if osmozzz_models.join("all-MiniLM-L6-v2.onnx").exists() {
+            osmozzz_models
+        } else {
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from("."));
+            exe_dir
+                .ancestors()
+                .find(|p| p.join("models").join("all-MiniLM-L6-v2.onnx").exists())
+                .map(|p| p.join("models"))
+                .unwrap_or(osmozzz_models)
+        };
 
-        let model_path = workspace_models.join("all-MiniLM-L6-v2.onnx");
-        let tokenizer_path = workspace_models.join("tokenizer.json");
+        let model_path = models_dir.join("all-MiniLM-L6-v2.onnx");
+        let tokenizer_path = models_dir.join("tokenizer.json");
 
         let socket_path = data_dir.join("osmozzz.sock");
 

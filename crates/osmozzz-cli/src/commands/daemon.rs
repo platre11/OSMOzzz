@@ -47,9 +47,52 @@ const GITLAB_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
 const AIRTABLE_SYNC_INTERVAL_SECS: u64 = 60 * 60;  // 1 heure
 const OBSIDIAN_SYNC_INTERVAL_SECS: u64 = 5 * 60;   // 5 minutes (local)
 
+/// Copie les modèles ONNX dans ~/.osmozzz/models/ si absents.
+/// Cherche dans les ancêtres du binaire (workspace dev) ou à côté du binaire.
+fn ensure_models(cfg: &Config) {
+    let dest_dir = cfg.data_dir.join("models");
+    let model_dest = dest_dir.join("all-MiniLM-L6-v2.onnx");
+    if model_dest.exists() {
+        return; // déjà en place
+    }
+
+    // Cherche un dossier models/ contenant le fichier ONNX
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let source_dir = exe_dir
+        .ancestors()
+        .find(|p| p.join("models").join("all-MiniLM-L6-v2.onnx").exists())
+        .map(|p| p.join("models"));
+
+    let Some(src) = source_dir else {
+        return; // pas trouvé — l'erreur sera levée par Vault::open
+    };
+
+    if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+        eprintln!("[OSMOzzz] Impossible de créer ~/.osmozzz/models/: {}", e);
+        return;
+    }
+
+    for file in ["all-MiniLM-L6-v2.onnx", "tokenizer.json"] {
+        let from = src.join(file);
+        let to = dest_dir.join(file);
+        if from.exists() {
+            if let Err(e) = std::fs::copy(&from, &to) {
+                eprintln!("[OSMOzzz] Copie {} échouée: {}", file, e);
+            }
+        }
+    }
+    eprintln!("[OSMOzzz] Modèles installés dans ~/.osmozzz/models/");
+}
+
 pub async fn run(cfg: Config) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)
         .context("Impossible de créer ~/.osmozzz")?;
+
+    ensure_models(&cfg);
 
     eprintln!("[OSMOzzz Daemon] Initialisation du vault...");
 
@@ -108,6 +151,19 @@ pub async fn run(cfg: Config) -> Result<()> {
         if let Err(e) = osmozzz_api::start_server(dashboard_vault, dashboard_p2p, DASHBOARD_PORT).await {
             eprintln!("[OSMOzzz Daemon] Dashboard erreur: {}", e);
         }
+    });
+
+    // Ouvrir le dashboard dans le navigateur par défaut après 500ms
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        let url = format!("http://localhost:{}", DASHBOARD_PORT);
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(&url).spawn();
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("cmd").args(["/c", "start", &url]).spawn();
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+        eprintln!("[OSMOzzz Daemon] Dashboard ouvert sur {}", url);
     });
 
     let watch_paths = default_watch_paths();

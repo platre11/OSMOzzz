@@ -23,6 +23,14 @@ jobs:
       - name: Install onnxruntime
         run: brew install onnxruntime
 
+      - name: Download ONNX model
+        run: |
+          mkdir -p models
+          curl -L "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx" \
+            -o models/all-MiniLM-L6-v2.onnx
+          curl -L "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json" \
+            -o models/tokenizer.json
+
       - name: Build frontend
         run: cd dashboard && npm ci && npm run build
 
@@ -33,21 +41,39 @@ jobs:
           touch crates/osmozzz-api/src/server.rs
           cargo build --release -p osmozzz-cli
 
-      - name: Package
+      - name: Build PKG installer
         run: |
-          mkdir -p release
-          cp target/release/osmozzz release/osmozzz
-          cp /opt/homebrew/lib/libonnxruntime.dylib release/
-          cd release
-          zip -r ../osmozzz-macos.zip .
+          # ── Structure du payload ───────────────────────────────────────────
+          mkdir -p pkg-root/usr/local/bin
+          mkdir -p pkg-root/usr/local/lib
+          mkdir -p pkg-root/Library/OSMOzzz/models
+
+          cp target/release/osmozzz          pkg-root/usr/local/bin/osmozzz
+          cp /opt/homebrew/lib/libonnxruntime.dylib pkg-root/usr/local/lib/libonnxruntime.dylib
+          cp models/all-MiniLM-L6-v2.onnx    pkg-root/Library/OSMOzzz/models/
+          cp models/tokenizer.json            pkg-root/Library/OSMOzzz/models/
+
+          chmod +x pkg-root/usr/local/bin/osmozzz
+          chmod +x scripts/pkg/postinstall
+
+          # ── Construire le .pkg ────────────────────────────────────────────
+          pkgbuild \
+            --root pkg-root \
+            --scripts scripts/pkg \
+            --identifier com.osmozzz.daemon \
+            --version "${GITHUB_REF_NAME}" \
+            --install-location / \
+            osmozzz.pkg
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: osmozzz-macos.zip
+          files: osmozzz.pkg
           body: |
-            ## Install
+            ## Installation macOS
 
-            1. Download `osmozzz-macos.zip`
-            2. Unzip
-            3. In terminal: `./osmozzz install`
+            1. Télécharge **osmozzz.pkg**
+            2. Double-clique pour installer
+            3. Le dashboard s'ouvre automatiquement sur http://localhost:7878
+
+            > Si macOS bloque l'installation : clic droit → Ouvrir → Ouvrir quand même

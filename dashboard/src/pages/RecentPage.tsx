@@ -790,7 +790,7 @@ export default function RecentPage() {
         </DotsMenuWrap>
       </ToolRow>
 
-      {/* Bannis mode (inline) */}
+      {/* Bannis mode (inline) */}  
       {showBannis && (
         <>
           <BannisActiveBanner>

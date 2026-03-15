@@ -722,6 +722,7 @@ const ALLOWED_PROTOCOLS: &[&str] = &[
     "file://", "https://", "http://",
     "imessage://", "sms://", "notes://",
     "calendar://", "facetime://",
+    "x-apple.systempreferences:",
 ];
 
 fn is_url_allowed(url: &str) -> bool {

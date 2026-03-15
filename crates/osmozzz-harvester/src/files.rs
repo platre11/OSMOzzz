@@ -42,27 +42,27 @@ pub const SKIP_DIRS: &[&str] = &[
     "env",
     ".tox",
     ".osmozzz", // données internes → jamais indexées
+    // Unity — génère des milliers de fichiers binaires inutiles
+    "Library",
+    "Temp",
+    "obj",
+    "Logs",
+    "UserSettings",
+    "Packages", // Unity packages cache
 ];
 
-/// Extensions connues comme texte lisible
+/// Extensions indexées avec contenu complet — uniquement documents lisibles par un humain
 pub const TEXT_EXTENSIONS: &[&str] = &[
-    // Langages de programmation
-    "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h",
-    "hpp", "cs", "swift", "kt", "rb", "php", "lua", "r", "scala", "dart",
-    "vue", "svelte", "elm", "clj", "hs", "ex", "exs", "nim", "zig", "odin",
-    "jai", "v", "d", "f90", "f95", "f03", "m", "mm",
-    // Config & données
-    "json", "yaml", "yml", "toml", "xml", "csv", "sql", "graphql", "proto",
-    "ini", "cfg", "conf", "config", "env",
-    // Docs & texte
-    "md", "mdx", "txt", "log", "rst", "org", "tex", "adoc",
-    // Shell
-    "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
-    // Web
-    "html", "htm", "css", "scss", "sass", "less",
-    // Divers
-    "dockerfile", "makefile", "gitignore", "gitattributes", "editorconfig",
-    "lock", "sum",
+    // Documents & notes
+    "md", "mdx", "txt", "rst", "org", "tex", "adoc",
+    // Tableurs & données lisibles
+    "csv",
+];
+
+/// Extensions image — indexées avec nom/chemin uniquement
+const IMAGE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "tiff", "tif",
+    "heic", "heif", "avif", "raw", "cr2", "nef", "arw",
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -71,8 +71,12 @@ enum FileKind {
     Text,
     /// PDF → extraction via pdf_extract
     Pdf,
-    /// Tout le reste → métadonnées uniquement (nom, chemin, extension)
-    Binary,
+    /// Image → nom/chemin seulement
+    Image,
+    /// Exécutable Windows → nom/chemin + avertissement sécurité
+    Executable,
+    /// Tout le reste (zip, dmg, app, dll…) → ignoré
+    Skip,
 }
 
 pub struct FileHarvester {
@@ -224,24 +228,36 @@ pub fn harvest_file(
         .map(DateTime::<chrono::Utc>::from);
 
     match kind {
-        FileKind::Binary => {
-            // Indexe uniquement les métadonnées pour permettre la recherche par nom/chemin
+        FileKind::Skip => {
+            // Zip, dmg, app, dll, pkg, iso… → on ignore complètement
+            vec![]
+        }
+
+        FileKind::Image => {
+            // Images → nom + chemin seulement (pas de contenu lisible)
             let content = format!(
-                "File: {}\nExtension: .{}\nPath: {}",
-                file_name,
-                extension,
-                path.display()
+                "Image: {}\nExtension: .{}\nChemin: {}",
+                file_name, extension, path.display()
             );
             let ck = checksum::compute(&content);
-            if known_checksums.contains(&ck) {
-                debug!("Skipping known binary: {}", path.display());
-                return vec![];
-            }
+            if known_checksums.contains(&ck) { return vec![]; }
             let mut doc = Document::new(SourceType::File, &base_url, &content, &ck)
                 .with_title(&file_name);
-            if let Some(ts) = modified_ts {
-                doc = doc.with_source_ts(ts);
-            }
+            if let Some(ts) = modified_ts { doc = doc.with_source_ts(ts); }
+            vec![doc]
+        }
+
+        FileKind::Executable => {
+            // .exe → nom + chemin + avertissement sécurité
+            let content = format!(
+                "⚠️ Fichier exécutable: {}\nExtension: .exe\nChemin: {}\n⚠️ Attention: les fichiers .exe peuvent contenir des logiciels malveillants. Vérifiez la source avant d'ouvrir.",
+                file_name, path.display()
+            );
+            let ck = checksum::compute(&content);
+            if known_checksums.contains(&ck) { return vec![]; }
+            let mut doc = Document::new(SourceType::File, &base_url, &content, &ck)
+                .with_title(&format!("⚠️ {}", file_name));
+            if let Some(ts) = modified_ts { doc = doc.with_source_ts(ts); }
             vec![doc]
         }
 
@@ -390,20 +406,20 @@ fn detect_kind(path: &Path, _file_size: u64) -> FileKind {
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
 
-    // PDF → extraction dédiée
     if ext == "pdf" {
         return FileKind::Pdf;
     }
-
-    // Extension connue comme texte
     if TEXT_EXTENSIONS.contains(&ext.as_str()) {
         return FileKind::Text;
     }
-
-    // Extension inconnue → binaire (métadonnées seulement).
-    // On n'essaie plus de lire le fichier pour détecter l'UTF-8 :
-    // cela allouait jusqu'à 2 MB par fichier à chaque événement FSEvents.
-    FileKind::Binary
+    if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return FileKind::Image;
+    }
+    if ext == "exe" {
+        return FileKind::Executable;
+    }
+    // Tout le reste (zip, dmg, app, dll, pkg, iso…) → ignoré
+    FileKind::Skip
 }
 
 // ─── Filtres ──────────────────────────────────────────────────────────────────
@@ -444,14 +460,21 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_binary_gltf() {
-        // .gltf n'est pas dans TEXT_EXTENSIONS, et on simule un fichier trop grand
-        // pour le fallback UTF-8
-        // Note: en vrai, .gltf est du JSON donc passerait en Text si petit
-        assert!(matches!(
-            detect_kind(Path::new("model.blend"), MAX_TEXT_BYTES + 1),
-            FileKind::Binary
-        ));
+    fn test_detect_skip() {
+        assert!(matches!(detect_kind(Path::new("model.blend"), 1000), FileKind::Skip));
+        assert!(matches!(detect_kind(Path::new("archive.zip"), 1000), FileKind::Skip));
+        assert!(matches!(detect_kind(Path::new("app.dmg"), 1000), FileKind::Skip));
+    }
+
+    #[test]
+    fn test_detect_image() {
+        assert!(matches!(detect_kind(Path::new("photo.png"), 1000), FileKind::Image));
+        assert!(matches!(detect_kind(Path::new("logo.svg"), 1000), FileKind::Image));
+    }
+
+    #[test]
+    fn test_detect_executable() {
+        assert!(matches!(detect_kind(Path::new("setup.exe"), 1000), FileKind::Executable));
     }
 
     #[test]

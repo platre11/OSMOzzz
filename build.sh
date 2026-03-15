@@ -26,4 +26,13 @@ cargo build --release -p osmozzz-cli
 
 # ── 3. Copie le binaire dans ~/.cargo/bin ─────────────────────────────────────
 cp "$WORKSPACE/target/release/osmozzz" ~/.cargo/bin/osmozzz
+
+# ── 4. Copie les modèles dans ~/.osmozzz/models/ (fonctionne après reboot) ────
+mkdir -p ~/.osmozzz/models
+if [ -f "$WORKSPACE/models/all-MiniLM-L6-v2.onnx" ]; then
+    cp "$WORKSPACE/models/all-MiniLM-L6-v2.onnx" ~/.osmozzz/models/
+    cp "$WORKSPACE/models/tokenizer.json" ~/.osmozzz/models/
+    echo "[build] Modèles copiés dans ~/.osmozzz/models/"
+fi
+
 echo "[build] Done — relance: osmozzz daemon"

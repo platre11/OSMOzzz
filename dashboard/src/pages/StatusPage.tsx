@@ -165,6 +165,28 @@ const ErrorTag = styled.div`
   padding: 4px 8px;
 `
 
+const DiskAccessBtn = styled.button`
+  margin-top: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #fbbf24;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background .15s;
+  &:hover { background: #fef3c7; }
+`
+
+// Sources qui nécessitent l'accès disque complet sur macOS
+const DISK_ACCESS_SOURCES = new Set(['imessage', 'safari', 'notes', 'calendar'])
+
 const Loader = styled.div`
   width: 20px;
   height: 20px;
@@ -317,6 +339,16 @@ export default function StatusPage() {
 
   const total = Object.values(data.sources).reduce((s, v) => s + v.count, 0)
 
+  // Accès disque requis ? Ssi toutes les sources disque présentes ont 0 docs
+  const diskSourcesToCheck = Object.entries(data.sources)
+    .filter(([src]) => DISK_ACCESS_SOURCES.has(src))
+  const needsDiskAccess = diskSourcesToCheck.length > 0
+    && diskSourcesToCheck.every(([, v]) => v.count === 0)
+
+  function openPrivacySettings() {
+    fetch('/api/open?url=' + encodeURIComponent('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'))
+  }
+
   return (
     <Page>
       <PageHeader>
@@ -354,6 +386,11 @@ export default function StatusPage() {
                 </>
               )}
               {status.error && <ErrorTag>⚠ {status.error}</ErrorTag>}
+              {needsDiskAccess && DISK_ACCESS_SOURCES.has(source) && (
+                <DiskAccessBtn onClick={openPrivacySettings}>
+                  🔒 Autoriser l'accès disque →
+                </DiskAccessBtn>
+              )}
             </Card>
           )
         })}

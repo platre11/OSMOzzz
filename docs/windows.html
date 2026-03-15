@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Windows Setup — OSMOzzz</title>
-  <meta name="description" content="How to install and configure OSMOzzz on Windows." />
+  <meta name="description" content="Install OSMOzzz on Windows in 3 steps. No terminal required." />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="docs.css" />
 </head>
@@ -26,11 +26,9 @@
       <div class="sidebar-title">Windows Setup</div>
       <ul>
         <li><a href="#download">1. Download</a></li>
-        <li><a href="#install">2. Install</a></li>
-        <li><a href="#daemon">3. Start daemon</a></li>
-        <li><a href="#claude">4. Claude Desktop</a></li>
-        <li><a href="#verify">5. Verify</a></li>
-        <li><a href="#sources">Available sources</a></li>
+        <li><a href="#open">2. Open</a></li>
+        <li><a href="#dashboard">Dashboard</a></li>
+        <li><a href="#sources">Local sources</a></li>
       </ul>
       <div class="sidebar-sep"></div>
       <a href="mac.html" class="sidebar-os-link">macOS guide →</a>
@@ -39,10 +37,10 @@
     <main class="doc-content">
       <div class="doc-badge" style="background:rgba(14,165,233,.1);border-color:rgba(14,165,233,.25);color:#38bdf8">Windows 10+</div>
       <h1>Windows Setup</h1>
-      <p class="doc-lead">Get OSMOzzz running on Windows in under 5 minutes.</p>
+      <p class="doc-lead">3 steps. No account. No terminal. No subscription.</p>
 
       <div class="warn-box" style="margin-bottom:32px">
-        <strong>Note:</strong> On Windows, macOS-specific sources (iMessage, Safari, Apple Notes, Apple Calendar) are not available. Chrome history, Files, Terminal and cloud connectors work normally.
+        <strong>Note:</strong> On Windows, macOS-specific sources (iMessage, Safari, Apple Notes, Apple Calendar) are not available. Chrome, Files and cloud connectors work normally.
       </div>
 
       <!-- STEP 1 -->
@@ -51,94 +49,64 @@
           <div class="step-pill">Step 1</div>
           <h2>Download</h2>
         </div>
-        <p>Click the button below to download the latest Windows release.</p>
+        <p>Click the button to download OSMOzzz for Windows. The file is about 30 MB.</p>
         <a class="btn-download" href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-windows.zip">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download osmozzz-windows.zip
+          Download for Windows
         </a>
-        <p style="margin-top:12px">Once downloaded, <strong>unzip</strong> the file. You'll get:</p>
-        <div class="code-block">
-          <span class="code-comment"># Contents of osmozzz-windows.zip</span><br/>
-          osmozzz.exe<br/>
-          onnxruntime.dll
-        </div>
+        <p style="margin-top:16px">Once downloaded, <strong>right-click</strong> the zip file and select <strong>"Extract All"</strong>. You'll see a folder called <strong>osmozzz-windows</strong>.</p>
       </div>
 
       <!-- STEP 2 -->
-      <div class="step-block" id="install">
+      <div class="step-block" id="open">
         <div class="step-header">
           <div class="step-pill">Step 2</div>
-          <h2>Install</h2>
+          <h2>Open</h2>
         </div>
-        <p>Open <strong>PowerShell as Administrator</strong>, navigate to the unzipped folder and run:</p>
-        <div class="code-block">
-          <span class="code-comment"># Go to the unzipped folder</span><br/>
-          cd $env:USERPROFILE\Downloads\osmozzz-windows<br/><br/>
-          <span class="code-comment"># Install (copies binary + registers as MCP server)</span><br/>
-          .\osmozzz.exe install
+        <p>Open the <strong>osmozzz-windows</strong> folder and <strong>double-click</strong> on <strong>osmozzz.exe</strong> to launch it.</p>
+
+        <div class="warn-box">
+          <strong>Windows security warning?</strong> If Windows shows a "Windows protected your PC" message, click <strong>"More info"</strong> then <strong>"Run anyway"</strong>.
+          This is normal for open-source apps not distributed through the Microsoft Store.
+          OSMOzzz is <a href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer" style="color:#fde047">fully open source</a> — you can verify every line of code.
         </div>
-        <div class="info-box">
-          <strong>Windows Defender warning?</strong> Click <strong>"More info" → "Run anyway"</strong>. OSMOzzz is open source — you can verify the code on GitHub.
-        </div>
-        <p style="margin-top:16px">This will copy <code>osmozzz.exe</code> to <code>%USERPROFILE%\.cargo\bin\</code> and register it as a Claude Desktop MCP server.</p>
+
+        <p style="margin-top:16px">OSMOzzz will launch in the background and <strong>automatically open the dashboard</strong> in your browser.</p>
       </div>
 
-      <!-- STEP 3 -->
-      <div class="step-block" id="daemon">
+      <!-- DASHBOARD -->
+      <div class="step-block" id="dashboard">
         <div class="step-header">
-          <div class="step-pill">Step 3</div>
-          <h2>Start the daemon</h2>
+          <h2>That's it — open the dashboard</h2>
         </div>
-        <p>The daemon indexes your data in the background. Open PowerShell and run:</p>
-        <div class="code-block">
-          osmozzz daemon
+        <p>OSMOzzz is running. Open your browser and go to:</p>
+        <div class="code-block" style="background:rgba(91,94,244,.08);border-color:rgba(91,94,244,.2);font-size:16px;text-align:center;padding:20px">
+          localhost:7878
         </div>
-        <p style="margin-top:12px">Open the local dashboard in your browser:</p>
-        <div class="code-block">
-          http://localhost:7523
+        <p style="margin-top:16px">From the dashboard you can:</p>
+        <div class="steps-list" style="margin-top:8px">
+          <div class="steps-list-item">
+            <span class="steps-list-num">✓</span>
+            See all your indexed sources and how many documents are indexed
+          </div>
+          <div class="steps-list-item">
+            <span class="steps-list-num">✓</span>
+            Search across all your data with natural language
+          </div>
+          <div class="steps-list-item">
+            <span class="steps-list-num">✓</span>
+            Connect cloud sources (Notion, GitHub, Slack…) by adding your token
+          </div>
         </div>
-        <p style="margin-top:12px">The dashboard shows all indexed sources and lets you configure cloud connectors (Notion, GitHub, Slack…).</p>
-        <div class="info-box">
-          To start the daemon automatically on Windows startup, add it to <strong>Task Scheduler</strong> or add it to your startup folder.
-        </div>
-      </div>
-
-      <!-- STEP 4 -->
-      <div class="step-block" id="claude">
-        <div class="step-header">
-          <div class="step-pill">Step 4</div>
-          <h2>Connect Claude Desktop</h2>
-        </div>
-        <p><code>osmozzz install</code> automatically registers OSMOzzz as an MCP server in Claude Desktop. Just <strong>restart Claude Desktop</strong> and it's done.</p>
-        <p style="margin-top:12px">To verify: Claude Desktop → Settings → Developer → you should see <strong>osmozzz</strong> listed as an MCP server.</p>
-        <div class="info-box">
-          Don't have Claude Desktop yet? <a href="https://claude.ai/download" target="_blank" rel="noreferrer">Download it here →</a>
-        </div>
-      </div>
-
-      <!-- STEP 5 -->
-      <div class="step-block" id="verify">
-        <div class="step-header">
-          <div class="step-pill">Step 5</div>
-          <h2>Verify it works</h2>
-        </div>
-        <p>Open Claude Desktop and ask:</p>
-        <div class="code-block" style="background:rgba(91,94,244,.08);border-color:rgba(91,94,244,.2)">
-          "Search my files for anything about project X"
-        </div>
-        <p style="margin-top:12px">Or check the status in PowerShell:</p>
-        <div class="code-block">
-          osmozzz status
-        </div>
-        <div class="success-box">
-          ✓ OSMOzzz is ready. Chrome history, Files (Desktop/Documents/Downloads) and Terminal history are being indexed automatically.
+        <div class="success-box" style="margin-top:20px">
+          ✓ OSMOzzz is indexing your local data automatically. Chrome history, Files (Desktop, Documents, Downloads) and Terminal history are picked up with no extra configuration.
         </div>
       </div>
 
       <!-- SOURCES -->
       <div class="step-block" id="sources">
         <div class="step-header">
-          <h2>Available sources on Windows</h2>
+          <h2>What gets indexed automatically</h2>
         </div>
         <div class="sources-table">
           <div class="sources-row sources-row-header">
@@ -146,15 +114,15 @@
           </div>
           <div class="sources-row">
             <span>🌐 Chrome history</span>
-            <span class="badge-ok">✓ Available</span>
+            <span class="badge-ok">✓ Auto</span>
           </div>
           <div class="sources-row">
             <span>📁 Files (Desktop, Documents, Downloads)</span>
-            <span class="badge-ok">✓ Available</span>
+            <span class="badge-ok">✓ Auto</span>
           </div>
           <div class="sources-row">
-            <span>💻 Terminal / PowerShell history</span>
-            <span class="badge-ok">✓ Available</span>
+            <span>💻 PowerShell / Terminal history</span>
+            <span class="badge-ok">✓ Auto</span>
           </div>
           <div class="sources-row">
             <span>📧 Gmail</span>
@@ -181,6 +149,7 @@
             <span class="badge-na">macOS only</span>
           </div>
         </div>
+        <p style="margin-top:20px;font-size:13px;color:var(--muted)">Cloud sources (Notion, GitHub, Slack, Jira…) can be added from the <strong style="color:var(--text)">Configuration</strong> tab in the dashboard by adding your API token.</p>
       </div>
 
     </main>
