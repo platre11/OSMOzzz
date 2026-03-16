@@ -568,6 +568,83 @@ fn tools_list() -> Value {
                 },
                 "required": ["title", "content"]
             }
+        },
+        {
+            "name": "act_send_slack_message",
+            "description": "ACTION — Envoie un message dans un channel Slack. Soumis au dashboard OSMOzzz pour validation humaine AVANT envoi. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "channel": { "type": "string", "description": "Nom ou ID du channel Slack (ex: general ou C01234ABC)" },
+                    "message": { "type": "string", "description": "Texte du message à envoyer" }
+                },
+                "required": ["channel", "message"]
+            }
+        },
+        {
+            "name": "act_create_linear_issue",
+            "description": "ACTION — Crée une issue dans Linear. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Titre de l'issue" },
+                    "description": { "type": "string", "description": "Description de l'issue en markdown" },
+                    "team_id": { "type": "string", "description": "ID de l'équipe Linear (optionnel — utilise la première équipe si absent)" }
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "act_create_todoist_task",
+            "description": "ACTION — Crée une tâche dans Todoist. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "content": { "type": "string", "description": "Nom de la tâche" },
+                    "due_string": { "type": "string", "description": "Échéance en langage naturel (ex: demain, vendredi, 25 mars)" },
+                    "project_id": { "type": "string", "description": "ID du projet Todoist (optionnel)" }
+                },
+                "required": ["content"]
+            }
+        },
+        {
+            "name": "act_create_github_issue",
+            "description": "ACTION — Crée une issue GitHub. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Titre de l'issue" },
+                    "body": { "type": "string", "description": "Description de l'issue en markdown" },
+                    "repo": { "type": "string", "description": "Repo au format owner/repo (optionnel — utilise le premier repo configuré si absent)" }
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "act_create_trello_card",
+            "description": "ACTION — Crée une carte dans Trello. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Nom de la carte" },
+                    "list_id": { "type": "string", "description": "ID de la liste Trello où créer la carte" },
+                    "description": { "type": "string", "description": "Description de la carte (optionnel)" }
+                },
+                "required": ["name", "list_id"]
+            }
+        },
+        {
+            "name": "act_create_gitlab_issue",
+            "description": "ACTION — Crée une issue GitLab. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Titre de l'issue" },
+                    "project_id": { "type": "string", "description": "ID ou chemin du projet GitLab (ex: 12345 ou groupe/projet)" },
+                    "description": { "type": "string", "description": "Description de l'issue (optionnel)" }
+                },
+                "required": ["title", "project_id"]
+            }
         }
     ])
 }
@@ -1318,6 +1395,138 @@ pub async fn run(cfg: Config) -> Result<()> {
                                     "⚠️ Impossible de soumettre l'action : {}.\nAssure-toi que le daemon OSMOzzz tourne (osmozzz daemon).", e
                                 )}]
                             }))),
+                        }
+                    }
+
+                    "act_send_slack_message" => {
+                        let channel = match args["channel"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: channel")); continue; }
+                        };
+                        let message = match args["message"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: message")); continue; }
+                        };
+                        let preview = format!("Envoyer un message Slack dans #{}\n\n{}", channel, &message[..message.len().min(300)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_send_slack_message",
+                            serde_json::json!({ "channel": channel, "message": message }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_linear_issue" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let description = args["description"].as_str().unwrap_or("").to_string();
+                        let team_id = args["team_id"].as_str().map(|s| s.to_string());
+                        let preview = format!("Créer une issue Linear\nTitre : {}\n\n{}", title, &description[..description.len().min(200)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_linear_issue",
+                            serde_json::json!({ "title": title, "description": description, "team_id": team_id }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_todoist_task" => {
+                        let content = match args["content"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: content")); continue; }
+                        };
+                        let due_string = args["due_string"].as_str().unwrap_or("").to_string();
+                        let project_id = args["project_id"].as_str().unwrap_or("").to_string();
+                        let preview = format!("Créer une tâche Todoist\n{}{}", content,
+                            if due_string.is_empty() { String::new() } else { format!("\nÉchéance : {due_string}") });
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_todoist_task",
+                            serde_json::json!({ "content": content, "due_string": due_string, "project_id": project_id }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_github_issue" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let body = args["body"].as_str().unwrap_or("").to_string();
+                        let repo = args["repo"].as_str().unwrap_or("").to_string();
+                        let preview = format!("Créer une issue GitHub\nTitre : {}{}\n\n{}",
+                            title,
+                            if repo.is_empty() { String::new() } else { format!(" ({})", repo) },
+                            &body[..body.len().min(200)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_github_issue",
+                            serde_json::json!({ "title": title, "body": body, "repo": repo }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_trello_card" => {
+                        let name = match args["name"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: name")); continue; }
+                        };
+                        let list_id = match args["list_id"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: list_id")); continue; }
+                        };
+                        let description = args["description"].as_str().unwrap_or("").to_string();
+                        let preview = format!("Créer une carte Trello\nNom : {}\nListe : {}\n\n{}", name, list_id, &description[..description.len().min(200)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_trello_card",
+                            serde_json::json!({ "name": name, "list_id": list_id, "description": description }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_gitlab_issue" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let project_id = match args["project_id"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: project_id")); continue; }
+                        };
+                        let description = args["description"].as_str().unwrap_or("").to_string();
+                        let preview = format!("Créer une issue GitLab\nTitre : {}\nProjet : {}\n\n{}", title, project_id, &description[..description.len().min(200)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_gitlab_issue",
+                            serde_json::json!({ "title": title, "project_id": project_id, "description": description }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
                         }
                     }
 
