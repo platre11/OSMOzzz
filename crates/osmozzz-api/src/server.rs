@@ -10,6 +10,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use osmozzz_embedder::Vault;
 use osmozzz_p2p::P2pNode;
+use crate::action_queue::ActionQueue;
 use crate::routes;
 use crate::state::AppState;
 
@@ -19,12 +20,14 @@ static DASHBOARD_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../dashboard/di
 pub async fn start_server(
     vault: Arc<Vault>,
     p2p: Option<Arc<P2pNode>>,
+    action_queue: Arc<ActionQueue>,
     port: u16,
 ) -> Result<()> {
     let state = AppState {
         vault,
         p2p,
         index_progress: Arc::new(std::sync::Mutex::new(Default::default())),
+        action_queue,
     };
 
     let cors = CorsLayer::new()
@@ -66,6 +69,12 @@ pub async fn start_server(
         .route("/network/peers/:peer_id", delete(routes::delete_network_peer))
         .route("/network/permissions/:peer_id", get(routes::get_network_permissions).post(routes::post_network_permissions))
         .route("/network/history", get(routes::get_network_history))
+        // ── Actions orchestrateur ──────────────────────────────────────────
+        .route("/actions",              get(routes::get_actions_all).post(routes::post_action))
+        .route("/actions/pending",      get(routes::get_actions_pending))
+        .route("/actions/stream",       get(routes::get_actions_stream))
+        .route("/actions/:id/approve",  post(routes::post_action_approve))
+        .route("/actions/:id/reject",   post(routes::post_action_reject))
         .with_state(state);
 
     let app = Router::new()

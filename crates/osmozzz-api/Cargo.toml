@@ -24,3 +24,4 @@ dirs-next = { workspace = true }
 shellexpand = { workspace = true }
 walkdir = { workspace = true }
 pdf-extract = { workspace = true }
+lettre = { workspace = true }

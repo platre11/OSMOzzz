@@ -18,7 +18,12 @@ async fn main() -> Result<()> {
 
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| {
-            if cli.verbose { EnvFilter::new("debug") } else { EnvFilter::new("warn") }
+            if cli.verbose {
+                EnvFilter::new("debug")
+            } else {
+                // Silencer les libs P2P (iroh, quinn, etc.) qui spamment en WARN
+                EnvFilter::new("warn,iroh=error,iroh_net=error,iroh_relay=error,quinn=error,quinn_proto=error,iroh_gossip=error")
+            }
         });
 
     if log_target {

@@ -1403,6 +1403,84 @@ pub async fn post_index(
     ApiResponse::ok(IndexResult { indexed: 0, skipped: 0 }).into_response()
 }
 
+// ─── Actions orchestrateur ────────────────────────────────────────────────────
+
+use axum::{
+    extract::Path,
+    response::sse::{Event, KeepAlive, Sse},
+};
+use std::convert::Infallible;
+use tokio_stream::wrappers::BroadcastStream;
+use futures::StreamExt;
+use osmozzz_core::ActionRequest;
+
+/// GET /api/actions — historique complet (les plus récents en premier)
+pub async fn get_actions_all(State(state): State<AppState>) -> impl IntoResponse {
+    let actions = state.action_queue.all();
+    ApiResponse::ok(actions).into_response()
+}
+
+/// GET /api/actions/pending — actions en attente de validation
+pub async fn get_actions_pending(State(state): State<AppState>) -> impl IntoResponse {
+    let pending = state.action_queue.pending();
+    ApiResponse::ok(pending).into_response()
+}
+
+/// POST /api/actions — soumet une nouvelle action (appelé par le process MCP)
+pub async fn post_action(
+    State(state): State<AppState>,
+    Json(action): Json<ActionRequest>,
+) -> impl IntoResponse {
+    state.action_queue.push(action);
+    ApiResponse::ok(serde_json::json!({ "ok": true })).into_response()
+}
+
+/// POST /api/actions/:id/approve — l'utilisateur approuve l'action, puis exécution immédiate
+pub async fn post_action_approve(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.action_queue.approve(&id) {
+        Some(action) => {
+            // Exécution en arrière-plan pour ne pas bloquer la réponse HTTP
+            let queue = state.action_queue.clone();
+            let action_id = action.id.clone();
+            let action_clone = action.clone();
+            tokio::spawn(async move {
+                let result = crate::executor::execute(&action_clone).await;
+                queue.set_execution_result(&action_id, result);
+            });
+            ApiResponse::ok(action).into_response()
+        }
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Action non trouvée" }))).into_response(),
+    }
+}
+
+/// POST /api/actions/:id/reject — l'utilisateur rejette l'action
+pub async fn post_action_reject(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.action_queue.reject(&id) {
+        Some(action) => ApiResponse::ok(action).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Action non trouvée" }))).into_response(),
+    }
+}
+
+/// GET /api/actions/stream — flux SSE temps réel vers le dashboard
+pub async fn get_actions_stream(
+    State(state): State<AppState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.action_queue.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|result| {
+        let event = result.ok().and_then(|ev| {
+            serde_json::to_string(&ev).ok().map(|data| Ok(Event::default().data(data)))
+        });
+        async move { event }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn truncate(s: &str, max: usize) -> String {

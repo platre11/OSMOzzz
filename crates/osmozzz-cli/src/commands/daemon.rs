@@ -144,11 +144,15 @@ pub async fn run(cfg: Config) -> Result<()> {
         }
     };
 
+    // Créer la queue d'actions partagée entre le serveur HTTP et le process MCP
+    let action_queue = Arc::new(osmozzz_api::ActionQueue::new());
+
     // Démarrer le serveur HTTP du dashboard
     let dashboard_vault = Arc::clone(&vault);
     let dashboard_p2p = p2p_node.clone();
+    let dashboard_queue = Arc::clone(&action_queue);
     tokio::spawn(async move {
-        if let Err(e) = osmozzz_api::start_server(dashboard_vault, dashboard_p2p, DASHBOARD_PORT).await {
+        if let Err(e) = osmozzz_api::start_server(dashboard_vault, dashboard_p2p, dashboard_queue, DASHBOARD_PORT).await {
             eprintln!("[OSMOzzz Daemon] Dashboard erreur: {}", e);
         }
     });

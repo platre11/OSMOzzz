@@ -52,6 +52,7 @@ import {
   Copy,
   Check,
   Sparkles,
+  Zap,
 } from 'lucide-react'
 
 export const icons = {
@@ -100,4 +101,5 @@ export const icons = {
   Copy,
   Check,
   Sparkles,
+  Zap,
 } as const

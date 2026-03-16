@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use crate::config::Config;
 use crate::proof;
 use shellexpand;
+use reqwest;
 
 
 // ─── Types JSON-RPC ──────────────────────────────────────────────────────────
@@ -523,8 +524,67 @@ fn tools_list() -> Value {
                 },
                 "required": ["path"]
             }
+        },
+        {
+            "name": "act_send_email",
+            "description": "ACTION — Envoie un email via Gmail. L'action est soumise au dashboard OSMOzzz pour validation humaine AVANT envoi. NE PAS utiliser sans accord explicite de l'utilisateur. L'email ne sera PAS envoyé immédiatement — l'utilisateur doit valider dans le dashboard. Retourne un ID de suivi.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Adresse email du destinataire (ex: contact@example.com)"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Objet de l'email"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Corps de l'email en texte brut"
+                    }
+                },
+                "required": ["to", "subject", "body"]
+            }
+        },
+        {
+            "name": "act_create_notion_page",
+            "description": "ACTION — Crée une nouvelle page dans Notion. L'action est soumise au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur. Retourne un ID de suivi.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Titre de la page Notion à créer"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Contenu texte de la page"
+                    },
+                    "parent_id": {
+                        "type": "string",
+                        "description": "ID optionnel de la page parent (laisser vide pour créer à la racine)"
+                    }
+                },
+                "required": ["title", "content"]
+            }
         }
     ])
+}
+
+// ─── Soumission d'une action au daemon via HTTP ───────────────────────────────
+
+/// Soumet une action au daemon OSMOzzz via son API HTTP locale.
+/// Le daemon valide l'action et notifie le dashboard via SSE.
+async fn submit_action(action: osmozzz_core::ActionRequest) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+    client
+        .post("http://127.0.0.1:7878/api/actions")
+        .json(&action)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
 }
 
 // ─── Envoi d'une réponse sur stdout (pur JSON) ────────────────────────────────
@@ -1190,6 +1250,74 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 })));
                             }
                             Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    // ── Actions orchestrateur ─────────────────────────────
+                    "act_send_email" => {
+                        let to = match args["to"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: to")); continue; }
+                        };
+                        let subject = match args["subject"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: subject")); continue; }
+                        };
+                        let body = match args["body"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: body")); continue; }
+                        };
+                        let preview = format!("Envoyer un email à {}\nObjet : {}\n\n{}", to, subject, &body[..body.len().min(200)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_send_email",
+                            serde_json::json!({ "to": to, "subject": subject, "body": body }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({
+                                "content": [{"type": "text", "text": format!(
+                                    "✅ Action soumise pour validation (ID: {}).\n\nOuvre le dashboard OSMOzzz (http://localhost:7878) pour approuver ou rejeter l'envoi.",
+                                    action_id
+                                )}]
+                            }))),
+                            Err(e) => send(&Response::ok(id, json!({
+                                "content": [{"type": "text", "text": format!(
+                                    "⚠️ Impossible de soumettre l'action : {}.\nAssure-toi que le daemon OSMOzzz tourne (osmozzz daemon).", e
+                                )}]
+                            }))),
+                        }
+                    }
+
+                    "act_create_notion_page" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let content = match args["content"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: content")); continue; }
+                        };
+                        let parent_id = args["parent_id"].as_str().map(|s| s.to_string());
+                        let preview = format!("Créer une page Notion\nTitre : {}\n\n{}", title, &content[..content.len().min(200)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_notion_page",
+                            serde_json::json!({ "title": title, "content": content, "parent_id": parent_id }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({
+                                "content": [{"type": "text", "text": format!(
+                                    "✅ Action soumise pour validation (ID: {}).\n\nOuvre le dashboard OSMOzzz (http://localhost:7878) pour approuver ou rejeter la création.",
+                                    action_id
+                                )}]
+                            }))),
+                            Err(e) => send(&Response::ok(id, json!({
+                                "content": [{"type": "text", "text": format!(
+                                    "⚠️ Impossible de soumettre l'action : {}.\nAssure-toi que le daemon OSMOzzz tourne (osmozzz daemon).", e
+                                )}]
+                            }))),
                         }
                     }
 

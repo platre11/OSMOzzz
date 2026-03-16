@@ -119,6 +119,28 @@ export const ALL_SOURCES = [
   'email', 'imessage', 'terminal', 'chrome', 'safari', 'notes', 'calendar',
 ] as const
 
+// ─── Actions orchestrateur ───────────────────────────────────────────────────
+
+export type ActionStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+
+export interface ActionRequest {
+  id: string
+  tool: string
+  params: Record<string, unknown>
+  preview: string
+  status: ActionStatus
+  created_at: number
+  expires_at: number
+  execution_result?: string
+}
+
+export interface ActionEvent {
+  kind: 'new' | 'updated'
+  action: ActionRequest
+}
+
+// ─── Confidentialité ─────────────────────────────────────────────────────────
+
 export interface PrivacyConfig {
   credit_card: boolean
   iban: boolean
@@ -315,5 +337,27 @@ export const api = {
 
   setPrivacy: async (config: PrivacyConfig): Promise<void> => {
     await axios.post(`${BASE}/privacy`, config)
+  },
+
+  // ─── Actions orchestrateur ───────────────────────────────────────────────────
+
+  getActionsPending: async (): Promise<ActionRequest[]> => {
+    const r = await axios.get(`${BASE}/actions/pending`)
+    return r.data.data ?? []
+  },
+
+  getActionsAll: async (): Promise<ActionRequest[]> => {
+    const r = await axios.get(`${BASE}/actions`)
+    return r.data.data ?? []
+  },
+
+  approveAction: async (id: string): Promise<ActionRequest> => {
+    const r = await axios.post(`${BASE}/actions/${id}/approve`)
+    return r.data.data
+  },
+
+  rejectAction: async (id: string): Promise<ActionRequest> => {
+    const r = await axios.post(`${BASE}/actions/${id}/reject`)
+    return r.data.data
   },
 }

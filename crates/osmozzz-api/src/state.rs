@@ -2,6 +2,8 @@ use std::sync::Arc;
 use osmozzz_embedder::Vault;
 use osmozzz_p2p::P2pNode;
 
+use crate::action_queue::ActionQueue;
+
 #[derive(Clone, Default, serde::Serialize)]
 pub struct IndexProgress {
     pub running: bool,
@@ -17,4 +19,5 @@ pub struct AppState {
     pub vault: Arc<Vault>,
     pub p2p: Option<Arc<P2pNode>>,
     pub index_progress: Arc<std::sync::Mutex<IndexProgress>>,
+    pub action_queue: Arc<ActionQueue>,
 }
