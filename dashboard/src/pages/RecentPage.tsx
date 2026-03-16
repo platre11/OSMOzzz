@@ -627,6 +627,7 @@ function GlobalResultCard({ doc, source, query, onBanned }: {
   )
 }
 
+
 function BannisInline({ source }: { source: string }) {
   const queryClient = useQueryClient()
   const { data, isLoading, refetch } = useQuery({ queryKey: ['blacklist'], queryFn: api.getBlacklist })
