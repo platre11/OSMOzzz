@@ -661,6 +661,25 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] Recherche: \"{}\" (limit={})", query, limit);
 
+                        // Recherche AND multi-termes si `+` détecté
+                        if query.contains('+') {
+                            match vault.search_and_query(&query, limit).await {
+                                Ok(Some(results)) => {
+                                    let text = format_results(&query, &results, &proof_key);
+                                    send(&Response::ok(id, json!({
+                                        "content": [{"type": "text", "text": text}]
+                                    })));
+                                    continue;
+                                }
+                                Ok(None) => {} // fallback recherche normale
+                                Err(e) => {
+                                    eprintln!("[OSMOzzz MCP] AND search error: {}", e);
+                                    send(&Response::err(id, -32603, &e.to_string()));
+                                    continue;
+                                }
+                            }
+                        }
+
                         // Blended search: global top results + guaranteed email results
                         let global_fut = vault.search_filtered(&query, limit, None);
                         let email_fut  = vault.search_filtered(&query, 3, Some("email"));

@@ -233,6 +233,27 @@ impl Vault {
         let embedding = self.embedder.embed(query)?;
         self.store.search_filtered(embedding, limit, source_filter).await
     }
+
+    /// Détecte le `+` dans la requête et lance une recherche multi-termes.
+    /// "qonto + style + sécurité" → 3 embeddings → scores cumulatifs.
+    /// Retourne None si la requête ne contient pas de `+` (recherche normale).
+    pub async fn search_and_query(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> osmozzz_core::Result<Option<Vec<osmozzz_core::SearchResult>>> {
+        let terms: Vec<&str> = query.split('+').map(|t| t.trim()).filter(|t| !t.is_empty()).collect();
+
+        if terms.len() < 2 {
+            return Ok(None); // pas un AND, recherche normale
+        }
+
+        let embeddings: osmozzz_core::Result<Vec<Vec<f32>>> =
+            terms.iter().map(|t| self.embedder.embed(t)).collect();
+
+        let results = self.store.search_and(embeddings?, limit).await?;
+        Ok(Some(results))
+    }
 }
 
 impl Embedder for Vault {

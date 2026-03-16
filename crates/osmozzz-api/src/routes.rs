@@ -214,6 +214,31 @@ pub async fn get_search(
     let from_ts = params.from.as_deref().and_then(parse_date_ts);
     let to_ts   = params.to.as_deref().and_then(|s| parse_date_ts_end(s));
 
+    // Recherche AND multi-termes si `+` détecté (ex: "qonto + style + sécurité")
+    if q.contains('+') {
+        if let Ok(Some(results)) = state.vault.search_and_query(q, 20).await {
+            #[cfg(target_os = "macos")]
+            let order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar",
+                         "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+            #[cfg(not(target_os = "macos"))]
+            let order = ["email", "chrome", "file", "terminal",
+                         "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+            let mut by_source: std::collections::HashMap<String, Vec<SearchDoc>> = std::collections::HashMap::new();
+            for r in &results {
+                by_source.entry(r.source.clone()).or_default().push(SearchDoc {
+                    url: r.url.clone(),
+                    title: r.title.clone(),
+                    content: truncate(&r.content, 300),
+                    date: None,
+                });
+            }
+            let groups: Vec<SourceGroup> = order.iter()
+                .filter_map(|src| by_source.remove(*src).map(|docs| SourceGroup { source: src.to_string(), results: docs }))
+                .collect();
+            return ApiResponse::ok(GroupedSearchResponse { groups }).into_response();
+        }
+    }
+
     let file_q = q.to_lowercase();
     let (grouped_res, live_files) = tokio::join!(
         state.vault.search_grouped_by_keyword(q, 5),

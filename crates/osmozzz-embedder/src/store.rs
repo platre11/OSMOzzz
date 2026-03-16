@@ -478,6 +478,67 @@ impl VectorStore {
         Ok(results)
     }
 
+    /// Recherche multi-termes avec opérateur AND (séparés par `+`).
+    ///
+    /// Principe : chaque terme est embedé séparément → LanceDB search →
+    /// les scores sont cumulés par document. Un document qui parle de TOUS
+    /// les termes accumule le score de chaque recherche → remonte en tête.
+    ///
+    /// Exemple : "qonto + style + sécurité"
+    ///   doc A : qonto(0.82) + style(0.75) + sécurité(0.71) = 2.28  ← 1er
+    ///   doc B : qonto(0.90) seulement                      = 0.90  ← 2ème
+    pub async fn search_and(
+        &self,
+        embeddings: Vec<Vec<f32>>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        // Filet large par terme pour maximiser les intersections
+        let per_term_limit = (limit * 15).max(100);
+
+        // Collecte les résultats de chaque terme en parallèle
+        let mut handles = Vec::new();
+        for emb in embeddings {
+            let emb_clone = emb.clone();
+            let per_term = per_term_limit;
+            let results = self.search_filtered(emb_clone, per_term, None).await?;
+            handles.push(results);
+        }
+
+        if handles.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Cumule les scores par URL
+        let mut scores: std::collections::HashMap<String, (SearchResult, f32)> =
+            std::collections::HashMap::new();
+
+        for term_results in handles {
+            for result in term_results {
+                let url = result.url.clone();
+                let s = result.score;
+                scores
+                    .entry(url)
+                    .and_modify(|(_, total)| *total += s)
+                    .or_insert((result, s));
+            }
+        }
+
+        // Reconstruit avec le score total et trie
+        let mut merged: Vec<SearchResult> = scores
+            .into_values()
+            .map(|(mut r, total_score)| {
+                r.score = total_score;
+                r
+            })
+            .collect();
+
+        merged.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        merged.truncate(limit);
+        Ok(merged)
+    }
+
     /// Keyword search across ALL email content (from + subject + body).
     /// Same philosophy as filesystem find_file: no ONNX, pure string match.
     /// Finds ANY email containing the keyword regardless of age.
