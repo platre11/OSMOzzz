@@ -78,13 +78,31 @@ async fn execute_notion_page(action: &ActionRequest) -> Result<String, String> {
     let token = load_toml_single("notion.toml", "token")
         .ok_or_else(|| "Notion non configuré — configurez-le dans le dashboard".to_string())?;
 
-    if parent_id.is_empty() {
-        return Err("parent_id requis pour créer une page Notion".to_string());
-    }
-
     let client = reqwest::Client::new();
+
+    // Si pas de parent_id → cherche automatiquement une page accessible
+    let resolved_parent_id: String;
+    let parent = if !parent_id.is_empty() {
+        serde_json::json!({ "page_id": parent_id })
+    } else {
+        let search: serde_json::Value = client
+            .post("https://api.notion.com/v1/search")
+            .bearer_auth(&token)
+            .header("Notion-Version", "2022-06-28")
+            .json(&serde_json::json!({ "filter": { "value": "page", "property": "object" }, "page_size": 1 }))
+            .send().await
+            .map_err(|e| format!("recherche Notion: {e}"))?
+            .json().await
+            .map_err(|e| format!("réponse Notion search: {e}"))?;
+        resolved_parent_id = search["results"][0]["id"]
+            .as_str()
+            .ok_or_else(|| "Aucune page Notion accessible — partagez au moins une page avec l'intégration OSMOzzz".to_string())?
+            .to_string();
+        serde_json::json!({ "page_id": resolved_parent_id })
+    };
+
     let body = serde_json::json!({
-        "parent": { "page_id": parent_id },
+        "parent": parent,
         "properties": {
             "title": { "title": [{ "text": { "content": title } }] }
         },
@@ -385,4 +403,48 @@ fn load_toml_array_first(filename: &str, key: &str) -> Option<String> {
         }
     }
     None
+}
+
+// ─── Re-sync après action ────────────────────────────────────────────────────
+
+/// Déclenche une re-sync immédiate de la source concernée après une action réussie.
+/// Mapping tool → source harvester.
+pub async fn sync_source_after_action(tool: &str, vault: &std::sync::Arc<osmozzz_embedder::Vault>) {
+    use osmozzz_core::{Embedder, Harvester};
+
+    let source = match tool {
+        "act_create_notion_page"  => "notion",
+        "act_create_linear_issue" => "linear",
+        "act_create_todoist_task" => "todoist",
+        "act_create_github_issue" => "github",
+        "act_create_trello_card"  => "trello",
+        "act_create_gitlab_issue" => "gitlab",
+        "act_send_slack_message"  => "slack",
+        _ => return, // email et autres : pas de source à re-sync
+    };
+
+    info!("[Executor] Re-sync immédiate de la source '{source}' après action réussie");
+
+    let docs = match source {
+        "notion"  => osmozzz_harvester::NotionHarvester::new().harvest().await,
+        "linear"  => osmozzz_harvester::LinearHarvester::new().harvest().await,
+        "todoist" => osmozzz_harvester::TodoistHarvester::new().harvest().await,
+        "github"  => osmozzz_harvester::GithubHarvester::new().harvest().await,
+        "trello"  => osmozzz_harvester::TrelloHarvester::new().harvest().await,
+        "gitlab"  => osmozzz_harvester::GitlabHarvester::new().harvest().await,
+        "slack"   => osmozzz_harvester::SlackHarvester::new().harvest().await,
+        _ => return,
+    };
+
+    match docs {
+        Ok(docs) => {
+            let count = docs.len();
+            if let Err(e) = { let mut errs = 0usize; for doc in &docs { if vault.upsert(doc).await.is_err() { errs += 1; } } if errs > 0 { Err(osmozzz_core::OsmozzError::Storage(format!("{errs} docs failed"))) } else { Ok(()) } } {
+                warn!("[Executor] Erreur re-sync {source}: {e}");
+            } else {
+                info!("[Executor] Re-sync {source}: {count} docs upsertés");
+            }
+        }
+        Err(e) => warn!("[Executor] Re-sync {source} harvest échoué: {e}"),
+    }
 }

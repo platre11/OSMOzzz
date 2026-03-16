@@ -1444,10 +1444,15 @@ pub async fn post_action_approve(
         Some(action) => {
             // Exécution en arrière-plan pour ne pas bloquer la réponse HTTP
             let queue = state.action_queue.clone();
+            let vault = state.vault.clone();
             let action_id = action.id.clone();
             let action_clone = action.clone();
             tokio::spawn(async move {
                 let result = crate::executor::execute(&action_clone).await;
+                // Re-sync immédiate de la source si l'exécution a réussi
+                if result.starts_with("ok:") {
+                    crate::executor::sync_source_after_action(&action_clone.tool, &vault).await;
+                }
                 queue.set_execution_result(&action_id, result);
             });
             ApiResponse::ok(action).into_response()
