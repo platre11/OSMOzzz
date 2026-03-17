@@ -201,8 +201,25 @@ fn tools_list() -> Value {
             }
         },
         {
+            "name": "get_upcoming_events",
+            "description": "PROCHAIN(S) ÉVÉNEMENT(S) CALENDRIER — retourne les N prochains événements à venir dans Apple Calendar, triés par date croissante. QUAND L'UTILISER : l'utilisateur dit 'mon prochain rendez-vous', 'mes prochains événements', 'qu'est-ce que j'ai demain/cette semaine'. NE PAS utiliser search_calendar pour ça. Utilise ce tool en premier pour voir l'agenda, puis act_delete_calendar_event pour supprimer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre d'événements à retourner (défaut: 5, max: 20)",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    }
+                },
+                "required": []
+            }
+        },
+        {
             "name": "search_calendar",
-            "description": "APPLE CALENDAR UNIQUEMENT — recherche par mot-clé exact dans les événements indexés. QUAND L'UTILISER : l'utilisateur parle d'un rendez-vous, d'un événement, d'une réunion planifiée. Retourne titre + notes + date.",
+            "description": "APPLE CALENDAR — recherche par mot-clé dans les événements indexés. QUAND L'UTILISER : l'utilisateur cherche un événement précis par nom ('dentiste', 'réunion Thomas'). Si l'utilisateur veut voir ses prochains RDV sans keyword → utilise get_upcoming_events.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -644,6 +661,102 @@ fn tools_list() -> Value {
                     "description": { "type": "string", "description": "Description de l'issue (optionnel)" }
                 },
                 "required": ["title", "project_id"]
+            }
+        },
+        {
+            "name": "act_send_imessage",
+            "description": "ACTION — Envoie un iMessage/SMS via l'app Messages macOS. Soumis au dashboard OSMOzzz pour validation humaine AVANT envoi. NE PAS utiliser sans accord explicite de l'utilisateur.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to":      { "type": "string", "description": "Numéro de téléphone ou adresse Apple ID du destinataire (ex: +33612345678 ou prenom@icloud.com)" },
+                    "message": { "type": "string", "description": "Texte du message à envoyer" }
+                },
+                "required": ["to", "message"]
+            }
+        },
+        {
+            "name": "act_create_calendar_event",
+            "description": "ACTION — Crée un événement dans l'app Calendrier macOS (compatible Google Calendar si synchronisé). Soumis au dashboard OSMOzzz pour validation humaine AVANT création.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title":      { "type": "string", "description": "Titre de l'événement" },
+                    "start_date": { "type": "string", "description": "Date et heure de début au format 'DD/MM/YYYY HH:MM' (ex: 17/03/2026 14:00)" },
+                    "end_date":   { "type": "string", "description": "Date et heure de fin (optionnel, défaut: start_date + 1h)" },
+                    "calendar":   { "type": "string", "description": "Nom du calendrier (optionnel, défaut: premier calendrier disponible)" },
+                    "notes":      { "type": "string", "description": "Notes ou description de l'événement (optionnel)" }
+                },
+                "required": ["title", "start_date"]
+            }
+        },
+        {
+            "name": "act_delete_calendar_event",
+            "description": "ACTION — Supprime un événement dans l'app Calendrier macOS. Soumis au dashboard OSMOzzz pour validation humaine AVANT suppression. Cherche parmi tous les calendriers.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Titre exact de l'événement à supprimer" },
+                    "date":  { "type": "string", "description": "Date de l'événement au format 'YYYY-MM-DD' (optionnel, pour affiner si plusieurs événements portent le même nom)" }
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "act_delete_note",
+            "description": "ACTION — Supprime une note dans l'app Notes macOS. Soumis au dashboard OSMOzzz pour validation humaine AVANT suppression. La note est identifiée par son titre exact.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Titre exact de la note à supprimer" }
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "act_create_folder",
+            "description": "ACTION — Crée un dossier sur le Mac (Finder). Soumis au dashboard OSMOzzz pour validation humaine AVANT création. Supporte ~ pour le dossier home.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Chemin complet du dossier à créer (ex: ~/Desktop/MonProjet ou ~/Documents/Notes/2026)" }
+                },
+                "required": ["path"]
+            }
+        },
+        {
+            "name": "act_rename_file",
+            "description": "ACTION — Renomme ou déplace un fichier/dossier sur le Mac. Soumis au dashboard OSMOzzz pour validation humaine AVANT exécution.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string", "description": "Chemin actuel du fichier ou dossier" },
+                    "to":   { "type": "string", "description": "Nouveau chemin (renommage ET déplacement possible)" }
+                },
+                "required": ["from", "to"]
+            }
+        },
+        {
+            "name": "act_delete_file",
+            "description": "ACTION — Supprime définitivement un fichier ou dossier sur le Mac. ATTENTION action irréversible. Soumis au dashboard OSMOzzz pour validation humaine AVANT suppression.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Chemin complet du fichier ou dossier à supprimer" }
+                },
+                "required": ["path"]
+            }
+        },
+        {
+            "name": "act_run_command",
+            "description": "ACTION — Exécute une commande shell zsh sur le Mac. Soumis au dashboard OSMOzzz pour validation humaine AVANT exécution. Retourne stdout/stderr à Claude. Utiliser pour git, npm, scripts, etc.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "Commande shell à exécuter (ex: git pull, npm install, ls ~/Desktop)" },
+                    "workdir": { "type": "string", "description": "Répertoire de travail (optionnel, défaut: ~)" }
+                },
+                "required": ["command"]
             }
         }
     ])
@@ -1113,6 +1226,63 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
+                    "get_upcoming_events" => {
+                        let limit = args["limit"].as_u64().unwrap_or(5).min(20);
+                        let script = format!(
+                            r#"tell application "Calendar"
+                                set sep to "|||OSMOZZZ|||"
+                                set rec to "~~~OSMOZZZ~~~"
+                                set output to ""
+                                set now to current date
+                                set horizon to now + 90 * days
+                                set eventList to {{}}
+                                repeat with c in every calendar
+                                    try
+                                        repeat with e in (every event of c whose start date >= now and start date <= horizon)
+                                            try
+                                                set eTitle to summary of e
+                                                set sd to start date of e
+                                                set eDate to (year of sd as string) & "-" & (month of sd as integer as string) & "-" & (day of sd as string) & " " & (hours of sd as string) & "h" & (minutes of sd as string)
+                                                set output to output & eTitle & sep & eDate & rec
+                                            end try
+                                        end repeat
+                                    end try
+                                end repeat
+                                return output
+                            end tell"#
+                        );
+                        let result = tokio::process::Command::new("osascript")
+                            .arg("-e").arg(&script)
+                            .output().await;
+                        let text = match result {
+                            Ok(out) if out.status.success() => {
+                                let raw = String::from_utf8_lossy(&out.stdout).to_string();
+                                let mut events: Vec<(String, String)> = raw
+                                    .split("~~~OSMOZZZ~~~")
+                                    .filter_map(|r| {
+                                        let parts: Vec<&str> = r.splitn(2, "|||OSMOZZZ|||").collect();
+                                        if parts.len() == 2 && !parts[0].trim().is_empty() {
+                                            Some((parts[0].trim().to_string(), parts[1].trim().to_string()))
+                                        } else { None }
+                                    })
+                                    .collect();
+                                events.sort_by(|a, b| a.1.cmp(&b.1));
+                                events.truncate(limit as usize);
+                                if events.is_empty() {
+                                    "Aucun événement à venir dans les 90 prochains jours.".to_string()
+                                } else {
+                                    let lines: Vec<String> = events.iter().enumerate()
+                                        .map(|(i, (title, date))| format!("{}. {} — {}", i + 1, date, title))
+                                        .collect();
+                                    format!("Prochains événements :\n{}", lines.join("\n"))
+                                }
+                            }
+                            Ok(out) => format!("Erreur AppleScript: {}", String::from_utf8_lossy(&out.stderr).trim()),
+                            Err(e) => format!("Erreur: {e}"),
+                        };
+                        send(&Response::ok(id, json!({ "content": [{"type": "text", "text": text}] })));
+                    }
+
                     "search_calendar" => {
                         let keyword = match args["keyword"].as_str() {
                             Some(k) => k.to_string(),
@@ -1521,6 +1691,169 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let action = osmozzz_core::ActionRequest::new(
                             "act_create_gitlab_issue",
                             serde_json::json!({ "title": title, "project_id": project_id, "description": description }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_send_imessage" => {
+                        let to = match args["to"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: to")); continue; }
+                        };
+                        let message = match args["message"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: message")); continue; }
+                        };
+                        let preview = format!("Envoyer un iMessage à {}\n\n{}", to, &message[..message.len().min(300)]);
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_send_imessage",
+                            serde_json::json!({ "to": to, "message": message }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_calendar_event" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let start_date = match args["start_date"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: start_date")); continue; }
+                        };
+                        let end_date = args["end_date"].as_str().unwrap_or("").to_string();
+                        let calendar = args["calendar"].as_str().unwrap_or("").to_string();
+                        let notes    = args["notes"].as_str().unwrap_or("").to_string();
+                        let preview = format!("Créer un événement calendrier\n{}\nDébut : {}{}", title, start_date,
+                            if end_date.is_empty() { String::new() } else { format!("\nFin : {end_date}") });
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_calendar_event",
+                            serde_json::json!({ "title": title, "start_date": start_date, "end_date": end_date, "calendar": calendar, "notes": notes }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_delete_calendar_event" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let date = args["date"].as_str().unwrap_or("").to_string();
+                        let preview = format!("⚠️ Supprimer l'événement calendrier\n{}{}", title,
+                            if date.is_empty() { String::new() } else { format!("\nDate : {date}") });
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_delete_calendar_event",
+                            serde_json::json!({ "title": title, "date": date }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_delete_note" => {
+                        let title = match args["title"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
+                        };
+                        let preview = format!("⚠️ Supprimer la note\n{title}");
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_delete_note",
+                            serde_json::json!({ "title": title }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_create_folder" => {
+                        let path = match args["path"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: path")); continue; }
+                        };
+                        let preview = format!("Créer le dossier\n{path}");
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_create_folder",
+                            serde_json::json!({ "path": path }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_rename_file" => {
+                        let from = match args["from"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: from")); continue; }
+                        };
+                        let to = match args["to"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: to")); continue; }
+                        };
+                        let preview = format!("Renommer / déplacer\n{from}\n→ {to}");
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_rename_file",
+                            serde_json::json!({ "from": from, "to": to }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_delete_file" => {
+                        let path = match args["path"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: path")); continue; }
+                        };
+                        let preview = format!("⚠️ SUPPRESSION DÉFINITIVE\n{path}");
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_delete_file",
+                            serde_json::json!({ "path": path }),
+                            preview,
+                        );
+                        let action_id = action.id.clone();
+                        match submit_action(action).await {
+                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
+                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
+                        }
+                    }
+
+                    "act_run_command" => {
+                        let command = match args["command"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: command")); continue; }
+                        };
+                        let workdir = args["workdir"].as_str().unwrap_or("~").to_string();
+                        let preview = format!("Exécuter la commande shell\n$ {command}\nRépertoire : {workdir}");
+                        let action = osmozzz_core::ActionRequest::new(
+                            "act_run_command",
+                            serde_json::json!({ "command": command, "workdir": workdir }),
                             preview,
                         );
                         let action_id = action.id.clone();

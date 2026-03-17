@@ -25,6 +25,14 @@ pub async fn execute(action: &ActionRequest) -> String {
         "act_create_github_issue"=> execute_github_issue(action).await,
         "act_create_trello_card" => execute_trello_card(action).await,
         "act_create_gitlab_issue"=> execute_gitlab_issue(action).await,
+        "act_send_imessage"       => execute_send_imessage(action).await,
+        "act_create_calendar_event"  => execute_create_calendar_event(action).await,
+        "act_delete_calendar_event"  => execute_delete_calendar_event(action).await,
+        "act_delete_note"            => execute_delete_note(action).await,
+        "act_create_folder"          => execute_create_folder(action).await,
+        "act_rename_file"         => execute_rename_file(action).await,
+        "act_delete_file"         => execute_delete_file(action).await,
+        "act_run_command"         => execute_run_command(action).await,
         other => Err(format!("tool '{other}' non supporté par l'executor")),
     };
     match result {
@@ -405,6 +413,265 @@ fn load_toml_array_first(filename: &str, key: &str) -> Option<String> {
     None
 }
 
+// ─── act_send_imessage ────────────────────────────────────────────────────────
+
+async fn execute_send_imessage(action: &ActionRequest) -> Result<String, String> {
+    let to      = str_param(action, "to")?;
+    let message = str_param(action, "message")?;
+
+    // Échappe les guillemets pour AppleScript
+    let escaped_msg = message.replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped_to  = to.replace('"', "\\\"");
+
+    let script = format!(
+        r#"tell application "Messages"
+            set targetService to 1st service whose service type = iMessage
+            set targetBuddy to buddy "{escaped_to}" of targetService
+            send "{escaped_msg}" to targetBuddy
+        end tell"#
+    );
+
+    run_osascript(&script)
+        .await
+        .map(|_| format!("iMessage envoyé à {to}"))
+}
+
+// ─── act_create_calendar_event ────────────────────────────────────────────────
+
+async fn execute_create_calendar_event(action: &ActionRequest) -> Result<String, String> {
+    let title      = str_param(action, "title")?;
+    let start_date = str_param(action, "start_date")?; // "2026-03-17 14:00"
+    let end_date   = action.params["end_date"].as_str().unwrap_or("");
+    let calendar_hint = action.params["calendar"].as_str().unwrap_or("").trim().to_string();
+    let notes      = action.params["notes"].as_str().unwrap_or("");
+
+    // end_date = start_date + 1h si non fourni (même valeur → Calendar l'ajuste)
+    let end = if end_date.is_empty() { start_date.to_string() } else { end_date.to_string() };
+
+    // Résolution du nom de calendrier : si vide ou inconnu, on prend le premier disponible
+    let calendar = if calendar_hint.is_empty() {
+        // Récupère le nom du premier calendrier local
+        let list_script = r#"tell application "Calendar"
+            set calName to name of first calendar
+            return calName
+        end tell"#;
+        run_osascript(list_script).await.unwrap_or_else(|_| "Calendrier".to_string())
+    } else {
+        // Vérifie que le calendrier demandé existe ; sinon retombe sur le premier
+        let check_script = format!(
+            r#"tell application "Calendar"
+                set calList to name of every calendar
+                if calList contains "{cal}" then
+                    return "{cal}"
+                else
+                    return name of first calendar
+                end if
+            end tell"#,
+            cal = calendar_hint.replace('"', "\\\"")
+        );
+        run_osascript(&check_script).await.unwrap_or(calendar_hint.clone())
+    };
+
+    let escaped_title    = title.replace('"', "\\\"");
+    let escaped_notes    = notes.replace('"', "\\\"");
+    let escaped_calendar = calendar.trim().replace('"', "\\\"");
+
+    let script = format!(
+        r#"tell application "Calendar"
+            tell calendar "{escaped_calendar}"
+                set newEvent to make new event with properties {{summary:"{escaped_title}", start date:date "{start_date}", end date:date "{end}", description:"{escaped_notes}"}}
+            end tell
+            reload calendars
+        end tell"#
+    );
+
+    run_osascript(&script)
+        .await
+        .map(|_| format!("événement '{title}' créé dans le calendrier '{calendar}'"))
+}
+
+// ─── act_delete_calendar_event ───────────────────────────────────────────────
+
+async fn execute_delete_calendar_event(action: &ActionRequest) -> Result<String, String> {
+    let title = str_param(action, "title")?;
+    let date  = action.params["date"].as_str().unwrap_or(""); // ex: "2026-03-17"
+
+    let escaped_title = title.replace('"', "\\\"");
+
+    // Itération manuelle — le filtre "whose" ne fonctionne pas sur les calendriers iCloud
+    let script = if date.is_empty() {
+        format!(
+            r#"tell application "Calendar"
+                repeat with c in every calendar
+                    try
+                        set evList to every event of c
+                        repeat with e in evList
+                            try
+                                if summary of e is "{escaped_title}" then
+                                    delete e
+                                    return "ok"
+                                end if
+                            end try
+                        end repeat
+                    end try
+                end repeat
+                return "not found"
+            end tell"#
+        )
+    } else {
+        // Parse "YYYY-MM-DD"
+        let parts: Vec<&str> = date.split('-').collect();
+        let (yr, mo, dy) = if parts.len() == 3 {
+            (parts[0], parts[1], parts[2])
+        } else {
+            ("2000", "1", "1")
+        };
+        format!(
+            r#"tell application "Calendar"
+                set d to current date
+                set year of d to {yr}
+                set month of d to {mo}
+                set day of d to {dy}
+                set hours of d to 0
+                set minutes of d to 0
+                set seconds of d to 0
+                set dEnd to d + 1 * days
+                repeat with c in every calendar
+                    try
+                        set evList to every event of c
+                        repeat with e in evList
+                            try
+                                if summary of e is "{escaped_title}" then
+                                    if start date of e >= d and start date of e < dEnd then
+                                        delete e
+                                        return "ok"
+                                    end if
+                                end if
+                            end try
+                        end repeat
+                    end try
+                end repeat
+                return "not found"
+            end tell"#
+        )
+    };
+
+    let out = run_osascript(&script).await?;
+    if out.contains("not found") {
+        Err(format!("Aucun événement '{title}' trouvé{}", if date.is_empty() { String::new() } else { format!(" le {date}") }))
+    } else {
+        Ok(format!("Événement '{title}' supprimé du calendrier"))
+    }
+}
+
+// ─── act_delete_note ─────────────────────────────────────────────────────────
+
+async fn execute_delete_note(action: &ActionRequest) -> Result<String, String> {
+    let title = str_param(action, "title")?;
+    let escaped_title = title.replace('"', "\\\"");
+
+    let script = format!(
+        r#"tell application "Notes"
+            set matchedNotes to every note whose name is "{escaped_title}"
+            if (count of matchedNotes) is 0 then
+                return "not found"
+            end if
+            delete (item 1 of matchedNotes)
+            return "ok"
+        end tell"#
+    );
+
+    let out = run_osascript(&script).await?;
+    if out.contains("not found") {
+        Err(format!("Aucune note '{title}' trouvée"))
+    } else {
+        Ok(format!("Note '{title}' supprimée"))
+    }
+}
+
+// ─── act_create_folder ────────────────────────────────────────────────────────
+
+async fn execute_create_folder(action: &ActionRequest) -> Result<String, String> {
+    let path = str_param(action, "path")?;
+    let expanded = shellexpand::tilde(path).to_string();
+    std::fs::create_dir_all(&expanded)
+        .map(|_| format!("dossier créé : {expanded}"))
+        .map_err(|e| format!("création dossier: {e}"))
+}
+
+// ─── act_rename_file ──────────────────────────────────────────────────────────
+
+async fn execute_rename_file(action: &ActionRequest) -> Result<String, String> {
+    let from = str_param(action, "from")?;
+    let to   = str_param(action, "to")?;
+    let from_exp = shellexpand::tilde(from).to_string();
+    let to_exp   = shellexpand::tilde(to).to_string();
+    std::fs::rename(&from_exp, &to_exp)
+        .map(|_| format!("renommé : {from_exp} → {to_exp}"))
+        .map_err(|e| format!("renommage: {e}"))
+}
+
+// ─── act_delete_file ──────────────────────────────────────────────────────────
+
+async fn execute_delete_file(action: &ActionRequest) -> Result<String, String> {
+    let path = str_param(action, "path")?;
+    let expanded = shellexpand::tilde(path).to_string();
+    let p = std::path::Path::new(&expanded);
+    if p.is_dir() {
+        std::fs::remove_dir_all(&expanded)
+            .map(|_| format!("dossier supprimé : {expanded}"))
+            .map_err(|e| format!("suppression dossier: {e}"))
+    } else {
+        std::fs::remove_file(&expanded)
+            .map(|_| format!("fichier supprimé : {expanded}"))
+            .map_err(|e| format!("suppression fichier: {e}"))
+    }
+}
+
+// ─── act_run_command ──────────────────────────────────────────────────────────
+
+async fn execute_run_command(action: &ActionRequest) -> Result<String, String> {
+    let command = str_param(action, "command")?;
+    let workdir = action.params["workdir"].as_str().unwrap_or("~");
+    let expanded_dir = shellexpand::tilde(workdir).to_string();
+
+    let output = tokio::process::Command::new("zsh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(&expanded_dir)
+        .output()
+        .await
+        .map_err(|e| format!("exécution commande: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if output.status.success() {
+        let result = if stdout.is_empty() { "(pas de sortie)".to_string() } else { stdout };
+        Ok(format!("$ {command}\n{result}"))
+    } else {
+        let err = if stderr.is_empty() { stdout } else { stderr };
+        Err(format!("$ {command}\nexit {}: {err}", output.status.code().unwrap_or(-1)))
+    }
+}
+
+// ─── Helper AppleScript ───────────────────────────────────────────────────────
+
+async fn run_osascript(script: &str) -> Result<String, String> {
+    let output = tokio::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .await
+        .map_err(|e| format!("osascript: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 // ─── Re-sync après action ────────────────────────────────────────────────────
 
 /// Déclenche une re-sync immédiate de la source concernée après une action réussie.
@@ -413,14 +680,15 @@ pub async fn sync_source_after_action(tool: &str, vault: &std::sync::Arc<osmozzz
     use osmozzz_core::{Embedder, Harvester};
 
     let source = match tool {
-        "act_create_notion_page"  => "notion",
-        "act_create_linear_issue" => "linear",
-        "act_create_todoist_task" => "todoist",
-        "act_create_github_issue" => "github",
-        "act_create_trello_card"  => "trello",
-        "act_create_gitlab_issue" => "gitlab",
-        "act_send_slack_message"  => "slack",
-        _ => return, // email et autres : pas de source à re-sync
+        "act_create_notion_page"    => "notion",
+        "act_create_linear_issue"   => "linear",
+        "act_create_todoist_task"   => "todoist",
+        "act_create_github_issue"   => "github",
+        "act_create_trello_card"    => "trello",
+        "act_create_gitlab_issue"   => "gitlab",
+        "act_send_slack_message"    => "slack",
+        "act_create_calendar_event" => "calendar",
+        _ => return, // email, imessage, fichiers, run_command : pas de source re-sync automatique
     };
 
     info!("[Executor] Re-sync immédiate de la source '{source}' après action réussie");
@@ -432,7 +700,8 @@ pub async fn sync_source_after_action(tool: &str, vault: &std::sync::Arc<osmozzz
         "github"  => osmozzz_harvester::GithubHarvester::new().harvest().await,
         "trello"  => osmozzz_harvester::TrelloHarvester::new().harvest().await,
         "gitlab"  => osmozzz_harvester::GitlabHarvester::new().harvest().await,
-        "slack"   => osmozzz_harvester::SlackHarvester::new().harvest().await,
+        "slack"    => osmozzz_harvester::SlackHarvester::new().harvest().await,
+        "calendar" => osmozzz_harvester::CalendarHarvester::new().harvest().await,
         _ => return,
     };
 

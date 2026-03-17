@@ -1,90 +1,83 @@
-use chrono::{TimeZone, Utc};
+use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
 use osmozzz_core::{Document, Result, SourceType};
-use std::path::PathBuf;
 use tracing::{info, warn};
-use walkdir::WalkDir;
 
 use crate::checksum;
 
-pub struct CalendarHarvester {
-    calendars_dir: PathBuf,
-}
+pub struct CalendarHarvester;
 
 impl CalendarHarvester {
-    pub fn new() -> Self {
-        let calendars_dir = dirs_next::home_dir()
-            .unwrap_or_else(|| PathBuf::from("~"))
-            .join("Library/Calendars");
-        Self { calendars_dir }
-    }
+    pub fn new() -> Self { Self }
 }
 
 impl Default for CalendarHarvester {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl osmozzz_core::Harvester for CalendarHarvester {
     async fn harvest(&self) -> Result<Vec<Document>> {
-        if !self.calendars_dir.exists() {
-            warn!("Calendar dir not found at: {}", self.calendars_dir.display());
-            return Ok(vec![]);
-        }
+        // AppleScript : récupère les événements des 6 derniers mois + 1 an futur
+        // Format date retourné : year§month§day§hour§minute
+        let script = r#"tell application "Calendar"
+            set sep to "|||OSMOZZZ|||"
+            set rec to "~~~OSMOZZZ~~~"
+            set output to ""
+            set cutoff to (current date) - 180 * days
+            set horizon to (current date) + 365 * days
+            repeat with c in every calendar
+                try
+                    repeat with e in (every event of c whose start date >= cutoff and start date <= horizon)
+                        try
+                            set eTitle to summary of e
+                            set sd to start date of e
+                            set eDate to (year of sd as string) & "-" & (month of sd as integer as string) & "-" & (day of sd as string) & " " & (hours of sd as string) & ":" & (minutes of sd as string)
+                            set eDesc to ""
+                            try
+                                if description of e is not missing value then
+                                    set eDesc to description of e
+                                end if
+                            end try
+                            set output to output & eTitle & sep & eDate & sep & eDesc & rec
+                        end try
+                    end repeat
+                end try
+            end repeat
+            return output
+        end tell"#;
+
+        let raw = match run_osascript(script).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Calendar AppleScript failed: {e}");
+                return Ok(vec![]);
+            }
+        };
 
         let mut documents = Vec::new();
 
-        // Walk all .ics files in ~/Library/Calendars/
-        for entry in WalkDir::new(&self.calendars_dir)
-            .max_depth(6)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|x| x == "ics").unwrap_or(false))
-        {
-            let content = match std::fs::read_to_string(entry.path()) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+        for record in raw.split("~~~OSMOZZZ~~~") {
+            let parts: Vec<&str> = record.splitn(3, "|||OSMOZZZ|||").collect();
+            if parts.len() < 2 { continue; }
 
-            // Parse key fields from iCalendar format
-            let summary = extract_ics_field(&content, "SUMMARY");
-            let description = extract_ics_field(&content, "DESCRIPTION");
-            let dtstart = extract_ics_field(&content, "DTSTART");
-            let uid = extract_ics_field(&content, "UID");
+            let title = parts[0].trim();
+            let date_str = parts[1].trim();
+            let desc  = if parts.len() > 2 { parts[2].trim() } else { "" };
 
-            if summary.is_empty() && description.is_empty() {
-                continue;
-            }
+            if title.is_empty() { continue; }
 
-            let text = if !description.is_empty() {
-                format!("{}\n{}", summary, description)
+            let content = if desc.is_empty() {
+                format!("{}\n{}", title, date_str)
             } else {
-                summary.clone()
+                format!("{}\n{}\n{}", title, date_str, desc)
             };
 
-            let checksum = checksum::compute(&text);
-            let url = format!("calendar://event/{}", uid.replace('/', "_"));
+            let chk = checksum::compute(&content);
+            let url = format!("calendar://event/{}", checksum::compute(&format!("{}{}", title, date_str)));
 
-            let source_ts = dtstart
-                .chars()
-                .take(8)
-                .collect::<String>()
-                .parse::<u32>()
-                .ok()
-                .and_then(|d| {
-                    // DTSTART format: YYYYMMDD or YYYYMMDDTHHmmssZ
-                    let year = d / 10000;
-                    let month = (d % 10000) / 100;
-                    let day = d % 100;
-                    chrono::NaiveDate::from_ymd_opt(year as i32, month, day)
-                        .and_then(|nd| nd.and_hms_opt(0, 0, 0))
-                        .map(|ndt| Utc.from_utc_datetime(&ndt))
-                });
+            let source_ts = parse_date(date_str);
 
-            let mut doc = Document::new(SourceType::Calendar, &url, &text, &checksum);
-            if !summary.is_empty() {
-                doc = doc.with_title(&summary);
-            }
+            let mut doc = Document::new(SourceType::Calendar, &url, &content, &chk)
+                .with_title(title);
             if let Some(ts) = source_ts {
                 doc = doc.with_source_ts(ts);
             }
@@ -97,20 +90,30 @@ impl osmozzz_core::Harvester for CalendarHarvester {
     }
 }
 
-/// Extract the value of a field from iCalendar text (handles line folding).
-fn extract_ics_field(content: &str, field: &str) -> String {
-    let prefix = format!("{}:", field);
-    let prefix_param = format!("{};" , field); // DTSTART;TZID=...
+/// Parse "YYYY-M-D H:MM" from AppleScript output
+fn parse_date(s: &str) -> Option<chrono::DateTime<Utc>> {
+    // Format: "2026-3-17 14:0"
+    let ndt = NaiveDateTime::parse_from_str(s, "%Y-%-m-%-d %-H:%-M").ok()
+        .or_else(|| {
+            // Fallback: try just date part
+            let date_part = s.split_whitespace().next()?;
+            NaiveDate::parse_from_str(date_part, "%Y-%-m-%-d").ok()
+                .and_then(|d| d.and_hms_opt(0, 0, 0))
+        })?;
+    Some(Utc.from_utc_datetime(&ndt))
+}
 
-    for line in content.lines() {
-        if line.starts_with(&prefix) {
-            return line[prefix.len()..].trim().to_string();
-        }
-        if line.starts_with(&prefix_param) {
-            if let Some(colon) = line.find(':') {
-                return line[colon + 1..].trim().to_string();
-            }
-        }
+async fn run_osascript(script: &str) -> std::result::Result<String, String> {
+    let output = tokio::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .await
+        .map_err(|e| format!("osascript spawn: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
     }
-    String::new()
 }

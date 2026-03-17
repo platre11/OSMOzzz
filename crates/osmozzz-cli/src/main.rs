@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 mod cli;
 mod commands;
 mod config;
