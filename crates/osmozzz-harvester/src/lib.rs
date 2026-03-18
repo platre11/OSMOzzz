@@ -1,5 +1,7 @@
 pub mod airtable;
+pub mod arc;
 pub mod chrome;
+pub mod contacts;
 pub mod files;
 pub mod github;
 pub mod gitlab;
@@ -27,7 +29,9 @@ pub mod notes;
 pub mod safari;
 
 pub use airtable::AirtableHarvester;
+pub use arc::ArcHarvester;
 pub use chrome::ChromeHarvester;
+pub use contacts::ContactsHarvester;
 pub use files::{FileHarvester, SKIP_DIRS, TEXT_EXTENSIONS, harvest_file};
 pub use github::GithubHarvester;
 pub use gitlab::GitlabHarvester;

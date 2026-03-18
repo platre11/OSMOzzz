@@ -891,6 +891,38 @@ pub async fn post_compact(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+// ─── POST /api/reindex/imessage ──────────────────────────────────────────────
+
+pub async fn post_reindex_imessage(State(state): State<AppState>) -> impl IntoResponse {
+    #[cfg(target_os = "macos")]
+    {
+        use osmozzz_core::{Embedder, Harvester};
+        use osmozzz_harvester::IMessageHarvester;
+
+        // 1. Vide la source
+        if let Err(e) = state.vault.delete_by_source("imessage").await {
+            return ApiResponse::<String>::err(format!("Erreur suppression: {e}")).into_response();
+        }
+
+        // 2. Re-indexe
+        let harvester = IMessageHarvester::new();
+        match harvester.harvest().await {
+            Err(e) => ApiResponse::<String>::err(format!("Erreur harvest: {e}")).into_response(),
+            Ok(docs) => {
+                let count = docs.len();
+                for doc in docs {
+                    let _ = state.vault.upsert(&doc).await;
+                }
+                ApiResponse::ok(format!("{count} documents iMessage indexés")).into_response()
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        ApiResponse::<String>::err("iMessage disponible sur macOS uniquement".to_string()).into_response()
+    }
+}
+
 // ─── Réseau P2P ──────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]

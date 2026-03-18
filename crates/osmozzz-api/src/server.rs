@@ -58,6 +58,7 @@ pub async fn start_server(
         .route("/unban", post(routes::post_unban))
         .route("/blacklist", get(routes::get_blacklist))
         .route("/compact", post(routes::post_compact))
+        .route("/reindex/imessage", post(routes::post_reindex_imessage))
         .route("/files/search", get(routes::get_files_search))
         .route("/index/preview", get(routes::get_index_preview))
         .route("/index/progress", get(routes::get_index_progress))

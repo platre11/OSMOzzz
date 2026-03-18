@@ -25,6 +25,8 @@ pub enum SourceType {
     Gitlab,
     Airtable,
     Obsidian,
+    Contacts,
+    Arc,
 }
 
 impl std::fmt::Display for SourceType {
@@ -50,6 +52,8 @@ impl std::fmt::Display for SourceType {
             SourceType::Gitlab => write!(f, "gitlab"),
             SourceType::Airtable => write!(f, "airtable"),
             SourceType::Obsidian => write!(f, "obsidian"),
+            SourceType::Contacts => write!(f, "contacts"),
+            SourceType::Arc => write!(f, "arc"),
         }
     }
 }
@@ -78,6 +82,8 @@ impl std::str::FromStr for SourceType {
             "gitlab" => Ok(SourceType::Gitlab),
             "airtable" => Ok(SourceType::Airtable),
             "obsidian" => Ok(SourceType::Obsidian),
+            "contacts" => Ok(SourceType::Contacts),
+            "arc" => Ok(SourceType::Arc),
             other => Err(format!("Unknown source type: {}", other)),
         }
     }

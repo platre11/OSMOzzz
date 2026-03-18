@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import styled, { keyframes } from 'styled-components'
 import { api } from '../api'
@@ -184,6 +184,25 @@ const DiskAccessBtn = styled.button`
   &:hover { background: #fef3c7; }
 `
 
+const ReindexBtn = styled.button<{ $loading?: boolean; $done?: boolean }>`
+  margin-top: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid ${({ $done }) => $done ? '#bbf7d0' : '#e5e7eb'};
+  background: ${({ $loading, $done }) => $loading ? '#f3f4f6' : $done ? '#f0fdf4' : '#fff'};
+  color: ${({ $loading, $done }) => $loading ? '#9ca3af' : $done ? '#16a34a' : '#374151'};
+  font-size: 11px;
+  font-weight: 600;
+  cursor: ${({ $loading }) => $loading ? 'not-allowed' : 'pointer'};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: all .15s;
+  &:hover { background: ${({ $loading, $done }) => $loading ? '#f3f4f6' : $done ? '#dcfce7' : '#f9fafb'}; }
+`
+
 // Sources qui nécessitent l'accès disque complet sur macOS
 const DISK_ACCESS_SOURCES = new Set(['imessage', 'safari', 'notes', 'calendar'])
 
@@ -328,9 +347,17 @@ function PerfMetricsCard({ perf }: { perf: PerfMetrics }) {
 }
 
 export default function StatusPage() {
+  const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery<StatusData>({
     queryKey: ['status'],
     queryFn: api.getStatus,
+  })
+
+  const reindexMutation = useMutation({
+    mutationFn: api.reindexImessage,
+    onSuccess: () => {
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['status'] }), 1000)
+    },
   })
 
   if (isLoading) return <Loader />
@@ -339,7 +366,6 @@ export default function StatusPage() {
 
   const total = Object.values(data.sources).reduce((s, v) => s + v.count, 0)
 
-  // Accès disque requis ? Ssi toutes les sources disque présentes ont 0 docs
   const diskSourcesToCheck = Object.entries(data.sources)
     .filter(([src]) => DISK_ACCESS_SOURCES.has(src))
   const needsDiskAccess = diskSourcesToCheck.length > 0
@@ -390,6 +416,20 @@ export default function StatusPage() {
                 <DiskAccessBtn onClick={openPrivacySettings}>
                   🔒 Autoriser l'accès disque →
                 </DiskAccessBtn>
+              )}
+              {source === 'imessage' && (
+                <ReindexBtn
+                  $loading={reindexMutation.isPending}
+                  $done={reindexMutation.isSuccess}
+                  disabled={reindexMutation.isPending}
+                  onClick={() => reindexMutation.mutate()}
+                >
+                  {reindexMutation.isPending
+                    ? '⏳ Indexation en cours...'
+                    : reindexMutation.isSuccess
+                    ? `✓ ${reindexMutation.data}`
+                    : '↺ Re-indexer'}
+                </ReindexBtn>
               )}
             </Card>
           )

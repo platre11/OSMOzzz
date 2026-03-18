@@ -6,6 +6,7 @@ use tempfile::NamedTempFile;
 use tracing::{info, warn};
 
 use crate::checksum;
+use crate::contacts::{build_phone_name_map, normalize_phone};
 
 /// Apple epoch offset: seconds between Unix epoch (1970) and Apple epoch (2001-01-01)
 const APPLE_EPOCH_OFFSET: i64 = 978_307_200;
@@ -57,6 +58,9 @@ impl Default for IMessageHarvester {
 
 impl osmozzz_core::Harvester for IMessageHarvester {
     async fn harvest(&self) -> Result<Vec<Document>> {
+        // Charge la map téléphone → nom depuis Apple Contacts
+        let phone_map: std::collections::HashMap<String, String> = build_phone_name_map().await;
+
         let shadow = match self.shadow_copy() {
             Ok(s) => s,
             Err(e) => {
@@ -116,7 +120,16 @@ impl osmozzz_core::Harvester for IMessageHarvester {
             };
 
             let contact_str = contact.as_deref().unwrap_or("inconnu");
-            let direction = if is_from_me != 0 { "moi" } else { contact_str };
+
+            // Résolution numéro → nom via Apple Contacts
+            let resolved_name = {
+                let normalized = normalize_phone(contact_str);
+                phone_map.get(&normalized)
+                    .cloned()
+                    .unwrap_or_else(|| contact_str.to_string())
+            };
+
+            let direction = if is_from_me != 0 { "moi".to_string() } else { resolved_name.clone() };
             let content = format!("[{}] {}", direction, text.trim());
             let checksum = checksum::compute(&content);
 
@@ -124,7 +137,7 @@ impl osmozzz_core::Harvester for IMessageHarvester {
             let title = format!(
                 "iMessage {} {}",
                 if is_from_me != 0 { "→" } else { "←" },
-                contact_str
+                resolved_name
             );
 
             let mut doc = Document::new(SourceType::IMessage, &url, &content, &checksum)

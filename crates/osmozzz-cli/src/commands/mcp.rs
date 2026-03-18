@@ -449,6 +449,48 @@ fn tools_list() -> Value {
             }
         },
         {
+            "name": "search_contacts",
+            "description": "APPLE CONTACTS — recherche une personne par nom, téléphone, email ou entreprise. QUAND L'UTILISER : l'utilisateur parle d'une personne ('qui est Thomas ?', 'le numéro de Marie', 'collègues de Apple'). Retourne nom + téléphones + emails + entreprise. Utile avant d'envoyer un iMessage ou un email.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Nom, numéro, email ou entreprise à chercher"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
+            "name": "search_arc",
+            "description": "ARC BROWSER — recherche dans l'historique de navigation Arc par mot-clé. QUAND L'UTILISER : l'utilisateur cherche un site visité avec Arc. Retourne titre + URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Mot-clé à chercher dans l'historique Arc"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre de résultats (défaut: 20, max: 100)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["keyword"]
+            }
+        },
+        {
             "name": "find_file",
             "description": "TROUVE UN FICHIER PAR SON NOM — QUAND L'UTILISER : l'utilisateur connaît le nom du fichier, son extension ou une partie de son chemin ('scene.gltf', 'fichiers .blend', 'error.log', 'rapport.pdf'). Scanne le filesystem (Desktop, Documents, code). NE PAS utiliser pour chercher par contenu — utilise search_memory pour ça. Après avoir trouvé le chemin, utilise fetch_content pour lire le fichier.",
             "inputSchema": {
@@ -1495,6 +1537,38 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_contacts" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        match vault.search_by_keyword_source(&keyword, limit, "contacts").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun contact trouvé pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Contacts", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "search_arc" => {
+                        let keyword = args["keyword"].as_str().unwrap_or("").to_string();
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        match vault.search_by_keyword_source(&keyword, limit, "arc").await {
+                            Ok(results) => {
+                                let msg = if results.is_empty() {
+                                    format!("Aucun résultat Arc trouvé pour \"{}\".", keyword)
+                                } else {
+                                    format_keyword_results("Arc", &keyword, &results)
+                                };
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                             }
                             Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                         }

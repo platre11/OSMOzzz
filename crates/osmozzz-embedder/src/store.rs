@@ -1000,9 +1000,15 @@ impl VectorStore {
 
             for i in 0..nrows {
                 let title = match title_col { Some(c) if !c.is_null(i) => c.value(i), _ => continue };
-                let phone = match title.split_whitespace().last() {
-                    Some(p) if p.starts_with('+') || p.chars().all(|c| c.is_ascii_digit()) => p.to_string(),
-                    _ => continue,
+                // Extract contact name/phone: everything after "→ " or "← " in the title
+                let contact = {
+                    let rest = title.split_once(" → ")
+                        .or_else(|| title.split_once(" ← "))
+                        .map(|(_, r)| r.trim());
+                    match rest {
+                        Some(r) if !r.is_empty() => r.to_string(),
+                        _ => continue,
+                    }
                 };
                 let content = content_col.map(|c| c.value(i)).unwrap_or("");
                 let text = if let Some(end) = content.find("] ") { &content[end + 2..] } else { content };
@@ -1010,7 +1016,7 @@ impl VectorStore {
                     .and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) })
                     .or_else(|| harvested_col.and_then(|c| if c.is_null(i) { None } else { Some(c.value(i)) }))
                     .unwrap_or(0);
-                let entry = map.entry(phone).or_insert(("".to_string(), 0, 0));
+                let entry = map.entry(contact).or_insert(("".to_string(), 0, 0));
                 entry.2 += 1;
                 if ts >= entry.1 { entry.1 = ts; entry.0 = text.to_string(); }
             }
@@ -1121,10 +1127,10 @@ impl VectorStore {
             })
             .await
             .map_err(|e| OsmozzError::Storage(format!("Compact: {}", e)))?;
-        // 2. Prune versions older than 1 hour (delete_unverified=true bypasses the 7-day guard)
+        // 2. Prune all old versions immediately
         table
             .optimize(OptimizeAction::Prune {
-                older_than: Some(LanceDuration::hours(1)),
+                older_than: Some(LanceDuration::seconds(0)),
                 delete_unverified: Some(true),
                 error_if_tagged_old_versions: Some(false),
             })

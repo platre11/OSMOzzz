@@ -253,6 +253,11 @@ export const api = {
     await axios.post(`${BASE}/compact`)
   },
 
+  reindexImessage: async (): Promise<string> => {
+    const r = await axios.post(`${BASE}/reindex/imessage`)
+    return r.data.data ?? ''
+  },
+
   indexPreview: async (): Promise<Record<string, number>> => {
     const r = await axios.get(`${BASE}/index/preview`)
     return r.data.data?.extensions ?? {}

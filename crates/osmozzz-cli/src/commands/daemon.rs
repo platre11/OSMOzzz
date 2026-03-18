@@ -14,7 +14,8 @@ use chrono::{NaiveDate, Utc};
 use osmozzz_core::{Embedder, Harvester, OsmozzError};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{
-    start_watcher, AirtableHarvester, GithubHarvester, GitlabHarvester,
+    start_watcher, AirtableHarvester, ArcHarvester, ContactsHarvester,
+    GithubHarvester, GitlabHarvester,
     GmailConfig, GmailHarvester, JiraHarvester, LinearHarvester,
     NotionHarvester, ObsidianHarvester, SlackHarvester,
     TerminalHarvester, TodoistHarvester, TrelloHarvester, WatchEvent,
@@ -46,6 +47,8 @@ const TODOIST_SYNC_INTERVAL_SECS: u64 = 15 * 60;   // 15 minutes
 const GITLAB_SYNC_INTERVAL_SECS: u64 = 60 * 60;    // 1 heure
 const AIRTABLE_SYNC_INTERVAL_SECS: u64 = 60 * 60;  // 1 heure
 const OBSIDIAN_SYNC_INTERVAL_SECS: u64 = 5 * 60;   // 5 minutes (local)
+const CONTACTS_SYNC_INTERVAL_SECS: u64 = 10 * 60;  // 10 minutes (local)
+const ARC_SYNC_INTERVAL_SECS: u64 = 60;             // 1 minute
 
 /// Copie les modèles ONNX dans ~/.osmozzz/models/ si absents.
 /// Cherche dans les ancêtres du binaire (workspace dev) ou à côté du binaire.
@@ -406,6 +409,36 @@ pub async fn run(cfg: Config) -> Result<()> {
             sync_docs(&v, "Obsidian", docs).await;
         }
     });
+
+    // Contacts auto-sync (10min — local)
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(CONTACTS_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = ContactsHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "Contacts", docs).await;
+            }
+        });
+    }
+
+    // Arc auto-sync (1min — local)
+    {
+        let v = Arc::clone(&vault);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                tokio::time::Duration::from_secs(ARC_SYNC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let docs = ArcHarvester::new().harvest().await.unwrap_or_default();
+                sync_docs(&v, "Arc", docs).await;
+            }
+        });
+    }
 
     eprintln!("[OSMOzzz Daemon] En écoute... (Ctrl+C pour arrêter)");
     eprintln!("[OSMOzzz Daemon] Syncs automatiques :");
