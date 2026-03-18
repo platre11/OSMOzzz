@@ -518,9 +518,14 @@ pub struct JiraConfigBody {
 }
 
 pub async fn post_config_jira(Json(body): Json<JiraConfigBody>) -> impl IntoResponse {
+    let base_url = if body.base_url.starts_with("http") {
+        body.base_url.clone()
+    } else {
+        format!("https://{}", body.base_url)
+    };
     let content = format!(
         "base_url = \"{}\"\nemail = \"{}\"\ntoken = \"{}\"\n",
-        esc(&body.base_url), esc(&body.email), esc(&body.token)
+        esc(&base_url), esc(&body.email), esc(&body.token)
     );
     match write_config("jira.toml", &content) {
         Ok(_)  => ApiResponse::ok("Jira configuré".to_string()).into_response(),

@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod config;
+mod mcp_proxy;
 mod proof;
 
 use anyhow::Result;

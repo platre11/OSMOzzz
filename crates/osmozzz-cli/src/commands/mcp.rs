@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::Config;
+use crate::mcp_proxy::{JiraConfig, McpSubprocess};
 use crate::proof;
 use shellexpand;
 use reqwest;
@@ -868,6 +869,15 @@ pub async fn run(cfg: Config) -> Result<()> {
     );
 
     eprintln!("[OSMOzzz MCP] Vault chargé.");
+
+    // ── Démarrage des proxies MCP tiers (Jira via Bun) ──────────────────────
+    let mut jira_proxy: Option<McpSubprocess> = if let Some(jira_cfg) = JiraConfig::load() {
+        McpSubprocess::start_jira(&jira_cfg)
+    } else {
+        eprintln!("[OSMOzzz MCP] Jira non configuré (~/.osmozzz/jira.toml absent) — tools Jira indisponibles.");
+        None
+    };
+
     eprintln!("[OSMOzzz MCP] En attente de messages MCP sur stdin...");
     eprintln!("[OSMOzzz MCP] Conseil : lance 'osmozzz daemon' en parallèle pour l'indexation en temps réel.");
 
@@ -924,9 +934,13 @@ pub async fn run(cfg: Config) -> Result<()> {
 
             // ── Liste des outils ───────────────────────────────────────────
             "tools/list" => {
-                send(&Response::ok(id, json!({
-                    "tools": tools_list()
-                })));
+                let mut all_tools = tools_list().as_array().cloned().unwrap_or_default();
+                if let Some(ref proxy) = jira_proxy {
+                    for tool in &proxy.tools {
+                        all_tools.push(tool.clone());
+                    }
+                }
+                send(&Response::ok(id, json!({ "tools": all_tools })));
             }
 
             // ── Appel d'un outil ───────────────────────────────────────────
@@ -1938,11 +1952,30 @@ pub async fn run(cfg: Config) -> Result<()> {
                     }
 
                     other => {
-                        send(&Response::err(
-                            id,
-                            -32601,
-                            &format!("Unknown tool: {}", other),
-                        ));
+                        // Proxy vers subprocess MCP tiers (ex: Jira)
+                        let is_proxied = jira_proxy.as_ref()
+                            .map(|p| p.tool_names().contains(&other.to_string()))
+                            .unwrap_or(false);
+
+                        if is_proxied {
+                            if let Some(ref mut proxy) = jira_proxy {
+                                let result = tokio::task::block_in_place(|| {
+                                    proxy.call_tool(other, args)
+                                });
+                                match result {
+                                    Ok(text) => send(&Response::ok(id, json!({
+                                        "content": [{"type": "text", "text": text}]
+                                    }))),
+                                    Err(e) => send(&Response::err(id, -32603, &e)),
+                                }
+                            }
+                        } else {
+                            send(&Response::err(
+                                id,
+                                -32601,
+                                &format!("Unknown tool: {}", other),
+                            ));
+                        }
                     }
                 }
             }
