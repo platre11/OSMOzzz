@@ -1,12 +1,15 @@
-/// MCP Proxy — gère les subprocessus MCP tiers (Jira, Slack, Linear...)
-/// via Bun (runtime JS léger, remplace Node.js).
+/// MCP Proxy — moteur générique pour les subprocessus MCP tiers.
+/// Chaque connecteur (Jira, GitHub, Slack...) est dans son propre fichier.
 ///
 /// Architecture :
 ///   osmozzz mcp (Rust) ──stdin/stdout──► Claude
 ///                       ──pipes──────► bunx @pkg/mcp-server (subprocess)
-///
-/// Claude dirige → OSMOzzz exécute via le subprocess → résultat retourné à Claude.
-/// Les données ne quittent jamais la machine.
+pub mod github;
+pub mod jira;
+pub mod linear;
+pub mod notion;
+pub mod slack;
+
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,34 +20,12 @@ fn next_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-// ─── Config Jira ─────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub struct JiraConfig {
-    pub base_url: String,
-    pub email: String,
-    pub token: String,
-}
-
-impl JiraConfig {
-    pub fn load() -> Option<Self> {
-        let path = dirs_next::home_dir()?.join(".osmozzz/jira.toml");
-        let content = std::fs::read_to_string(path).ok()?;
-        let table: toml::Value = content.parse().ok()?;
-        Some(Self {
-            base_url: table.get("base_url")?.as_str()?.to_string(),
-            email:    table.get("email")?.as_str()?.to_string(),
-            token:    table.get("token")?.as_str()?.to_string(),
-        })
-    }
-}
-
-// ─── Subprocess MCP ──────────────────────────────────────────────────────────
+// ─── Subprocess MCP générique ─────────────────────────────────────────────────
 
 pub struct McpSubprocess {
-    stdin:   std::process::ChildStdin,
-    reader:  BufReader<std::process::ChildStdout>,
-    _child:  std::process::Child,
+    stdin:  std::process::ChildStdin,
+    reader: BufReader<std::process::ChildStdout>,
+    _child: std::process::Child,
     pub tools: Vec<Value>,
     pub name:  String,
 }
@@ -64,7 +45,6 @@ impl McpSubprocess {
         {
             return Some("bun".to_string());
         }
-        // Emplacement par défaut du script d'installation Bun
         if let Some(home) = dirs_next::home_dir() {
             let path = home.join(".bun/bin/bun");
             if path.exists() {
@@ -88,7 +68,7 @@ impl McpSubprocess {
                 true
             }
             _ => {
-                eprintln!("[OSMOzzz MCP] Échec installation Bun — actions Jira indisponibles.");
+                eprintln!("[OSMOzzz MCP] Échec installation Bun.");
                 false
             }
         }
@@ -100,33 +80,31 @@ impl McpSubprocess {
         if Self::install_bun() { Self::find_bun() } else { None }
     }
 
-    // ── Démarrage Jira ───────────────────────────────────────────────────────
+    // ── Démarrage générique ───────────────────────────────────────────────────
 
-    /// Démarre le serveur MCP Jira (@aashari/mcp-server-atlassian-jira) via Bun
-    pub fn start_jira(config: &JiraConfig) -> Option<Self> {
+    /// Démarre un subprocess MCP via bunx avec les env vars données
+    pub fn start(
+        name: &str,
+        package: &str,
+        env_vars: &[(&str, &str)],
+    ) -> Option<Self> {
         let bun = Self::ensure_bun()?;
 
-        eprintln!("[OSMOzzz MCP] Démarrage du serveur Jira MCP via Bun...");
+        eprintln!("[OSMOzzz MCP] Démarrage du subprocess {name} ({package})...");
 
-        // Extrait le site name depuis l'URL (ex: "https://foo.atlassian.net" → "foo")
-        let site_name = config.base_url
-            .trim_start_matches("https://")
-            .trim_start_matches("http://")
-            .split('.')
-            .next()
-            .unwrap_or(&config.base_url)
-            .to_string();
-
-        let mut child = std::process::Command::new(&bun)
-            .args(["x", "--bun", "@aashari/mcp-server-atlassian-jira"])
-            .env("ATLASSIAN_SITE_NAME",  &site_name)
-            .env("ATLASSIAN_USER_EMAIL", &config.email)
-            .env("ATLASSIAN_API_TOKEN",  &config.token)
+        let mut cmd = std::process::Command::new(&bun);
+        cmd.args(["x", "--bun", package])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        for (key, val) in env_vars {
+            cmd.env(key, val);
+        }
+
+        let mut child = cmd
             .spawn()
-            .map_err(|e| eprintln!("[OSMOzzz MCP] Spawn Jira MCP échoué: {e}"))
+            .map_err(|e| eprintln!("[OSMOzzz MCP] Spawn {name} échoué: {e}"))
             .ok()?;
 
         let stdin  = child.stdin.take()?;
@@ -138,14 +116,15 @@ impl McpSubprocess {
             reader,
             _child: child,
             tools: vec![],
-            name: "jira".to_string(),
+            name: name.to_string(),
         };
 
         sub.initialize()?;
         sub.tools = sub.discover_tools().unwrap_or_default();
 
         eprintln!(
-            "[OSMOzzz MCP] Jira MCP prêt — {} tools disponibles : {}",
+            "[OSMOzzz MCP] {} prêt — {} tools : {}",
+            name,
             sub.tools.len(),
             sub.tools.iter()
                 .filter_map(|t| t.get("name")?.as_str())
@@ -165,10 +144,8 @@ impl McpSubprocess {
         self.stdin.flush().ok()
     }
 
-    /// Lit les lignes stdout jusqu'à trouver la réponse avec l'ID attendu.
-    /// Ignore les notifications (pas d'ID ou ID différent).
     fn read_response(&mut self, expected_id: u64) -> Option<Value> {
-        for _ in 0..100 {
+        for _ in 0..200 {
             let mut line = String::new();
             match self.reader.read_line(&mut line) {
                 Ok(0) | Err(_) => return None,
@@ -203,7 +180,6 @@ impl McpSubprocess {
             "capabilities": {},
             "clientInfo": { "name": "osmozzz", "version": "1.0.0" }
         }))?;
-        // Notification sans réponse attendue
         self.write_json(&json!({
             "jsonrpc": "2.0",
             "method": "notifications/initialized",
@@ -221,18 +197,16 @@ impl McpSubprocess {
 
     // ── API publique ─────────────────────────────────────────────────────────
 
-    /// Appelle un tool du subprocess et retourne le texte résultat
     pub fn call_tool(&mut self, tool_name: &str, arguments: &Value) -> Result<String, String> {
         let resp = self.request("tools/call", json!({
             "name": tool_name,
             "arguments": arguments
-        })).ok_or_else(|| "Subprocess Jira indisponible".to_string())?;
+        })).ok_or_else(|| format!("Subprocess {} indisponible", self.name))?;
 
         if let Some(err) = resp.get("error") {
-            return Err(format!("Erreur Jira MCP: {}", err));
+            return Err(format!("Erreur {} MCP: {}", self.name, err));
         }
 
-        // Extrait le texte depuis result.content[0].text
         let text = resp
             .get("result")
             .and_then(|r| r.get("content"))
@@ -240,16 +214,39 @@ impl McpSubprocess {
             .and_then(|arr| arr.first())
             .and_then(|item| item.get("text"))
             .and_then(|t| t.as_str())
-            .unwrap_or("Action Jira exécutée.");
+            .unwrap_or("Action exécutée.");
 
         Ok(text.to_string())
     }
 
-    /// Retourne les noms de tous les tools exposés par ce subprocess
     pub fn tool_names(&self) -> Vec<String> {
         self.tools
             .iter()
             .filter_map(|t| t.get("name")?.as_str().map(String::from))
             .collect()
     }
+}
+
+// ─── Démarre tous les proxies configurés ─────────────────────────────────────
+
+pub fn start_all_proxies() -> Vec<McpSubprocess> {
+    let mut proxies = Vec::new();
+
+    if let Some(p) = jira::start() {
+        proxies.push(p);
+    }
+    if let Some(p) = github::start() {
+        proxies.push(p);
+    }
+    if let Some(p) = notion::start() {
+        proxies.push(p);
+    }
+    if let Some(p) = slack::start() {
+        proxies.push(p);
+    }
+    if let Some(p) = linear::start() {
+        proxies.push(p);
+    }
+
+    proxies
 }

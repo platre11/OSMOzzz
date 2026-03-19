@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::Config;
-use crate::mcp_proxy::{JiraConfig, McpSubprocess};
+use crate::mcp_proxy;
 use crate::proof;
 use shellexpand;
 use reqwest;
@@ -630,31 +630,6 @@ fn tools_list() -> Value {
             }
         },
         {
-            "name": "act_send_slack_message",
-            "description": "ACTION — Envoie un message dans un channel Slack. Soumis au dashboard OSMOzzz pour validation humaine AVANT envoi. NE PAS utiliser sans accord explicite de l'utilisateur.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "channel": { "type": "string", "description": "Nom ou ID du channel Slack (ex: general ou C01234ABC)" },
-                    "message": { "type": "string", "description": "Texte du message à envoyer" }
-                },
-                "required": ["channel", "message"]
-            }
-        },
-        {
-            "name": "act_create_linear_issue",
-            "description": "ACTION — Crée une issue dans Linear. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "title": { "type": "string", "description": "Titre de l'issue" },
-                    "description": { "type": "string", "description": "Description de l'issue en markdown" },
-                    "team_id": { "type": "string", "description": "ID de l'équipe Linear (optionnel — utilise la première équipe si absent)" }
-                },
-                "required": ["title"]
-            }
-        },
-        {
             "name": "act_create_todoist_task",
             "description": "ACTION — Crée une tâche dans Todoist. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
             "inputSchema": {
@@ -870,13 +845,8 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz MCP] Vault chargé.");
 
-    // ── Démarrage des proxies MCP tiers (Jira via Bun) ──────────────────────
-    let mut jira_proxy: Option<McpSubprocess> = if let Some(jira_cfg) = JiraConfig::load() {
-        McpSubprocess::start_jira(&jira_cfg)
-    } else {
-        eprintln!("[OSMOzzz MCP] Jira non configuré (~/.osmozzz/jira.toml absent) — tools Jira indisponibles.");
-        None
-    };
+    // ── Démarrage des proxies MCP tiers (Jira, GitHub, ...) ─────────────────
+    let mut proxies = mcp_proxy::start_all_proxies();
 
     eprintln!("[OSMOzzz MCP] En attente de messages MCP sur stdin...");
     eprintln!("[OSMOzzz MCP] Conseil : lance 'osmozzz daemon' en parallèle pour l'indexation en temps réel.");
@@ -935,7 +905,7 @@ pub async fn run(cfg: Config) -> Result<()> {
             // ── Liste des outils ───────────────────────────────────────────
             "tools/list" => {
                 let mut all_tools = tools_list().as_array().cloned().unwrap_or_default();
-                if let Some(ref proxy) = jira_proxy {
+                for proxy in &proxies {
                     for tool in &proxy.tools {
                         all_tools.push(tool.clone());
                     }
@@ -1656,48 +1626,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
-                    "act_send_slack_message" => {
-                        let channel = match args["channel"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: channel")); continue; }
-                        };
-                        let message = match args["message"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: message")); continue; }
-                        };
-                        let preview = format!("Envoyer un message Slack dans #{}\n\n{}", channel, &message[..message.len().min(300)]);
-                        let action = osmozzz_core::ActionRequest::new(
-                            "act_send_slack_message",
-                            serde_json::json!({ "channel": channel, "message": message }),
-                            preview,
-                        );
-                        let action_id = action.id.clone();
-                        match submit_action(action).await {
-                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
-                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
-                        }
-                    }
-
-                    "act_create_linear_issue" => {
-                        let title = match args["title"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
-                        };
-                        let description = args["description"].as_str().unwrap_or("").to_string();
-                        let team_id = args["team_id"].as_str().map(|s| s.to_string());
-                        let preview = format!("Créer une issue Linear\nTitre : {}\n\n{}", title, &description[..description.len().min(200)]);
-                        let action = osmozzz_core::ActionRequest::new(
-                            "act_create_linear_issue",
-                            serde_json::json!({ "title": title, "description": description, "team_id": team_id }),
-                            preview,
-                        );
-                        let action_id = action.id.clone();
-                        match submit_action(action).await {
-                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
-                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
-                        }
-                    }
-
                     "act_create_todoist_task" => {
                         let content = match args["content"].as_str() {
                             Some(v) => v.to_string(),
@@ -1952,22 +1880,19 @@ pub async fn run(cfg: Config) -> Result<()> {
                     }
 
                     other => {
-                        // Proxy vers subprocess MCP tiers (ex: Jira)
-                        let is_proxied = jira_proxy.as_ref()
-                            .map(|p| p.tool_names().contains(&other.to_string()))
-                            .unwrap_or(false);
+                        // Proxy vers subprocess MCP tiers (Jira, GitHub, ...)
+                        let proxy_idx = proxies.iter()
+                            .position(|p| p.tool_names().contains(&other.to_string()));
 
-                        if is_proxied {
-                            if let Some(ref mut proxy) = jira_proxy {
-                                let result = tokio::task::block_in_place(|| {
-                                    proxy.call_tool(other, args)
-                                });
-                                match result {
-                                    Ok(text) => send(&Response::ok(id, json!({
-                                        "content": [{"type": "text", "text": text}]
-                                    }))),
-                                    Err(e) => send(&Response::err(id, -32603, &e)),
-                                }
+                        if let Some(idx) = proxy_idx {
+                            let result = tokio::task::block_in_place(|| {
+                                proxies[idx].call_tool(other, args)
+                            });
+                            match result {
+                                Ok(text) => send(&Response::ok(id, json!({
+                                    "content": [{"type": "text", "text": text}]
+                                }))),
+                                Err(e) => send(&Response::err(id, -32603, &e)),
                             }
                         } else {
                             send(&Response::err(

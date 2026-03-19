@@ -190,8 +190,8 @@ export const api = {
     await axios.post(`${BASE}/config/jira`, { base_url, email, token })
   },
 
-  saveSlack: async (token: string, channels: string) => {
-    await axios.post(`${BASE}/config/slack`, { token, channels })
+  saveSlack: async (token: string, team_id: string, channels: string) => {
+    await axios.post(`${BASE}/config/slack`, { token, team_id, channels })
   },
 
   saveTrello: async (api_key: string, token: string) => {

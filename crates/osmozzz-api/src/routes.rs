@@ -537,7 +537,8 @@ pub async fn post_config_jira(Json(body): Json<JiraConfigBody>) -> impl IntoResp
 
 #[derive(Deserialize)]
 pub struct SlackConfigBody {
-    pub token: String,
+    pub token:    String,
+    pub team_id:  String,
     pub channels: String, // "general, random, dev"
 }
 
@@ -548,8 +549,9 @@ pub async fn post_config_slack(Json(body): Json<SlackConfigBody>) -> impl IntoRe
         .filter(|s| s.len() > 2)
         .collect();
     let content = format!(
-        "token = \"{}\"\nchannels = [{}]\n",
+        "token = \"{}\"\nteam_id = \"{}\"\nchannels = [{}]\n",
         esc(&body.token),
+        esc(&body.team_id),
         channels.join(", ")
     );
     match write_config("slack.toml", &content) {

@@ -291,7 +291,7 @@ export default function ConfigPage() {
 
   // ── GitHub ────────────────────────────────────────────────────────────────
   const [ghToken, setGhToken] = useState('')
-  const [ghRepos, setGhRepos] = useState('')
+  const [ghRepos] = useState('')
   const [ghOk,    setGhOk]   = useState(false)
   const ghMut = useMutation({
     mutationFn: () => api.saveGithub(ghToken, ghRepos),
@@ -318,10 +318,11 @@ export default function ConfigPage() {
 
   // ── Slack ─────────────────────────────────────────────────────────────────
   const [slackToken,    setSlackToken]    = useState('')
+  const [slackTeamId,   setSlackTeamId]   = useState('')
   const [slackChannels, setSlackChannels] = useState('')
   const [slackOk,       setSlackOk]      = useState(false)
   const slackMut = useMutation({
-    mutationFn: () => api.saveSlack(slackToken, slackChannels),
+    mutationFn: () => api.saveSlack(slackToken, slackTeamId, slackChannels),
     onSuccess: () => {
       setSlackOk(true); setSlackToken('')
       qc.invalidateQueries({ queryKey: ['config'] })
@@ -470,21 +471,9 @@ export default function ConfigPage() {
               placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
             />
           </FieldGroup>
-          <FieldGroup>
-            <FieldRow>
-              <FieldLabel>Repos à indexer</FieldLabel>
-              <FieldHint>séparés par des virgules</FieldHint>
-            </FieldRow>
-            <Input
-              type="text"
-              value={ghRepos}
-              onChange={e => setGhRepos(e.target.value)}
-              placeholder="owner/repo1, owner/repo2"
-            />
-          </FieldGroup>
-          {ghOk && <SuccessBanner><icons.CheckCircle2 size={15} /> GitHub configuré ! Redémarre le daemon.</SuccessBanner>}
+          {ghOk && <SuccessBanner><icons.CheckCircle2 size={15} /> GitHub configuré ! Redémarre Claude Desktop.</SuccessBanner>}
           {ghMut.isError && <ErrorBanner>Erreur : {String(ghMut.error)}</ErrorBanner>}
-          <SaveButton onClick={() => ghMut.mutate()} disabled={!ghToken || !ghRepos || ghMut.isPending}>
+          <SaveButton onClick={() => ghMut.mutate()} disabled={!ghToken || ghMut.isPending}>
             <icons.Save size={14} />
             {ghMut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
           </SaveButton>
@@ -609,7 +598,7 @@ export default function ConfigPage() {
         <CardBody>
           <FieldGroup>
             <FieldRow>
-              <FieldLabel>User Token (xoxp-...)</FieldLabel>
+              <FieldLabel>Bot Token (xoxb-...)</FieldLabel>
               <ExternalLink href="https://api.slack.com/apps" target="_blank" rel="noreferrer">
                 Créer une app ↗
               </ExternalLink>
@@ -618,7 +607,19 @@ export default function ConfigPage() {
               type="password"
               value={slackToken}
               onChange={e => setSlackToken(e.target.value)}
-              placeholder="xoxp-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            />
+          </FieldGroup>
+          <FieldGroup>
+            <FieldRow>
+              <FieldLabel>Team ID (Workspace ID)</FieldLabel>
+              <FieldHint>commence par T — visible dans l'URL Slack</FieldHint>
+            </FieldRow>
+            <Input
+              type="text"
+              value={slackTeamId}
+              onChange={e => setSlackTeamId(e.target.value)}
+              placeholder="TXXXXXXXXXX"
             />
           </FieldGroup>
           <FieldGroup>
@@ -635,7 +636,7 @@ export default function ConfigPage() {
           </FieldGroup>
           {slackOk && <SuccessBanner><icons.CheckCircle2 size={15} /> Slack configuré ! Redémarre le daemon.</SuccessBanner>}
           {slackMut.isError && <ErrorBanner>Erreur : {String(slackMut.error)}</ErrorBanner>}
-          <SaveButton onClick={() => slackMut.mutate()} disabled={!slackToken || !slackChannels || slackMut.isPending}>
+          <SaveButton onClick={() => slackMut.mutate()} disabled={!slackToken || !slackTeamId || slackMut.isPending}>
             <icons.Save size={14} />
             {slackMut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
           </SaveButton>
