@@ -760,6 +760,64 @@ async fn submit_action(action: osmozzz_core::ActionRequest) -> anyhow::Result<()
     Ok(())
 }
 
+// ─── Accès aux sources MCP ───────────────────────────────────────────────────
+
+struct SourceAccess {
+    email: bool, imessage: bool, chrome: bool, safari: bool,
+    notes: bool, calendar: bool, terminal: bool, file: bool,
+    notion: bool, github: bool, linear: bool, jira: bool,
+}
+
+impl SourceAccess {
+    fn load() -> Self {
+        let path = match dirs_next::home_dir() {
+            Some(h) => h.join(".osmozzz/source_access.toml"),
+            None => return Self::default(),
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return Self::default(),
+        };
+        let t: toml::Value = match content.parse() {
+            Ok(v) => v,
+            Err(_) => return Self::default(),
+        };
+        let b = |key: &str| t.get(key).and_then(|v| v.as_bool()).unwrap_or(true);
+        Self {
+            email: b("email"), imessage: b("imessage"), chrome: b("chrome"),
+            safari: b("safari"), notes: b("notes"), calendar: b("calendar"),
+            terminal: b("terminal"), file: b("file"), notion: b("notion"),
+            github: b("github"), linear: b("linear"), jira: b("jira"),
+        }
+    }
+
+    fn default() -> Self {
+        Self {
+            email: true, imessage: true, chrome: true, safari: true,
+            notes: true, calendar: true, terminal: true, file: true,
+            notion: true, github: true, linear: true, jira: true,
+        }
+    }
+
+    fn is_allowed(&self, source: &str) -> bool {
+        match source {
+            "email"    => self.email,
+            "imessage" => self.imessage,
+            "chrome"   => self.chrome,
+            "safari"   => self.safari,
+            "notes"    => self.notes,
+            "calendar" => self.calendar,
+            "terminal" => self.terminal,
+            "file"     => self.file,
+            "notion"   => self.notion,
+            "github"   => self.github,
+            "linear"   => self.linear,
+            "jira"     => self.jira,
+            _          => true,
+        }
+    }
+}
+
 // ─── Permissions MCP ─────────────────────────────────────────────────────────
 
 struct McpPermissions {
@@ -1000,6 +1058,9 @@ pub async fn run(cfg: Config) -> Result<()> {
                                         results.push(r);
                                     }
                                 }
+                                // Filtre sources désactivées dans Actions MCP
+                                let access = SourceAccess::load();
+                                results.retain(|r| access.is_allowed(&r.source));
                                 // Sort by score descending
                                 results.sort_by(|a, b| b.score.partial_cmp(&a.score)
                                     .unwrap_or(std::cmp::Ordering::Equal));
@@ -1075,7 +1136,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = limit.clamp(1, 100);
 
                         eprintln!("[OSMOzzz MCP] search_emails: \"{}\" (limit={})", keyword, limit);
-
+                        if !SourceAccess::load().is_allowed("email") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_emails_by_keyword(&keyword, limit).await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1097,7 +1161,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = limit.clamp(1, 200);
 
                         eprintln!("[OSMOzzz MCP] get_emails_by_date: \"{}\" (limit={})", query, limit);
-
+                        if !SourceAccess::load().is_allowed("email") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         if query.is_empty() {
                             // Pas de query → emails récents
                             match vault.recent_emails_full(limit).await {
@@ -1155,6 +1222,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                             format!("gmail://message/{}", raw_id)
                         };
                         eprintln!("[OSMOzzz MCP] read_email: {}", url);
+                        if !SourceAccess::load().is_allowed("email") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.get_full_content_by_url(&url).await {
                             Ok(Some((title, content))) => {
                                 let mut out = String::new();
@@ -1213,6 +1284,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = limit.clamp(1, 100);
 
                         eprintln!("[OSMOzzz MCP] search_messages: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("imessage") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'iMessage' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "imessage").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1240,6 +1315,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = limit.clamp(1, 100);
 
                         eprintln!("[OSMOzzz MCP] search_notes: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("notes") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Notes' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "notes").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1267,6 +1346,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = limit.clamp(1, 100);
 
                         eprintln!("[OSMOzzz MCP] search_terminal: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("terminal") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Terminal' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "terminal").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1351,6 +1434,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = limit.clamp(1, 100);
 
                         eprintln!("[OSMOzzz MCP] search_calendar: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("calendar") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Calendar' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "calendar").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1370,6 +1457,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let keyword = args["keyword"].as_str().unwrap_or("").to_string();
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_notion: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("notion") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Notion' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "notion").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1389,6 +1480,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let keyword = args["keyword"].as_str().unwrap_or("").to_string();
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_github: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("github") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'GitHub' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "github").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1408,6 +1503,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let keyword = args["keyword"].as_str().unwrap_or("").to_string();
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_linear: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("linear") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Linear' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "linear").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {
@@ -1427,6 +1526,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let keyword = args["keyword"].as_str().unwrap_or("").to_string();
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_jira: \"{}\"", keyword);
+                        if !SourceAccess::load().is_allowed("jira") {
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Jira' désactivée dans Actions MCP."}] })));
+                            continue;
+                        }
                         match vault.search_by_keyword_source(&keyword, limit, "jira").await {
                             Ok(results) => {
                                 let msg = if results.is_empty() {

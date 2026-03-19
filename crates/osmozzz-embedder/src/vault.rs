@@ -82,7 +82,14 @@ impl Vault {
     /// Keyword scan across ALL email content (from + subject + body).
     /// Same philosophy as filesystem find_file: no ONNX, pure string match.
     pub async fn search_emails_by_keyword(&self, keyword: &str, limit: usize) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
-        self.store.search_emails_by_keyword(keyword, limit).await
+        let bl = Blacklist::load();
+        let results = self.store.search_emails_by_keyword(keyword, limit + 50).await?;
+        Ok(results.into_iter()
+            .filter(|(title, content, url)| {
+                !bl.is_result_banned("email", url, title.as_deref().unwrap_or(""), content)
+            })
+            .take(limit)
+            .collect())
     }
 
     /// Generic keyword search filtered by source (imessage, notes, terminal, calendar, safari…).
@@ -92,7 +99,14 @@ impl Vault {
         limit: usize,
         source: &str,
     ) -> osmozzz_core::Result<Vec<(Option<String>, String, String)>> {
-        self.store.search_by_keyword_source(keyword, limit, source).await
+        let bl = Blacklist::load();
+        let results = self.store.search_by_keyword_source(keyword, limit + 50, source).await?;
+        Ok(results.into_iter()
+            .filter(|(title, content, url)| {
+                !bl.is_result_banned(source, url, title.as_deref().unwrap_or(""), content)
+            })
+            .take(limit)
+            .collect())
     }
 
     /// Keyword scan across ALL sources.
@@ -231,7 +245,12 @@ impl Vault {
         source_filter: Option<&str>,
     ) -> osmozzz_core::Result<Vec<osmozzz_core::SearchResult>> {
         let embedding = self.embedder.embed(query)?;
-        self.store.search_filtered(embedding, limit, source_filter).await
+        let bl = Blacklist::load();
+        let results = self.store.search_filtered(embedding, limit + 50, source_filter).await?;
+        Ok(results.into_iter()
+            .filter(|r| !bl.is_result_banned(&r.source, &r.url, r.title.as_deref().unwrap_or(""), &r.content))
+            .take(limit)
+            .collect())
     }
 
     /// Détecte le `+` dans la requête et lance une recherche multi-termes.

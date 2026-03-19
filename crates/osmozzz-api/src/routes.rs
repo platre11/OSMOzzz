@@ -1587,6 +1587,65 @@ pub async fn post_permissions(Json(body): Json<McpPermissionsBody>) -> impl Into
     }
 }
 
+// ─── Accès aux sources MCP ───────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SourceAccess {
+    #[serde(default = "default_true")] pub email:    bool,
+    #[serde(default = "default_true")] pub imessage: bool,
+    #[serde(default = "default_true")] pub chrome:   bool,
+    #[serde(default = "default_true")] pub safari:   bool,
+    #[serde(default = "default_true")] pub notes:    bool,
+    #[serde(default = "default_true")] pub calendar: bool,
+    #[serde(default = "default_true")] pub terminal: bool,
+    #[serde(default = "default_true")] pub file:     bool,
+    #[serde(default = "default_true")] pub notion:   bool,
+    #[serde(default = "default_true")] pub github:   bool,
+    #[serde(default = "default_true")] pub linear:   bool,
+    #[serde(default = "default_true")] pub jira:     bool,
+}
+
+fn default_true() -> bool { true }
+
+impl Default for SourceAccess {
+    fn default() -> Self {
+        Self {
+            email: true, imessage: true, chrome: true, safari: true,
+            notes: true, calendar: true, terminal: true, file: true,
+            notion: true, github: true, linear: true, jira: true,
+        }
+    }
+}
+
+fn source_access_path() -> Option<std::path::PathBuf> {
+    Some(dirs_next::home_dir()?.join(".osmozzz/source_access.toml"))
+}
+
+pub fn load_source_access() -> SourceAccess {
+    let path = match source_access_path() { Some(p) => p, None => return SourceAccess::default() };
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return SourceAccess::default() };
+    toml::from_str(&content).unwrap_or_default()
+}
+
+/// GET /api/source-access — accès aux sources par Claude via MCP
+pub async fn get_source_access() -> impl IntoResponse {
+    ApiResponse::ok(load_source_access()).into_response()
+}
+
+/// POST /api/source-access — met à jour les accès sources
+pub async fn post_source_access(Json(body): Json<SourceAccess>) -> impl IntoResponse {
+    let content = format!(
+        "email = {}\nimessage = {}\nchrome = {}\nsafari = {}\nnotes = {}\ncalendar = {}\nterminal = {}\nfile = {}\nnotion = {}\ngithub = {}\nlinear = {}\njira = {}\n",
+        body.email, body.imessage, body.chrome, body.safari,
+        body.notes, body.calendar, body.terminal, body.file,
+        body.notion, body.github, body.linear, body.jira,
+    );
+    match write_config("source_access.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Accès sources sauvegardés".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn truncate(s: &str, max: usize) -> String {

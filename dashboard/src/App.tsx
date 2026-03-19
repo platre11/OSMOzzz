@@ -80,7 +80,7 @@ const PageWrapper = styled.main`
 const PAGES: { id: Page; label: string; Icon: React.ElementType }[] = [
   { id: 'status',  label: 'Statut',        Icon: icons.LayoutDashboard },
   { id: 'recent',  label: 'Récents',       Icon: icons.Clock },
-  { id: 'actions', label: 'Actions',       Icon: icons.Zap },
+  { id: 'actions', label: 'Actions MCP',   Icon: icons.Zap },
   { id: 'network', label: 'Réseau',        Icon: icons.Network },
   { id: 'config',  label: 'Configuration', Icon: icons.Settings },
 ]

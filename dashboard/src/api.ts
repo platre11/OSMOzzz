@@ -374,4 +374,27 @@ export const api = {
   savePermissions: async (perms: { jira: boolean; github: boolean; linear: boolean; notion: boolean }): Promise<void> => {
     await axios.post(`${BASE}/permissions`, perms)
   },
+
+  // ─── Accès sources MCP ───────────────────────────────────────────────────────
+
+  getSourceAccess: async (): Promise<{
+    email: boolean; imessage: boolean; chrome: boolean; safari: boolean;
+    notes: boolean; calendar: boolean; terminal: boolean; file: boolean;
+    notion: boolean; github: boolean; linear: boolean; jira: boolean;
+  }> => {
+    const r = await axios.get(`${BASE}/source-access`)
+    return r.data.data ?? {
+      email: true, imessage: true, chrome: true, safari: true,
+      notes: true, calendar: true, terminal: true, file: true,
+      notion: true, github: true, linear: true, jira: true,
+    }
+  },
+
+  saveSourceAccess: async (access: {
+    email: boolean; imessage: boolean; chrome: boolean; safari: boolean;
+    notes: boolean; calendar: boolean; terminal: boolean; file: boolean;
+    notion: boolean; github: boolean; linear: boolean; jira: boolean;
+  }): Promise<void> => {
+    await axios.post(`${BASE}/source-access`, access)
+  },
 }

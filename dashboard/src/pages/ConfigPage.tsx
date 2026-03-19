@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { ConfigData, ConnectorStatus } from '../api'
 import { icons } from '../lib/assets'
-import { PrivacyPanel } from '../components/PrivacyPanel'
 
 // ─── Styles partagés ──────────────────────────────────────────────────────────
 
@@ -324,10 +323,6 @@ export default function ConfigPage() {
   return (
     <Page>
       <PageTitle>Configuration</PageTitle>
-
-      {/* ── Confidentialité ───────────────────────────────────────────────── */}
-      <SectionTitle>Sécurité & Confidentialité</SectionTitle>
-      <PrivacyPanel />
 
       {/* ── Email ─────────────────────────────────────────────────────────── */}
       <SectionTitle>Email</SectionTitle>
