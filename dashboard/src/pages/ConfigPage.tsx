@@ -45,6 +45,7 @@ const CardHeader = styled.div`
   padding: 20px 24px 0;
 `
 
+
 const CardTitle = styled.h3`
   font-size: 13px;
   font-weight: 600;
@@ -316,71 +317,9 @@ export default function ConfigPage() {
     },
   })
 
-  // ── Slack ─────────────────────────────────────────────────────────────────
-  const [slackToken,    setSlackToken]    = useState('')
-  const [slackTeamId,   setSlackTeamId]   = useState('')
-  const [slackChannels, setSlackChannels] = useState('')
-  const [slackOk,       setSlackOk]      = useState(false)
-  const slackMut = useMutation({
-    mutationFn: () => api.saveSlack(slackToken, slackTeamId, slackChannels),
-    onSuccess: () => {
-      setSlackOk(true); setSlackToken('')
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setTimeout(() => setSlackOk(false), 4000)
-    },
-  })
-
-  // ── Trello ────────────────────────────────────────────────────────────────
-  const [trelloKey,   setTrelloKey]   = useState('')
-  const [trelloToken, setTrelloToken] = useState('')
-  const [trelloOk,    setTrelloOk]   = useState(false)
-  const trelloMut = useMutation({
-    mutationFn: () => api.saveTrello(trelloKey, trelloToken),
-    onSuccess: () => {
-      setTrelloOk(true); setTrelloKey(''); setTrelloToken('')
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setTimeout(() => setTrelloOk(false), 4000)
-    },
-  })
-
-  // ── GitLab ────────────────────────────────────────────────────────────────
-  const [glToken,  setGlToken]  = useState('')
-  const [glUrl,    setGlUrl]    = useState('')
-  const [glGroups, setGlGroups] = useState('')
-  const [glOk,     setGlOk]    = useState(false)
-  const glMut = useMutation({
-    mutationFn: () => api.saveGitlab(glToken, glUrl, glGroups),
-    onSuccess: () => {
-      setGlOk(true); setGlToken('')
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setTimeout(() => setGlOk(false), 4000)
-    },
-  })
-
-  // ── Airtable ──────────────────────────────────────────────────────────────
-  const [atToken, setAtToken] = useState('')
-  const [atBases, setAtBases] = useState('')
-  const [atOk,    setAtOk]   = useState(false)
-  const atMut = useMutation({
-    mutationFn: () => api.saveAirtable(atToken, atBases),
-    onSuccess: () => {
-      setAtOk(true); setAtToken('')
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setTimeout(() => setAtOk(false), 4000)
-    },
-  })
-
-  // ── Obsidian ──────────────────────────────────────────────────────────────
-  const [obsPath, setObsPath] = useState('')
-  const [obsOk,   setObsOk]  = useState(false)
-  const obsMut = useMutation({
-    mutationFn: () => api.saveObsidian(obsPath),
-    onSuccess: () => {
-      setObsOk(true)
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setTimeout(() => setObsOk(false), 4000)
-    },
-  })
+  // ── Slack, Trello, GitLab, Airtable, Obsidian, Todoist ───────────────────
+  // Cards désactivées dans l'UI — pour réactiver : rajouter les useState/useMutation ici
+  // et décommenter le JSX correspondant plus bas dans le return
 
   return (
     <Page>
@@ -502,7 +441,10 @@ export default function ConfigPage() {
         </CardHeader>
         <CardBody>
           <FieldGroup>
-            <FieldLabel>URL de votre instance</FieldLabel>
+            <FieldRow>
+              <FieldLabel>URL de votre instance</FieldLabel>
+              <FieldHint>ex: votre-domaine.atlassian.net</FieldHint>
+            </FieldRow>
             <Input
               type="url"
               value={jiraUrl}
@@ -542,6 +484,7 @@ export default function ConfigPage() {
         </CardBody>
       </Card>
 
+      {/* ── Trello — désactivé temporairement (non prioritaire) ──────────────
       <Card>
         <CardHeader>
           <CardTitle>Trello</CardTitle>
@@ -557,24 +500,14 @@ export default function ConfigPage() {
                 Obtenir ↗
               </ExternalLink>
             </FieldRow>
-            <Input
-              type="password"
-              value={trelloKey}
-              onChange={e => setTrelloKey(e.target.value)}
-              placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            />
+            <Input type="password" value={trelloKey} onChange={e => setTrelloKey(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
           </FieldGroup>
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Token</FieldLabel>
               <FieldHint>généré via l'autorisation de votre clé</FieldHint>
             </FieldRow>
-            <Input
-              type="password"
-              value={trelloToken}
-              onChange={e => setTrelloToken(e.target.value)}
-              placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            />
+            <Input type="password" value={trelloToken} onChange={e => setTrelloToken(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
           </FieldGroup>
           {trelloOk && <SuccessBanner><icons.CheckCircle2 size={15} /> Trello configuré ! Redémarre le daemon.</SuccessBanner>}
           {trelloMut.isError && <ErrorBanner>Erreur : {String(trelloMut.error)}</ErrorBanner>}
@@ -584,10 +517,11 @@ export default function ConfigPage() {
           </SaveButton>
         </CardBody>
       </Card>
+      ── fin Trello ─────────────────────────────────────────────────────────── */}
 
       {/* ── Communication ─────────────────────────────────────────────────── */}
+      {/* ── Slack — désactivé temporairement (non prioritaire) ───────────────
       <SectionTitle>Communication</SectionTitle>
-
       <Card>
         <CardHeader>
           <CardTitle>Slack</CardTitle>
@@ -599,40 +533,23 @@ export default function ConfigPage() {
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Bot Token (xoxb-...)</FieldLabel>
-              <ExternalLink href="https://api.slack.com/apps" target="_blank" rel="noreferrer">
-                Créer une app ↗
-              </ExternalLink>
+              <ExternalLink href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Créer une app ↗</ExternalLink>
             </FieldRow>
-            <Input
-              type="password"
-              value={slackToken}
-              onChange={e => setSlackToken(e.target.value)}
-              placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            />
+            <Input type="password" value={slackToken} onChange={e => setSlackToken(e.target.value)} placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
           </FieldGroup>
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Team ID (Workspace ID)</FieldLabel>
               <FieldHint>commence par T — visible dans l'URL Slack</FieldHint>
             </FieldRow>
-            <Input
-              type="text"
-              value={slackTeamId}
-              onChange={e => setSlackTeamId(e.target.value)}
-              placeholder="TXXXXXXXXXX"
-            />
+            <Input type="text" value={slackTeamId} onChange={e => setSlackTeamId(e.target.value)} placeholder="TXXXXXXXXXX" />
           </FieldGroup>
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Channels à indexer</FieldLabel>
               <FieldHint>séparés par des virgules</FieldHint>
             </FieldRow>
-            <Input
-              type="text"
-              value={slackChannels}
-              onChange={e => setSlackChannels(e.target.value)}
-              placeholder="general, random, dev"
-            />
+            <Input type="text" value={slackChannels} onChange={e => setSlackChannels(e.target.value)} placeholder="general, random, dev" />
           </FieldGroup>
           {slackOk && <SuccessBanner><icons.CheckCircle2 size={15} /> Slack configuré ! Redémarre le daemon.</SuccessBanner>}
           {slackMut.isError && <ErrorBanner>Erreur : {String(slackMut.error)}</ErrorBanner>}
@@ -642,10 +559,10 @@ export default function ConfigPage() {
           </SaveButton>
         </CardBody>
       </Card>
+      ── fin Slack ──────────────────────────────────────────────────────────── */}
 
-      {/* ── Tâches ────────────────────────────────────────────────────────── */}
+      {/* ── Tâches — désactivé temporairement (non prioritaire) ──────────────
       <SectionTitle>Tâches</SectionTitle>
-
       <SimpleTokenCard
         title="Todoist"
         status={config?.todoist}
@@ -656,10 +573,10 @@ export default function ConfigPage() {
         onSave={token => api.saveTodoist(token)}
         successMsg="Todoist configuré ! Vos tâches seront indexées toutes les 15 min."
       />
+      ── fin Todoist ────────────────────────────────────────────────────────── */}
 
-      {/* ── Développement ─────────────────────────────────────────────────── */}
+      {/* ── Développement — désactivé temporairement (non prioritaire) ───────
       <SectionTitle>Développement</SectionTitle>
-
       <Card>
         <CardHeader>
           <CardTitle>GitLab</CardTitle>
@@ -671,40 +588,23 @@ export default function ConfigPage() {
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Personal Access Token</FieldLabel>
-              <ExternalLink href="https://gitlab.com/-/user_settings/personal_access_tokens" target="_blank" rel="noreferrer">
-                Générer ↗
-              </ExternalLink>
+              <ExternalLink href="https://gitlab.com/-/user_settings/personal_access_tokens" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
             </FieldRow>
-            <Input
-              type="password"
-              value={glToken}
-              onChange={e => setGlToken(e.target.value)}
-              placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
-            />
+            <Input type="password" value={glToken} onChange={e => setGlToken(e.target.value)} placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" />
           </FieldGroup>
           <FieldGroup>
             <FieldRow>
               <FieldLabel>URL de l'instance</FieldLabel>
               <FieldHint>optionnel — défaut : gitlab.com</FieldHint>
             </FieldRow>
-            <Input
-              type="url"
-              value={glUrl}
-              onChange={e => setGlUrl(e.target.value)}
-              placeholder="https://gitlab.com"
-            />
+            <Input type="url" value={glUrl} onChange={e => setGlUrl(e.target.value)} placeholder="https://gitlab.com" />
           </FieldGroup>
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Groupes à indexer</FieldLabel>
               <FieldHint>optionnel — séparés par des virgules</FieldHint>
             </FieldRow>
-            <Input
-              type="text"
-              value={glGroups}
-              onChange={e => setGlGroups(e.target.value)}
-              placeholder="mon-groupe, mon-autre-groupe"
-            />
+            <Input type="text" value={glGroups} onChange={e => setGlGroups(e.target.value)} placeholder="mon-groupe, mon-autre-groupe" />
           </FieldGroup>
           {glOk && <SuccessBanner><icons.CheckCircle2 size={15} /> GitLab configuré ! Redémarre le daemon.</SuccessBanner>}
           {glMut.isError && <ErrorBanner>Erreur : {String(glMut.error)}</ErrorBanner>}
@@ -714,7 +614,6 @@ export default function ConfigPage() {
           </SaveButton>
         </CardBody>
       </Card>
-
       <Card>
         <CardHeader>
           <CardTitle>Airtable</CardTitle>
@@ -726,28 +625,16 @@ export default function ConfigPage() {
           <FieldGroup>
             <FieldRow>
               <FieldLabel>Personal Access Token</FieldLabel>
-              <ExternalLink href="https://airtable.com/create/tokens" target="_blank" rel="noreferrer">
-                Créer un token ↗
-              </ExternalLink>
+              <ExternalLink href="https://airtable.com/create/tokens" target="_blank" rel="noreferrer">Créer un token ↗</ExternalLink>
             </FieldRow>
-            <Input
-              type="password"
-              value={atToken}
-              onChange={e => setAtToken(e.target.value)}
-              placeholder="patXXXXXXXXXXXXXXXX.xxxxxxxxxxxxxxxx..."
-            />
+            <Input type="password" value={atToken} onChange={e => setAtToken(e.target.value)} placeholder="patXXXXXXXXXXXXXXXX.xxxxxxxxxxxxxxxx..." />
           </FieldGroup>
           <FieldGroup>
             <FieldRow>
               <FieldLabel>IDs des bases</FieldLabel>
               <FieldHint>dans l'URL — séparés par des virgules</FieldHint>
             </FieldRow>
-            <Input
-              type="text"
-              value={atBases}
-              onChange={e => setAtBases(e.target.value)}
-              placeholder="appXXXXXXXXXXXXXX, appYYYYYYYYYYYYYY"
-            />
+            <Input type="text" value={atBases} onChange={e => setAtBases(e.target.value)} placeholder="appXXXXXXXXXXXXXX, appYYYYYYYYYYYYYY" />
           </FieldGroup>
           {atOk && <SuccessBanner><icons.CheckCircle2 size={15} /> Airtable configuré ! Redémarre le daemon.</SuccessBanner>}
           {atMut.isError && <ErrorBanner>Erreur : {String(atMut.error)}</ErrorBanner>}
@@ -757,17 +644,15 @@ export default function ConfigPage() {
           </SaveButton>
         </CardBody>
       </Card>
+      ── fin GitLab + Airtable ─────────────────────────────────────────────── */}
 
-      {/* ── Notes locales ─────────────────────────────────────────────────── */}
+      {/* ── Notes locales — désactivé temporairement (non prioritaire) ───────
       <SectionTitle>Notes locales</SectionTitle>
-
       <Card>
         <CardHeader>
           <CardTitle>Obsidian</CardTitle>
           <StatusPill $ok={config?.obsidian?.configured}>
-            {config?.obsidian?.configured
-              ? `✓ ${config.obsidian.display ?? 'Configuré'}`
-              : 'Non configuré'}
+            {config?.obsidian?.configured ? `✓ ${config.obsidian.display ?? 'Configuré'}` : 'Non configuré'}
           </StatusPill>
         </CardHeader>
         <CardBody>
@@ -776,12 +661,7 @@ export default function ConfigPage() {
               <FieldLabel>Chemin du vault</FieldLabel>
               <FieldHint>dossier racine de votre vault Obsidian</FieldHint>
             </FieldRow>
-            <Input
-              type="text"
-              value={obsPath}
-              onChange={e => setObsPath(e.target.value)}
-              placeholder="~/Documents/MyVault"
-            />
+            <Input type="text" value={obsPath} onChange={e => setObsPath(e.target.value)} placeholder="~/Documents/MyVault" />
           </FieldGroup>
           {obsOk && <SuccessBanner><icons.CheckCircle2 size={15} /> Obsidian configuré ! Vos notes seront indexées toutes les 5 min.</SuccessBanner>}
           {obsMut.isError && <ErrorBanner>Erreur : {String(obsMut.error)}</ErrorBanner>}
@@ -791,6 +671,7 @@ export default function ConfigPage() {
           </SaveButton>
         </CardBody>
       </Card>
+      ── fin Obsidian ───────────────────────────────────────────────────────── */}
 
       {/* ── Démarrage automatique ─────────────────────────────────────────── */}
       <InfoBox>

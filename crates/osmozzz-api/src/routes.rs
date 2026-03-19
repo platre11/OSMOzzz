@@ -1481,6 +1481,11 @@ pub async fn post_action_approve(
 ) -> impl IntoResponse {
     match state.action_queue.approve(&id) {
         Some(action) => {
+            // Si mcp_proxy = true, le process MCP gère l'exécution (il poll le statut).
+            // On change juste le statut à Approved — pas d'executor ici.
+            if action.mcp_proxy == Some(true) {
+                return ApiResponse::ok(action).into_response();
+            }
             // Exécution en arrière-plan pour ne pas bloquer la réponse HTTP
             let queue = state.action_queue.clone();
             let vault = state.vault.clone();
@@ -1523,6 +1528,63 @@ pub async fn get_actions_stream(
         async move { event }
     });
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// GET /api/actions/:id — statut d'une action spécifique (pour polling MCP)
+pub async fn get_action_by_id(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let all = state.action_queue.all();
+    match all.into_iter().find(|a| a.id == id) {
+        Some(action) => ApiResponse::ok(action).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Action non trouvée" }))).into_response(),
+    }
+}
+
+// ─── Permissions MCP ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct McpPermissions {
+    pub jira:   bool,
+    pub github: bool,
+    pub linear: bool,
+    pub notion: bool,
+}
+
+fn permissions_path() -> Option<std::path::PathBuf> {
+    Some(dirs_next::home_dir()?.join(".osmozzz/permissions.toml"))
+}
+
+pub fn load_permissions() -> McpPermissions {
+    let path = match permissions_path() { Some(p) => p, None => return McpPermissions::default() };
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return McpPermissions::default() };
+    toml::from_str(&content).unwrap_or_default()
+}
+
+/// GET /api/permissions — permissions d'autorisation par connecteur MCP
+pub async fn get_permissions() -> impl IntoResponse {
+    ApiResponse::ok(load_permissions()).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct McpPermissionsBody {
+    pub jira:   bool,
+    pub github: bool,
+    pub linear: bool,
+    pub notion: bool,
+}
+
+/// POST /api/permissions — sauvegarde les permissions
+pub async fn post_permissions(Json(body): Json<McpPermissionsBody>) -> impl IntoResponse {
+    let content = format!(
+        "jira = {}\ngithub = {}\nlinear = {}\nnotion = {}\n",
+        body.jira, body.github, body.linear, body.notion,
+    );
+    match write_config("permissions.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Permissions sauvegardées".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

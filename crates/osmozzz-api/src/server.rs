@@ -74,8 +74,10 @@ pub async fn start_server(
         .route("/actions",              get(routes::get_actions_all).post(routes::post_action))
         .route("/actions/pending",      get(routes::get_actions_pending))
         .route("/actions/stream",       get(routes::get_actions_stream))
+        .route("/actions/:id",          get(routes::get_action_by_id))
         .route("/actions/:id/approve",  post(routes::post_action_approve))
         .route("/actions/:id/reject",   post(routes::post_action_reject))
+        .route("/permissions",          get(routes::get_permissions).post(routes::post_permissions))
         .with_state(state);
 
     let app = Router::new()

@@ -365,4 +365,13 @@ export const api = {
     const r = await axios.post(`${BASE}/actions/${id}/reject`)
     return r.data.data
   },
+
+  getPermissions: async (): Promise<{ jira: boolean; github: boolean; linear: boolean; notion: boolean }> => {
+    const r = await axios.get(`${BASE}/permissions`)
+    return r.data.data ?? { jira: false, github: false, linear: false, notion: false }
+  },
+
+  savePermissions: async (perms: { jira: boolean; github: boolean; linear: boolean; notion: boolean }): Promise<void> => {
+    await axios.post(`${BASE}/permissions`, perms)
+  },
 }

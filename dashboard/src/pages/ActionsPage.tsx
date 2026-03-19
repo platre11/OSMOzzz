@@ -117,6 +117,48 @@ const ExecResult = styled.div<{ $ok: boolean }>`
   color: ${({ $ok }) => $ok ? '#065f46' : '#991b1b'};
 `
 
+const PermSection = styled.div`
+  background: #fff; border: 1px solid #e8eaed; border-radius: 14px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+`
+
+const PermHeader = styled.div`
+  padding: 16px 20px 12px; border-bottom: 1px solid #f3f4f6;
+`
+
+const PermTitle = styled.h2`
+  font-size: 13px; font-weight: 600; color: #374151; margin: 0;
+`
+
+const PermDesc = styled.p`
+  font-size: 11px; color: #9ca3af; margin: 4px 0 0;
+`
+
+const PermRow = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; border-bottom: 1px solid #f9fafb;
+  &:last-child { border-bottom: none; }
+`
+
+const PermLabel = styled.span`
+  font-size: 13px; font-weight: 500; color: #1a1d23;
+`
+
+const PermHint = styled.span`
+  font-size: 11px; color: #9ca3af; display: block; margin-top: 2px;
+`
+
+const Toggle = styled.button<{ $on: boolean }>`
+  width: 36px; height: 20px; border-radius: 10px; border: none; cursor: pointer;
+  background: ${({ $on }) => $on ? '#6366f1' : '#d1d5db'};
+  position: relative; transition: background .2s; flex-shrink: 0;
+  &::after {
+    content: ''; position: absolute; width: 14px; height: 14px;
+    border-radius: 50%; background: white; top: 3px;
+    left: ${({ $on }) => $on ? '19px' : '3px'}; transition: left .2s;
+  }
+`
+
 // ─── Composant carte action ───────────────────────────────────────────────────
 
 function ActionCardItem({ action, onDecision }: {
@@ -182,6 +224,40 @@ export default function ActionsPage() {
   const queryClient = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
 
+  // ── Permissions MCP ─────────────────────────────────────────────────────
+  const { data: permsData } = useQuery({
+    queryKey: ['permissions'],
+    queryFn:  api.getPermissions,
+  })
+  const [permNotion, setPermNotion] = useState(false)
+  const [permGithub, setPermGithub] = useState(false)
+  const [permLinear, setPermLinear] = useState(false)
+  const [permJira,   setPermJira]   = useState(false)
+
+  useEffect(() => {
+    if (permsData) {
+      setPermNotion(permsData.notion ?? false)
+      setPermGithub(permsData.github ?? false)
+      setPermLinear(permsData.linear ?? false)
+      setPermJira(permsData.jira ?? false)
+    }
+  }, [permsData])
+
+  function togglePerm(
+    key: 'notion' | 'github' | 'linear' | 'jira',
+    current: boolean,
+    setter: (v: boolean) => void,
+  ) {
+    const next = !current
+    setter(next)
+    api.savePermissions({
+      notion: key === 'notion' ? next : permNotion,
+      github: key === 'github' ? next : permGithub,
+      linear: key === 'linear' ? next : permLinear,
+      jira:   key === 'jira'   ? next : permJira,
+    }).then(() => queryClient.invalidateQueries({ queryKey: ['permissions'] }))
+  }
+
   // Connexion SSE pour mises à jour temps réel
   useEffect(() => {
     const es = new EventSource('/api/actions/stream')
@@ -232,6 +308,41 @@ export default function ActionsPage() {
           {sseConnected ? 'Temps réel actif' : 'Connexion...'}
         </SseStatus>
       </div>
+
+      <PermSection>
+        <PermHeader>
+          <PermTitle>Autorisations MCP</PermTitle>
+          <PermDesc>Activez le contrôle manuel pour les outils où vous voulez valider chaque action avant exécution. Par défaut : exécution automatique.</PermDesc>
+        </PermHeader>
+        <PermRow>
+          <div>
+            <PermLabel>Notion</PermLabel>
+            <PermHint>Créer / modifier des pages</PermHint>
+          </div>
+          <Toggle $on={permNotion} onClick={() => togglePerm('notion', permNotion, setPermNotion)} />
+        </PermRow>
+        <PermRow>
+          <div>
+            <PermLabel>GitHub</PermLabel>
+            <PermHint>Créer des issues, pull requests…</PermHint>
+          </div>
+          <Toggle $on={permGithub} onClick={() => togglePerm('github', permGithub, setPermGithub)} />
+        </PermRow>
+        <PermRow>
+          <div>
+            <PermLabel>Linear</PermLabel>
+            <PermHint>Créer / mettre à jour des issues</PermHint>
+          </div>
+          <Toggle $on={permLinear} onClick={() => togglePerm('linear', permLinear, setPermLinear)} />
+        </PermRow>
+        <PermRow>
+          <div>
+            <PermLabel>Jira</PermLabel>
+            <PermHint>Créer des tickets, changer les statuts…</PermHint>
+          </div>
+          <Toggle $on={permJira} onClick={() => togglePerm('jira', permJira, setPermJira)} />
+        </PermRow>
+      </PermSection>
 
       <TabRow>
         <Tab $active={tab === 'pending'} onClick={() => setTab('pending')}>

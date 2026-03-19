@@ -608,28 +608,6 @@ fn tools_list() -> Value {
             }
         },
         {
-            "name": "act_create_notion_page",
-            "description": "ACTION — Crée une nouvelle page dans Notion. L'action est soumise au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur. Retourne un ID de suivi.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Titre de la page Notion à créer"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Contenu texte de la page"
-                    },
-                    "parent_id": {
-                        "type": "string",
-                        "description": "ID optionnel de la page parent (laisser vide pour créer à la racine)"
-                    }
-                },
-                "required": ["title", "content"]
-            }
-        },
-        {
             "name": "act_create_todoist_task",
             "description": "ACTION — Crée une tâche dans Todoist. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
             "inputSchema": {
@@ -640,19 +618,6 @@ fn tools_list() -> Value {
                     "project_id": { "type": "string", "description": "ID du projet Todoist (optionnel)" }
                 },
                 "required": ["content"]
-            }
-        },
-        {
-            "name": "act_create_github_issue",
-            "description": "ACTION — Crée une issue GitHub. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "title": { "type": "string", "description": "Titre de l'issue" },
-                    "body": { "type": "string", "description": "Description de l'issue en markdown" },
-                    "repo": { "type": "string", "description": "Repo au format owner/repo (optionnel — utilise le premier repo configuré si absent)" }
-                },
-                "required": ["title"]
             }
         },
         {
@@ -793,6 +758,71 @@ async fn submit_action(action: osmozzz_core::ActionRequest) -> anyhow::Result<()
         .await?
         .error_for_status()?;
     Ok(())
+}
+
+// ─── Permissions MCP ─────────────────────────────────────────────────────────
+
+struct McpPermissions {
+    jira:   bool,
+    github: bool,
+    linear: bool,
+    notion: bool,
+}
+
+impl McpPermissions {
+    fn load() -> Self {
+        let path = match dirs_next::home_dir() {
+            Some(h) => h.join(".osmozzz/permissions.toml"),
+            None => return Self::default(),
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return Self::default(),
+        };
+        let table: toml::Value = match content.parse() {
+            Ok(t) => t,
+            Err(_) => return Self::default(),
+        };
+        Self {
+            jira:   table.get("jira").and_then(|v| v.as_bool()).unwrap_or(false),
+            github: table.get("github").and_then(|v| v.as_bool()).unwrap_or(false),
+            linear: table.get("linear").and_then(|v| v.as_bool()).unwrap_or(false),
+            notion: table.get("notion").and_then(|v| v.as_bool()).unwrap_or(false),
+        }
+    }
+
+    fn default() -> Self {
+        Self { jira: false, github: false, linear: false, notion: false }
+    }
+
+    fn requires_auth(&self, proxy_name: &str) -> bool {
+        match proxy_name {
+            "jira"   => self.jira,
+            "github" => self.github,
+            "linear" => self.linear,
+            "notion" => self.notion,
+            _        => false,
+        }
+    }
+}
+
+/// Poll le statut d'une action jusqu'à approbation/rejet/expiration (max 5 min).
+/// Retourne true si approuvé, false sinon.
+async fn wait_for_approval(action_id: &str) -> bool {
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:7878/api/actions/{}", action_id);
+    for _ in 0..150 { // 150 * 2s = 5 min
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let Ok(resp) = client.get(&url).send().await else { continue };
+        let Ok(body) = resp.json::<serde_json::Value>().await else { continue };
+        let status = body.get("data").and_then(|d| d.get("status")).and_then(|s| s.as_str()).unwrap_or("");
+        match status {
+            "approved" => return true,
+            "rejected" | "expired" => return false,
+            _ => continue,
+        }
+    }
+    false // timeout
 }
 
 // ─── Envoi d'une réponse sur stdout (pur JSON) ────────────────────────────────
@@ -1594,38 +1624,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
-                    "act_create_notion_page" => {
-                        let title = match args["title"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
-                        };
-                        let content = match args["content"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: content")); continue; }
-                        };
-                        let parent_id = args["parent_id"].as_str().map(|s| s.to_string());
-                        let preview = format!("Créer une page Notion\nTitre : {}\n\n{}", title, &content[..content.len().min(200)]);
-                        let action = osmozzz_core::ActionRequest::new(
-                            "act_create_notion_page",
-                            serde_json::json!({ "title": title, "content": content, "parent_id": parent_id }),
-                            preview,
-                        );
-                        let action_id = action.id.clone();
-                        match submit_action(action).await {
-                            Ok(()) => send(&Response::ok(id, json!({
-                                "content": [{"type": "text", "text": format!(
-                                    "✅ Action soumise pour validation (ID: {}).\n\nOuvre le dashboard OSMOzzz (http://localhost:7878) pour approuver ou rejeter la création.",
-                                    action_id
-                                )}]
-                            }))),
-                            Err(e) => send(&Response::ok(id, json!({
-                                "content": [{"type": "text", "text": format!(
-                                    "⚠️ Impossible de soumettre l'action : {}.\nAssure-toi que le daemon OSMOzzz tourne (osmozzz daemon).", e
-                                )}]
-                            }))),
-                        }
-                    }
-
                     "act_create_todoist_task" => {
                         let content = match args["content"].as_str() {
                             Some(v) => v.to_string(),
@@ -1638,29 +1636,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let action = osmozzz_core::ActionRequest::new(
                             "act_create_todoist_task",
                             serde_json::json!({ "content": content, "due_string": due_string, "project_id": project_id }),
-                            preview,
-                        );
-                        let action_id = action.id.clone();
-                        match submit_action(action).await {
-                            Ok(()) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Action soumise (ID: {action_id}). Ouvre le dashboard OSMOzzz pour valider.")}] }))),
-                            Err(e) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("⚠️ Impossible de soumettre : {e}. Lance osmozzz daemon.")}] }))),
-                        }
-                    }
-
-                    "act_create_github_issue" => {
-                        let title = match args["title"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: title")); continue; }
-                        };
-                        let body = args["body"].as_str().unwrap_or("").to_string();
-                        let repo = args["repo"].as_str().unwrap_or("").to_string();
-                        let preview = format!("Créer une issue GitHub\nTitre : {}{}\n\n{}",
-                            title,
-                            if repo.is_empty() { String::new() } else { format!(" ({})", repo) },
-                            &body[..body.len().min(200)]);
-                        let action = osmozzz_core::ActionRequest::new(
-                            "act_create_github_issue",
-                            serde_json::json!({ "title": title, "body": body, "repo": repo }),
                             preview,
                         );
                         let action_id = action.id.clone();
@@ -1885,6 +1860,46 @@ pub async fn run(cfg: Config) -> Result<()> {
                             .position(|p| p.tool_names().contains(&other.to_string()));
 
                         if let Some(idx) = proxy_idx {
+                            let proxy_name = proxies[idx].name.clone();
+
+                            // Permissions rechargées à chaque appel — reflète les changements
+                            // du dashboard sans redémarrer Claude Desktop.
+                            let permissions = McpPermissions::load();
+                            if permissions.requires_auth(&proxy_name) {
+                                let preview = format!(
+                                    "[{}] {} — paramètres : {}",
+                                    proxy_name, other,
+                                    serde_json::to_string(args).unwrap_or_default()
+                                );
+                                let mut action = osmozzz_core::ActionRequest::new(
+                                    format!("{}:{}", proxy_name, other),
+                                    args.clone(),
+                                    preview,
+                                );
+                                action.mcp_proxy = Some(true);
+                                let action_id = action.id.clone();
+
+                                let submitted = tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(submit_action(action))
+                                });
+
+                                if submitted.is_err() {
+                                    send(&Response::err(id, -32603, "Impossible de soumettre l'action au daemon"));
+                                    continue;
+                                }
+
+                                eprintln!("[OSMOzzz MCP] Autorisation requise pour {} — action ID: {}", other, action_id);
+
+                                let approved = tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(wait_for_approval(&action_id))
+                                });
+
+                                if !approved {
+                                    send(&Response::err(id, -32603, "Action refusée ou expirée dans le dashboard OSMOzzz"));
+                                    continue;
+                                }
+                            }
+
                             let result = tokio::task::block_in_place(|| {
                                 proxies[idx].call_tool(other, args)
                             });

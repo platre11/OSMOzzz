@@ -40,6 +40,10 @@ pub struct ActionRequest {
     /// None = pas encore exécuté, Some("ok: ...") = succès, Some("err: ...") = erreur.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_result: Option<String>,
+    /// Si true, l'exécution est gérée par le process MCP (proxy subprocess).
+    /// Le daemon NE doit PAS appeler executor::execute() — juste changer le statut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_proxy: Option<bool>,
 }
 
 impl ActionRequest {
@@ -58,6 +62,7 @@ impl ActionRequest {
             created_at: now,
             expires_at: now + 300,
             execution_result: None,
+            mcp_proxy: None,
         }
     }
 
