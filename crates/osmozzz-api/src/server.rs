@@ -64,6 +64,7 @@ pub async fn start_server(
         .route("/index/progress", get(routes::get_index_progress))
         .route("/index", post(routes::post_index))
         .route("/privacy", get(routes::get_privacy).post(routes::post_privacy))
+        .route("/aliases", get(routes::get_aliases).post(routes::post_aliases))
         .route("/network/peers", get(routes::get_network_peers))
         .route("/network/invite", post(routes::post_network_invite))
         .route("/network/connect", post(routes::post_network_connect))
@@ -79,6 +80,7 @@ pub async fn start_server(
         .route("/actions/:id/reject",   post(routes::post_action_reject))
         .route("/permissions",          get(routes::get_permissions).post(routes::post_permissions))
         .route("/source-access",        get(routes::get_source_access).post(routes::post_source_access))
+        .route("/audit",                get(routes::get_audit))
         .with_state(state);
 
     let app = Router::new()

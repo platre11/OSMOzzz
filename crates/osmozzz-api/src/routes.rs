@@ -1095,6 +1095,60 @@ fn source_str_to_enum(s: &str) -> Option<osmozzz_p2p::SharedSource> {
     }
 }
 
+// ─── GET /api/aliases ────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AliasEntry {
+    pub real: String,
+    pub alias: String,
+}
+
+#[derive(Deserialize)]
+pub struct AliasesBody {
+    pub aliases: Vec<AliasEntry>,
+}
+
+pub async fn get_aliases() -> impl IntoResponse {
+    let path = match dirs_next::home_dir() {
+        Some(h) => h.join(".osmozzz/aliases.toml"),
+        None => return ApiResponse::ok(Vec::<AliasEntry>::new()).into_response(),
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return ApiResponse::ok(Vec::<AliasEntry>::new()).into_response(),
+    };
+    let t: toml::Value = match content.parse() {
+        Ok(v) => v,
+        Err(_) => return ApiResponse::ok(Vec::<AliasEntry>::new()).into_response(),
+    };
+    let mut entries = Vec::new();
+    if let Some(map) = t.get("map").and_then(|v| v.as_table()) {
+        for (real, alias) in map {
+            if let Some(alias_str) = alias.as_str() {
+                entries.push(AliasEntry { real: real.clone(), alias: alias_str.to_string() });
+            }
+        }
+    }
+    ApiResponse::ok(entries).into_response()
+}
+
+// ─── POST /api/aliases ───────────────────────────────────────────────────────
+
+pub async fn post_aliases(Json(body): Json<AliasesBody>) -> impl IntoResponse {
+    let path = match dirs_next::home_dir() {
+        Some(h) => h.join(".osmozzz/aliases.toml"),
+        None => return ApiResponse::<String>::err("impossible de trouver le home dir").into_response(),
+    };
+    let mut content = String::from("[map]\n");
+    for entry in &body.aliases {
+        content.push_str(&format!("{:?} = {:?}\n", entry.real, entry.alias));
+    }
+    match std::fs::write(&path, content) {
+        Ok(_)  => ApiResponse::ok("ok".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
 // ─── GET /api/privacy ────────────────────────────────────────────────────────
 
 pub async fn get_privacy() -> impl IntoResponse {
@@ -1550,6 +1604,7 @@ pub struct McpPermissions {
     pub github: bool,
     pub linear: bool,
     pub notion: bool,
+    pub email:  bool,
 }
 
 fn permissions_path() -> Option<std::path::PathBuf> {
@@ -1573,13 +1628,14 @@ pub struct McpPermissionsBody {
     pub github: bool,
     pub linear: bool,
     pub notion: bool,
+    pub email:  bool,
 }
 
 /// POST /api/permissions — sauvegarde les permissions
 pub async fn post_permissions(Json(body): Json<McpPermissionsBody>) -> impl IntoResponse {
     let content = format!(
-        "jira = {}\ngithub = {}\nlinear = {}\nnotion = {}\n",
-        body.jira, body.github, body.linear, body.notion,
+        "jira = {}\ngithub = {}\nlinear = {}\nnotion = {}\nemail = {}\n",
+        body.jira, body.github, body.linear, body.notion, body.email,
     );
     match write_config("permissions.toml", &content) {
         Ok(_)  => ApiResponse::ok("Permissions sauvegardées".to_string()).into_response(),
@@ -1644,6 +1700,39 @@ pub async fn post_source_access(Json(body): Json<SourceAccess>) -> impl IntoResp
         Ok(_)  => ApiResponse::ok("Accès sources sauvegardés".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
+}
+
+// ─── Audit log ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuditEntry {
+    pub ts:      i64,
+    pub tool:    String,
+    pub query:   String,
+    pub results: usize,
+    pub blocked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data:    Option<String>,
+}
+
+fn audit_path() -> Option<std::path::PathBuf> {
+    Some(dirs_next::home_dir()?.join(".osmozzz/audit.jsonl"))
+}
+
+/// GET /api/audit?limit=200 — retourne les dernières entrées d'audit (les plus récentes en premier)
+pub async fn get_audit(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(200);
+    let path = match audit_path() { Some(p) => p, None => return ApiResponse::ok(Vec::<AuditEntry>::new()).into_response() };
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return ApiResponse::ok(Vec::<AuditEntry>::new()).into_response() };
+    let entries: Vec<AuditEntry> = content
+        .lines()
+        .rev()
+        .take(limit)
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    ApiResponse::ok(entries).into_response()
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

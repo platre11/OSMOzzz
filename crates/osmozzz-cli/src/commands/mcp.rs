@@ -20,7 +20,6 @@ use crate::proof;
 use shellexpand;
 use reqwest;
 
-
 // ─── Types JSON-RPC ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -760,6 +759,148 @@ async fn submit_action(action: osmozzz_core::ActionRequest) -> anyhow::Result<()
     Ok(())
 }
 
+// ─── Alias Engine (pseudonymisation bidirectionnelle) ────────────────────────
+
+/// Charge la table d'alias depuis ~/.osmozzz/aliases.toml
+/// Retourne vec de (vrai_nom, alias) triés par longueur décroissante
+fn load_aliases() -> Vec<(String, String)> {
+    let path = match dirs_next::home_dir() {
+        Some(h) => h.join(".osmozzz/aliases.toml"),
+        None => return vec![],
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let t: toml::Value = match content.parse() {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    let mut pairs = Vec::new();
+    if let Some(map) = t.get("map").and_then(|v| v.as_table()) {
+        for (real, alias) in map {
+            if let Some(alias_str) = alias.as_str() {
+                pairs.push((real.clone(), alias_str.to_string()));
+            }
+        }
+    }
+    // Tri par longueur décroissante pour éviter les remplacements partiels
+    pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    pairs
+}
+
+/// Remplacement insensible à la casse
+fn replace_icase(haystack: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() { return haystack.to_string(); }
+    let lower_h = haystack.to_lowercase();
+    let lower_n = needle.to_lowercase();
+    let mut result = String::with_capacity(haystack.len());
+    let mut last = 0;
+    let mut pos = 0;
+    while pos + needle.len() <= haystack.len() {
+        if lower_h[pos..].starts_with(&lower_n as &str) {
+            result.push_str(&haystack[last..pos]);
+            result.push_str(replacement);
+            last = pos + needle.len();
+            pos = last;
+        } else {
+            pos += haystack[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        }
+    }
+    result.push_str(&haystack[last..]);
+    result
+}
+
+/// Outbound : remplace les vrais noms par leurs alias avant envoi à Claude (insensible à la casse)
+fn apply_aliases(text: &str, aliases: &[(String, String)]) -> String {
+    if aliases.is_empty() { return text.to_string(); }
+    let mut result = text.to_string();
+    for (real, alias) in aliases {
+        result = replace_icase(&result, real.as_str(), alias.as_str());
+    }
+    result
+}
+
+/// Inbound : décode les alias reçus de Claude en vrais noms pour la recherche
+fn reverse_aliases(text: &str) -> String {
+    let mut aliases = load_aliases();
+    if aliases.is_empty() { return text.to_string(); }
+    // Inverser : chercher l'alias, remplacer par le vrai nom
+    // Trier par longueur d'alias décroissante
+    aliases.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    let mut result = text.to_string();
+    for (real, alias) in &aliases {
+        result = replace_icase(&result, alias.as_str(), real.as_str());
+    }
+    result
+}
+
+/// Helper : extrait un argument de Claude et décode ses alias éventuels
+fn decode_arg(args: &serde_json::Value, key: &str) -> Option<String> {
+    args[key].as_str().map(|s| reverse_aliases(s))
+}
+
+// ─── Audit log ───────────────────────────────────────────────────────────────
+
+/// Filtre de sécurité appliqué SYSTÉMATIQUEMENT sur toutes les réponses proxy MCP.
+/// Masque tokens, clés API, JWT et secrets quelle que soit la config utilisateur.
+/// Utilise le filtre api_keys existant + une règle JWT supplémentaire.
+fn sanitize_proxy_response(text: &str) -> String {
+    use osmozzz_core::filter::{PrivacyConfig, PrivacyFilter};
+
+    // Applique toujours le filtre api_keys (indépendant de la config utilisateur)
+    let cfg = PrivacyConfig {
+        api_keys: true,
+        // Les autres restent à false ici — l'utilisateur contrôle ça via sa config
+        credit_card: false, iban: false, email: false, phone: false,
+    };
+    let filter = PrivacyFilter::from_config(&cfg);
+    let filtered = filter.apply(text);
+
+    // En plus : masque les JWT (eyJ....) et les tokens base64 longs (Atlassian, etc.)
+    // via remplacement simple sans regex externe
+    mask_long_tokens(&filtered)
+}
+
+/// Masque les tokens longs sans espaces qui ressemblent à des credentials.
+fn mask_long_tokens(text: &str) -> String {
+    // Split sur les séparateurs communs et masque les tokens trop longs
+    let mut result = String::with_capacity(text.len());
+    for word in text.split_inclusive(|c: char| c.is_whitespace() || c == '"' || c == ',' || c == '\n') {
+        let trimmed = word.trim_matches(|c: char| c == '"' || c == ',' || c.is_whitespace());
+        // Un token suspect : >60 chars, pas d'espaces, mixte alphanum+symboles
+        let is_suspicious = trimmed.len() > 60
+            && !trimmed.contains(' ')
+            && trimmed.chars().any(|c| c.is_ascii_uppercase())
+            && trimmed.chars().any(|c| c.is_ascii_lowercase())
+            && trimmed.chars().any(|c| c.is_ascii_digit());
+        if is_suspicious {
+            // Remplace le token dans le mot original
+            result.push_str(&word.replace(trimmed, "[TOKEN masqué]"));
+        } else {
+            result.push_str(word);
+        }
+    }
+    result
+}
+
+fn audit_log(tool: &str, query: &str, results: usize, blocked: bool, data: Option<&str>) {
+    use std::io::Write;
+    let entry = serde_json::json!({
+        "ts":      chrono::Utc::now().timestamp(),
+        "tool":    tool,
+        "query":   query,
+        "results": results,
+        "blocked": blocked,
+        "data":    data,
+    });
+    if let Some(path) = dirs_next::home_dir().map(|h| h.join(".osmozzz/audit.jsonl")) {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = writeln!(f, "{}", entry);
+        }
+    }
+}
+
 // ─── Accès aux sources MCP ───────────────────────────────────────────────────
 
 struct SourceAccess {
@@ -825,6 +966,7 @@ struct McpPermissions {
     github: bool,
     linear: bool,
     notion: bool,
+    email:  bool,
 }
 
 impl McpPermissions {
@@ -846,11 +988,12 @@ impl McpPermissions {
             github: table.get("github").and_then(|v| v.as_bool()).unwrap_or(false),
             linear: table.get("linear").and_then(|v| v.as_bool()).unwrap_or(false),
             notion: table.get("notion").and_then(|v| v.as_bool()).unwrap_or(false),
+            email:  table.get("email").and_then(|v| v.as_bool()).unwrap_or(false),
         }
     }
 
     fn default() -> Self {
-        Self { jira: false, github: false, linear: false, notion: false }
+        Self { jira: false, github: false, linear: false, notion: false, email: false }
     }
 
     fn requires_auth(&self, proxy_name: &str) -> bool {
@@ -886,18 +1029,28 @@ async fn wait_for_approval(action_id: &str) -> bool {
 // ─── Envoi d'une réponse sur stdout (pur JSON) ────────────────────────────────
 
 fn send(response: &Response) {
-    // Applique le pare-feu de confidentialité sur les réponses texte
+    // Applique le pare-feu de confidentialité + alias engine sur les réponses texte
     let json = if response.result.as_ref().and_then(|r| r.get("content")).is_some() {
         let cfg = osmozzz_core::filter::PrivacyConfig::load();
-        if cfg.is_any_active() {
-            let filter = osmozzz_core::filter::PrivacyFilter::from_config(&cfg);
+        let filter_active = cfg.is_any_active();
+        let filter = osmozzz_core::filter::PrivacyFilter::from_config(&cfg);
+        let aliases = load_aliases();
+
+        if filter_active || !aliases.is_empty() {
             let mut owned = response.clone();
             if let Some(result) = &mut owned.result {
                 if let Some(arr) = result.get_mut("content").and_then(|v| v.as_array_mut()) {
                     for item in arr.iter_mut() {
                         if item.get("type").and_then(|t| t.as_str()) == Some("text") {
                             if let Some(text) = item["text"].as_str() {
-                                item["text"] = serde_json::Value::String(filter.apply(text));
+                                let mut processed = text.to_string();
+                                // 1. Filtre confidentialité (credit card, IBAN, etc.)
+                                if filter_active {
+                                    processed = filter.apply(&processed);
+                                }
+                                // 2. Alias engine : remplace vrais noms par alias
+                                processed = apply_aliases(&processed, &aliases);
+                                item["text"] = serde_json::Value::String(processed);
                             }
                         }
                     }
@@ -1009,7 +1162,21 @@ pub async fn run(cfg: Config) -> Result<()> {
                 }
 
                 let tool_name = req.params["name"].as_str().unwrap_or("");
-                let args = &req.params["arguments"];
+
+                // ── Alias Engine (inbound) : décode les alias → vrais noms ──
+                // Appliqué une seule fois sur tous les args, couvre tous les tools
+                let args_decoded = {
+                    let mut obj = req.params["arguments"].clone();
+                    if let Some(map) = obj.as_object_mut() {
+                        for (_, v) in map.iter_mut() {
+                            if let Some(s) = v.as_str() {
+                                *v = serde_json::Value::String(reverse_aliases(s));
+                            }
+                        }
+                    }
+                    obj
+                };
+                let args = &args_decoded;
 
                 match tool_name {
                     "search_memory" => {
@@ -1066,6 +1233,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                     .unwrap_or(std::cmp::Ordering::Equal));
 
                                 let text = format_results(&query, &results, &proof_key);
+                                audit_log("search_memory", &query, results.len(), false, Some(&text));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": text}]
                                 })));
@@ -1137,8 +1305,27 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_emails: \"{}\" (limit={})", keyword, limit);
                         if !SourceAccess::load().is_allowed("email") {
+                            audit_log("search_emails", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
                             continue;
+                        }
+                        if McpPermissions::load().email {
+                            let preview = format!("🔍 Recherche emails : \"{}\" ({} résultats max)", keyword, limit);
+                            let action = osmozzz_core::ActionRequest::new(
+                                "search_emails".to_string(),
+                                serde_json::from_value(json!({"keyword": &keyword, "limit": limit})).unwrap_or_default(),
+                                preview,
+                            );
+                            let action_id = action.id.clone();
+                            if submit_action(action).await.is_err() {
+                                send(&Response::err(id, -32603, "Impossible de soumettre la demande"));
+                                continue;
+                            }
+                            if !wait_for_approval(&action_id).await {
+                                audit_log("search_emails", &keyword, 0, true, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Accès emails refusé dans le dashboard OSMOzzz."}] })));
+                                continue;
+                            }
                         }
                         match vault.search_emails_by_keyword(&keyword, limit).await {
                             Ok(results) => {
@@ -1147,6 +1334,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_email_list(&results)
                                 };
+                                audit_log("search_emails", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1162,8 +1350,28 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] get_emails_by_date: \"{}\" (limit={})", query, limit);
                         if !SourceAccess::load().is_allowed("email") {
+                            audit_log("get_emails_by_date", &query, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
                             continue;
+                        }
+                        if McpPermissions::load().email {
+                            let label = if query.is_empty() { "emails récents".to_string() } else { format!("emails du {}", query) };
+                            let preview = format!("🔍 Accès {} ({} max)", label, limit);
+                            let action = osmozzz_core::ActionRequest::new(
+                                "get_emails_by_date".to_string(),
+                                serde_json::from_value(json!({"query": &query, "limit": limit})).unwrap_or_default(),
+                                preview,
+                            );
+                            let action_id = action.id.clone();
+                            if submit_action(action).await.is_err() {
+                                send(&Response::err(id, -32603, "Impossible de soumettre la demande"));
+                                continue;
+                            }
+                            if !wait_for_approval(&action_id).await {
+                                audit_log("get_emails_by_date", &query, 0, true, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Accès emails refusé dans le dashboard OSMOzzz."}] })));
+                                continue;
+                            }
                         }
                         if query.is_empty() {
                             // Pas de query → emails récents
@@ -1216,6 +1424,8 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 continue;
                             }
                         };
+                        // Décode '[at]' → '@' (encodé dans format_email_list pour éviter le filtre confidentialité)
+                        let raw_id = raw_id.replace("[at]", "@");
                         let url = if raw_id.starts_with("gmail://") {
                             raw_id.clone()
                         } else {
@@ -1223,8 +1433,27 @@ pub async fn run(cfg: Config) -> Result<()> {
                         };
                         eprintln!("[OSMOzzz MCP] read_email: {}", url);
                         if !SourceAccess::load().is_allowed("email") {
+                            audit_log("read_email", &raw_id, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
                             continue;
+                        }
+                        if McpPermissions::load().email {
+                            let preview = format!("📧 Lecture email : {}", raw_id.trim_start_matches("gmail://message/"));
+                            let action = osmozzz_core::ActionRequest::new(
+                                "read_email".to_string(),
+                                serde_json::from_value(json!({"id": &raw_id})).unwrap_or_default(),
+                                preview,
+                            );
+                            let action_id = action.id.clone();
+                            if submit_action(action).await.is_err() {
+                                send(&Response::err(id, -32603, "Impossible de soumettre la demande"));
+                                continue;
+                            }
+                            if !wait_for_approval(&action_id).await {
+                                audit_log("read_email", &raw_id, 0, true, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Lecture email refusée dans le dashboard OSMOzzz."}] })));
+                                continue;
+                            }
                         }
                         match vault.get_full_content_by_url(&url).await {
                             Ok(Some((title, content))) => {
@@ -1285,6 +1514,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_messages: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("imessage") {
+                            audit_log("search_messages", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'iMessage' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1295,6 +1525,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("iMessages", &keyword, &results)
                                 };
+                                audit_log("search_messages", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1316,6 +1547,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_notes: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("notes") {
+                            audit_log("search_notes", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Notes' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1326,6 +1558,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Notes", &keyword, &results)
                                 };
+                                audit_log("search_notes", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1347,6 +1580,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_terminal: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("terminal") {
+                            audit_log("search_terminal", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Terminal' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1357,6 +1591,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Terminal", &keyword, &results)
                                 };
+                                audit_log("search_terminal", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1435,6 +1670,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_calendar: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("calendar") {
+                            audit_log("search_calendar", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Calendar' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1445,6 +1681,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Calendar", &keyword, &results)
                                 };
+                                audit_log("search_calendar", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1458,6 +1695,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_notion: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("notion") {
+                            audit_log("search_notion", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Notion' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1468,6 +1706,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Notion", &keyword, &results)
                                 };
+                                audit_log("search_notion", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1481,6 +1720,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_github: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("github") {
+                            audit_log("search_github", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'GitHub' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1491,6 +1731,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("GitHub", &keyword, &results)
                                 };
+                                audit_log("search_github", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1504,6 +1745,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_linear: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("linear") {
+                            audit_log("search_linear", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Linear' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1514,6 +1756,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Linear", &keyword, &results)
                                 };
+                                audit_log("search_linear", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1527,6 +1770,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
                         eprintln!("[OSMOzzz MCP] search_jira: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("jira") {
+                            audit_log("search_jira", &keyword, 0, true, None);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Jira' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1537,6 +1781,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Jira", &keyword, &results)
                                 };
+                                audit_log("search_jira", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -2007,10 +2252,32 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 proxies[idx].call_tool(other, args)
                             });
                             match result {
-                                Ok(text) => send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": text}]
-                                }))),
-                                Err(e) => send(&Response::err(id, -32603, &e)),
+                                Ok(text) => {
+                                    // Filtre de sécurité obligatoire : masque TOUJOURS les tokens/clés
+                                    // dans les réponses proxy, indépendamment de la config utilisateur.
+                                    let text = sanitize_proxy_response(&text);
+
+                                    let query = args.get("query")
+                                        .or_else(|| args.get("q"))
+                                        .or_else(|| args.get("filter"))
+                                        .or_else(|| args.get("title"))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(other);
+                                    audit_log(
+                                        &format!("{}:{}", proxy_name, other),
+                                        query,
+                                        1,
+                                        false,
+                                        Some(&text),
+                                    );
+                                    send(&Response::ok(id, json!({
+                                        "content": [{"type": "text", "text": text}]
+                                    })))
+                                },
+                                Err(e) => {
+                                    audit_log(&format!("{}:{}", proxy_name, other), other, 0, true, None);
+                                    send(&Response::err(id, -32603, &e))
+                                },
                             }
                         } else {
                             send(&Response::err(
@@ -2164,9 +2431,12 @@ fn format_email_list(results: &[(Option<String>, String, String)]) -> String {
         let (from, date) = extract_email_meta(content);
         let subject = title.as_deref().unwrap_or("(sans objet)");
         let msg_id = url.trim_start_matches("gmail://message/");
+        // Encode '@' → '[at]' pour éviter le masquage par le filtre de confidentialité.
+        // read_email décode automatiquement '[at]' → '@'.
+        let msg_id_display = msg_id.replace('@', "[at]");
         out.push_str(&format!(
             "{}. 📧 {}\n   De   : {}\n   Date : {}\n   ID   : {}\n\n",
-            i + 1, subject, from, date, msg_id
+            i + 1, subject, from, date, msg_id_display
         ));
     }
     out.push_str("→ Pour lire un email : read_email(id=\"...\")");

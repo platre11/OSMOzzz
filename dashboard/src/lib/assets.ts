@@ -53,6 +53,7 @@ import {
   Check,
   Sparkles,
   Zap,
+  EyeOff,
 } from 'lucide-react'
 
 export const icons = {
@@ -102,4 +103,5 @@ export const icons = {
   Check,
   Sparkles,
   Zap,
+  EyeOff,
 } as const

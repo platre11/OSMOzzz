@@ -366,12 +366,12 @@ export const api = {
     return r.data.data
   },
 
-  getPermissions: async (): Promise<{ jira: boolean; github: boolean; linear: boolean; notion: boolean }> => {
+  getPermissions: async (): Promise<{ jira: boolean; github: boolean; linear: boolean; notion: boolean; email: boolean }> => {
     const r = await axios.get(`${BASE}/permissions`)
-    return r.data.data ?? { jira: false, github: false, linear: false, notion: false }
+    return r.data.data ?? { jira: false, github: false, linear: false, notion: false, email: false }
   },
 
-  savePermissions: async (perms: { jira: boolean; github: boolean; linear: boolean; notion: boolean }): Promise<void> => {
+  savePermissions: async (perms: { jira: boolean; github: boolean; linear: boolean; notion: boolean; email: boolean }): Promise<void> => {
     await axios.post(`${BASE}/permissions`, perms)
   },
 
@@ -388,6 +388,24 @@ export const api = {
       notes: true, calendar: true, terminal: true, file: true,
       notion: true, github: true, linear: true, jira: true,
     }
+  },
+
+  getAudit: async (limit = 200): Promise<Array<{
+    ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string;
+  }>> => {
+    const r = await axios.get(`${BASE}/audit`, { params: { limit } })
+    return r.data.data ?? []
+  },
+
+  // ─── Alias Engine ────────────────────────────────────────────────────────────
+
+  getAliases: async (): Promise<Array<{ real: string; alias: string }>> => {
+    const r = await axios.get(`${BASE}/aliases`)
+    return r.data.data ?? []
+  },
+
+  saveAliases: async (aliases: Array<{ real: string; alias: string }>): Promise<void> => {
+    await axios.post(`${BASE}/aliases`, { aliases })
   },
 
   saveSourceAccess: async (access: {

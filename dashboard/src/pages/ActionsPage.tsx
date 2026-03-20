@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import styled, { keyframes } from 'styled-components'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api } from '../api'
 import type { ActionRequest, ActionEvent } from '../api'
 import { PrivacyPanel } from '../components/PrivacyPanel'
@@ -83,6 +83,82 @@ const ManageBtn = styled.button`
   border: 1px solid #e5e7eb; background: #fff; color: #374151; cursor: pointer;
   transition: all .15s;
   &:hover { background: #f3f4f6; border-color: #d1d5db; }
+`
+
+// ── Alias Engine ─────────────────────────────────────────────────────────────
+
+const AliasTable = styled.table`width: 100%; border-collapse: collapse;`
+const AliasTh = styled.th`
+  text-align: left; font-size: 11px; font-weight: 600; color: #9ca3af;
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 0 12px 10px; border-bottom: 1px solid #f3f4f6;
+`
+const AliasTd = styled.td`
+  padding: 9px 12px; font-size: 13px; color: #1a1d23;
+  border-bottom: 1px solid #f9fafb; vertical-align: middle;
+`
+const AliasArrow = styled(AliasTd)`color: #d1d5db; font-size: 16px; width: 32px; text-align: center;`
+const AliasMuted = styled(AliasTd)`color: #6b7280;`
+const AliasDelBtn = styled.button`
+  background: none; border: 1px solid #fca5a5; color: #ef4444;
+  border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  &:hover { background: #fef2f2; }
+`
+const AliasAddRow = styled.div`display: flex; gap: 8px; margin-top: 14px; align-items: center;`
+const AliasInput = styled.input`
+  flex: 1; border: 1px solid #e8eaed; border-radius: 8px;
+  padding: 7px 11px; font-size: 13px; color: #1a1d23; outline: none;
+  &:focus { border-color: #5b5ef4; box-shadow: 0 0 0 3px rgba(91,94,244,.08); }
+  &::placeholder { color: #9ca3af; }
+`
+const AliasAddBtn = styled.button`
+  background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
+  padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  &:hover { opacity: .88; } &:disabled { opacity: .4; cursor: default; }
+`
+const AliasSaveBtn = styled.button`
+  background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
+  padding: 8px 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+  &:hover { opacity: .88; } &:disabled { opacity: .4; cursor: default; }
+`
+
+// ── Journal ──────────────────────────────────────────────────────────────────
+
+const JournalList = styled.div`display: flex; flex-direction: column; gap: 6px;`
+
+const JournalRow = styled.div<{ $blocked: boolean }>`
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; border-radius: 10px; background: #fff;
+  border: 1px solid ${({ $blocked }) => $blocked ? '#fee2e2' : '#f3f4f6'};
+`
+
+const JournalTime = styled.span`font-size: 11px; color: #9ca3af; white-space: nowrap; min-width: 80px;`
+
+const JournalTool = styled.span`
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  padding: 2px 8px; border-radius: 5px; background: #ededff; color: #5b5ef4; white-space: nowrap;
+`
+
+const JournalQuery = styled.span`font-size: 13px; color: #374151; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`
+
+const JournalCount = styled.span<{ $blocked: boolean }>`
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  color: ${({ $blocked }) => $blocked ? '#dc2626' : '#6b7280'};
+`
+
+const JournalDataBtn = styled.button`
+  font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 5px;
+  border: 1px solid #e5e7eb; background: #f9fafb; color: #6b7280;
+  cursor: pointer; white-space: nowrap;
+  &:hover { background: #f3f4f6; color: #374151; }
+`
+
+const JournalData = styled.pre`
+  margin: 8px 0 0; padding: 10px 14px; border-radius: 8px;
+  background: #f8fafc; border: 1px solid #e8eaed;
+  font-size: 11px; color: #374151; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 300px; overflow-y: auto; font-family: 'SF Mono', monospace;
 `
 
 // ── Actions (tabs + cards) ───────────────────────────────────────────────────
@@ -197,6 +273,127 @@ const ExecResult = styled.div<{ $ok: boolean }>`
   color: ${({ $ok }) => $ok ? '#065f46' : '#991b1b'};
 `
 
+// ─── Composant entrée journal ─────────────────────────────────────────────────
+
+// Clés contenant du contenu textuel utile (toutes sources)
+const TEXT_KEYS = new Set([
+  'plain_text', 'content', 'text', 'title', 'name', 'body', 'description',
+  'summary', 'snippet', 'message', 'subject', 'label', 'value', 'display_name',
+  'url', 'html_url', 'web_url', 'created_time', 'last_edited_time',
+  'created_at', 'updated_at', 'closed_at', 'state', 'status', 'number',
+])
+
+// Clés à ignorer complètement (métadonnées techniques)
+const SKIP_KEYS = new Set([
+  'id', 'object', 'type', 'color', 'href', 'annotations', 'bold', 'italic',
+  'strikethrough', 'underline', 'code', 'created_by', 'last_edited_by',
+  'cover', 'icon', 'in_trash', 'is_archived', 'is_locked', 'public_url',
+  'archived', 'link', 'has_children', 'parent', 'user', 'workspace',
+  'node_id', 'sha', 'permissions', 'owner', 'private', 'fork', 'forks_count',
+  'stargazers_count', 'watchers_count', 'open_issues_count', 'default_branch',
+  'annotations_count', 'format',
+])
+
+// Détecte si une string ressemble à un UUID / ID technique
+function looksLikeId(s: string): boolean {
+  return /^[0-9a-f-]{32,}$/i.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s)
+}
+
+function extractTextFromJson(obj: unknown, depth = 0): string[] {
+  if (depth > 10) return []
+  const lines: string[] = []
+
+  if (typeof obj === 'string') {
+    if (obj.length > 2 && !looksLikeId(obj)) lines.push(obj)
+    return lines
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) lines.push(...extractTextFromJson(item, depth + 1))
+    return lines
+  }
+  if (obj && typeof obj === 'object') {
+    const record = obj as Record<string, unknown>
+    for (const [key, val] of Object.entries(record)) {
+      if (SKIP_KEYS.has(key)) continue
+      if (TEXT_KEYS.has(key)) {
+        if (typeof val === 'string' && val.length > 0 && !looksLikeId(val)) {
+          // Format dates ISO en lisible
+          if ((key === 'created_time' || key === 'created_at') && val.includes('T')) {
+            lines.push(`Créé : ${new Date(val).toLocaleString('fr-FR')}`)
+          } else if ((key === 'last_edited_time' || key === 'updated_at') && val.includes('T')) {
+            lines.push(`Modifié : ${new Date(val).toLocaleString('fr-FR')}`)
+          } else if (key === 'url' || key === 'html_url' || key === 'web_url') {
+            lines.push(`Lien : ${val}`)
+          } else if (key === 'state' || key === 'status') {
+            lines.push(`Statut : ${val}`)
+          } else if (key === 'number') {
+            lines.push(`N° ${val}`)
+          } else {
+            lines.push(val)
+          }
+        } else if (typeof val === 'number') {
+          if (key === 'number') lines.push(`N° ${val}`)
+        } else if (Array.isArray(val) || (val && typeof val === 'object')) {
+          lines.push(...extractTextFromJson(val, depth + 1))
+        }
+      } else {
+        lines.push(...extractTextFromJson(val, depth + 1))
+      }
+    }
+  }
+  return lines
+}
+
+function formatJournalData(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw)
+    const lines = extractTextFromJson(parsed)
+    // Déduplique et filtre les lignes vides/trop courtes
+    const seen = new Set<string>()
+    const unique = lines.filter(l => {
+      const t = l.trim()
+      if (t.length < 2 || seen.has(t)) return false
+      seen.add(t)
+      return true
+    })
+    return unique.length > 0 ? unique.join('\n') : raw
+  } catch {
+    return raw
+  }
+}
+
+function JournalEntryRow({ entry }: {
+  entry: { ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string }
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const date = new Date(entry.ts * 1000)
+  const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const day  = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
+  const toolLabel = entry.tool.replace(/^search_/, '').replace(/_/g, ' ')
+  const displayData = entry.data ? formatJournalData(entry.data) : ''
+
+  return (
+    <div>
+      <JournalRow $blocked={entry.blocked}>
+        <JournalTime>{day} {time}</JournalTime>
+        <JournalTool>{toolLabel}</JournalTool>
+        <JournalQuery title={entry.query}>{entry.query || '—'}</JournalQuery>
+        <JournalCount $blocked={entry.blocked}>
+          {entry.blocked ? '⛔ bloqué' : `${entry.results} résultat${entry.results !== 1 ? 's' : ''}`}
+        </JournalCount>
+        {entry.data && !entry.blocked && (
+          <JournalDataBtn onClick={() => setExpanded(v => !v)}>
+            {expanded ? '▲ Masquer' : '▼ Voir'}
+          </JournalDataBtn>
+        )}
+      </JournalRow>
+      {expanded && entry.data && (
+        <JournalData>{displayData}</JournalData>
+      )}
+    </div>
+  )
+}
+
 // ─── Composant carte action ───────────────────────────────────────────────────
 
 function ActionCardItem({ action, onDecision }: {
@@ -257,7 +454,7 @@ function ActionCardItem({ action, onDecision }: {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
-  const [tab, setTab] = useState<'pending' | 'history'>('pending')
+  const [tab, setTab] = useState<'pending' | 'history' | 'journal'>('pending')
   const [sseConnected, setSseConnected] = useState(false)
   const [showBlacklist, setShowBlacklist] = useState(false)
   const queryClient = useQueryClient()
@@ -272,6 +469,7 @@ export default function ActionsPage() {
   const [permGithub, setPermGithub] = useState(false)
   const [permLinear, setPermLinear] = useState(false)
   const [permJira,   setPermJira]   = useState(false)
+  const [permEmail,  setPermEmail]  = useState(false)
 
   useEffect(() => {
     if (permsData) {
@@ -279,11 +477,12 @@ export default function ActionsPage() {
       setPermGithub(permsData.github ?? false)
       setPermLinear(permsData.linear ?? false)
       setPermJira(permsData.jira ?? false)
+      setPermEmail(permsData.email ?? false)
     }
   }, [permsData])
 
   function togglePerm(
-    key: 'notion' | 'github' | 'linear' | 'jira',
+    key: 'notion' | 'github' | 'linear' | 'jira' | 'email',
     current: boolean,
     setter: (v: boolean) => void,
   ) {
@@ -294,6 +493,7 @@ export default function ActionsPage() {
       github: key === 'github' ? next : permGithub,
       linear: key === 'linear' ? next : permLinear,
       jira:   key === 'jira'   ? next : permJira,
+      email:  key === 'email'  ? next : permEmail,
     }).then(() => queryClient.invalidateQueries({ queryKey: ['permissions'] }))
   }
 
@@ -308,6 +508,32 @@ export default function ActionsPage() {
     const next = { ...sources, [key]: !sources[key] }
     setSources(next)
     api.saveSourceAccess(next).then(() => queryClient.invalidateQueries({ queryKey: ['source-access'] }))
+  }
+
+  // ── Alias Engine ────────────────────────────────────────────────────────
+  const { data: serverAliases = [] } = useQuery({ queryKey: ['aliases'], queryFn: api.getAliases })
+  const [aliases, setAliases] = useState<Array<{ real: string; alias: string }>>([])
+  const [aliasesSynced, setAliasesSynced] = useState(false)
+  const [aliasesDirty, setAliasesDirty] = useState(false)
+  const [newReal, setNewReal] = useState('')
+  const [newAlias, setNewAlias] = useState('')
+  if (!aliasesSynced && serverAliases !== undefined) {
+    setAliases(serverAliases)
+    setAliasesSynced(true)
+  }
+  const { mutate: saveAliases, isPending: savingAliases } = useMutation({
+    mutationFn: () => api.saveAliases(aliases),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aliases'] })
+      setAliasesDirty(false)
+    },
+  })
+  function addAlias() {
+    const real = newReal.trim(); const alias = newAlias.trim()
+    if (!real || !alias || aliases.some(a => a.real === real)) return
+    setAliases(prev => [...prev, { real, alias }])
+    setAliasesDirty(true)
+    setNewReal(''); setNewAlias('')
   }
 
   // ── Blacklist count ──────────────────────────────────────────────────────
@@ -348,6 +574,13 @@ export default function ActionsPage() {
     refetchInterval: false,
   })
 
+  const { data: auditEntries = [], isLoading: loadingAudit } = useQuery({
+    queryKey: ['audit'],
+    queryFn:  () => api.getAudit(200),
+    enabled:  tab === 'journal',
+    refetchInterval: tab === 'journal' ? 5_000 : false,
+  })
+
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['actions-pending'] })
     queryClient.invalidateQueries({ queryKey: ['actions-all'] })
@@ -377,6 +610,13 @@ export default function ActionsPage() {
             Par défaut, tout s'exécute automatiquement.
           </PermDesc>
         </PermHeader>
+        <PermRow>
+          <div>
+            <PermLabel>Gmail</PermLabel>
+            <PermHint>Lire et rechercher des emails</PermHint>
+          </div>
+          <Toggle $on={permEmail} onClick={() => togglePerm('email', permEmail, setPermEmail)} />
+        </PermRow>
         <PermRow>
           <div>
             <PermLabel>Notion</PermLabel>
@@ -410,6 +650,63 @@ export default function ActionsPage() {
       {/* ── 2. Pare-feu de confidentialité ─────────────────────────────────── */}
       <SectionLabel>Confidentialité</SectionLabel>
       <PrivacyPanel />
+
+      {/* ── 3. Alias d'identité ─────────────────────────────────────────────── */}
+      <SectionLabel>Alias d'identité</SectionLabel>
+      <PermSection>
+        <PermHeader>
+          <PermTitle>Pseudonymisation des données</PermTitle>
+          <PermDesc>
+            Remplace les vrais noms par des alias avant envoi à Claude. Claude travaille avec l'alias — il ne voit jamais l'identité réelle. Si Claude cherche un alias, OSMOzzz retrouve le vrai nom dans le vault.
+          </PermDesc>
+        </PermHeader>
+        <div style={{ padding: '16px 20px' }}>
+          <AliasTable>
+            <thead>
+              <tr>
+                <AliasTh>Vrai nom / identifiant</AliasTh>
+                <AliasTh style={{ width: 32 }} />
+                <AliasTh>Alias vu par Claude</AliasTh>
+                <AliasTh style={{ width: 90 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {aliases.length === 0 && (
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: '#9ca3af', fontSize: 13 }}>
+                  Aucun alias défini.
+                </td></tr>
+              )}
+              {aliases.map(({ real, alias }) => (
+                <tr key={real}>
+                  <AliasTd><strong>{real}</strong></AliasTd>
+                  <AliasArrow>→</AliasArrow>
+                  <AliasMuted>{alias}</AliasMuted>
+                  <AliasTd style={{ textAlign: 'right' }}>
+                    <AliasDelBtn onClick={() => { setAliases(prev => prev.filter(a => a.real !== real)); setAliasesDirty(true) }}>
+                      Supprimer
+                    </AliasDelBtn>
+                  </AliasTd>
+                </tr>
+              ))}
+            </tbody>
+          </AliasTable>
+          <AliasAddRow>
+            <AliasInput placeholder="Vrai nom (ex: Jean Pierre)" value={newReal}
+              onChange={e => setNewReal(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addAlias()} />
+            <span style={{ color: '#d1d5db', fontSize: 18 }}>→</span>
+            <AliasInput placeholder="Alias (ex: Matisse Mouseu)" value={newAlias}
+              onChange={e => setNewAlias(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addAlias()} />
+            <AliasAddBtn onClick={addAlias} disabled={!newReal.trim() || !newAlias.trim()}>Ajouter</AliasAddBtn>
+          </AliasAddRow>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+            <AliasSaveBtn onClick={() => saveAliases()} disabled={savingAliases || !aliasesDirty}>
+              {savingAliases ? 'Enregistrement…' : 'Enregistrer'}
+            </AliasSaveBtn>
+          </div>
+        </div>
+      </PermSection>
 
       {/* ── 3. Sources accessibles à Claude ────────────────────────────────── */}
       <SectionLabel>Sources accessibles à Claude</SectionLabel>
@@ -477,6 +774,9 @@ export default function ActionsPage() {
             <Tab $active={tab === 'history'} onClick={() => setTab('history')}>
               Historique
             </Tab>
+            <Tab $active={tab === 'journal'} onClick={() => setTab('journal')}>
+              Journal d'accès
+            </Tab>
           </TabRow>
         </ActionsHeader>
 
@@ -508,6 +808,20 @@ export default function ActionsPage() {
                 <ActionCardItem key={action.id} action={action} onDecision={invalidate} />
               ))}
             </CardList>
+          </>
+        )}
+
+        {tab === 'journal' && (
+          <>
+            {loadingAudit && <Loader />}
+            {!loadingAudit && auditEntries.length === 0 && (
+              <EmptyMsg>Aucune activité enregistrée.<br />Le journal se remplit dès que Claude utilise un tool OSMOzzz.</EmptyMsg>
+            )}
+            <JournalList>
+              {auditEntries.map((entry, i) => (
+                <JournalEntryRow key={i} entry={entry} />
+              ))}
+            </JournalList>
           </>
         )}
       </ActionsBlock>
