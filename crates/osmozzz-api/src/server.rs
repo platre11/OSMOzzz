@@ -51,6 +51,7 @@ pub async fn start_server(
         .route("/config/gitlab",    post(routes::post_config_gitlab))
         .route("/config/airtable",  post(routes::post_config_airtable))
         .route("/config/obsidian",  post(routes::post_config_obsidian))
+        .route("/config/supabase",  post(routes::post_config_supabase))
         .route("/open", get(routes::get_open))
         .route("/messages/contacts", get(routes::get_imessage_contacts))
         .route("/messages/conversation", get(routes::get_imessage_conversation))

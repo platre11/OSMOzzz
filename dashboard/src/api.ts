@@ -62,6 +62,7 @@ export interface ConfigData {
   gitlab:   ConnectorStatus
   airtable: ConnectorStatus
   obsidian: ConnectorStatus
+  supabase: ConnectorStatus
 }
 
 export interface ContactItem {
@@ -212,6 +213,10 @@ export const api = {
 
   saveObsidian: async (vault_path: string) => {
     await axios.post(`${BASE}/config/obsidian`, { vault_path })
+  },
+
+  saveSupabase: async (access_token: string, project_id?: string) => {
+    await axios.post(`${BASE}/config/supabase`, { access_token, project_id })
   },
 
   open: async (url: string): Promise<void> => {

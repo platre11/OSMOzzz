@@ -379,7 +379,8 @@ pub struct ConfigResponse {
     pub todoist: ConnectorStatus,
     pub gitlab: ConnectorStatus,
     pub airtable: ConnectorStatus,
-    pub obsidian: ConnectorStatus,
+    pub obsidian:  ConnectorStatus,
+    pub supabase:  ConnectorStatus,
 }
 
 fn osmozzz_dir() -> Option<std::path::PathBuf> {
@@ -424,6 +425,7 @@ pub async fn get_config() -> impl IntoResponse {
         gitlab:   connector_status("gitlab.toml",   "base_url"),
         airtable: connector_status("airtable.toml", "bases"),
         obsidian: connector_status("obsidian.toml", "vault_path"),
+        supabase: connector_status("supabase.toml", "project_id"),
     })
 }
 
@@ -658,6 +660,27 @@ pub async fn post_config_obsidian(Json(body): Json<ObsidianConfigBody>) -> impl 
     let content = format!("vault_path = \"{}\"\n", esc(&body.vault_path));
     match write_config("obsidian.toml", &content) {
         Ok(_)  => ApiResponse::ok("Obsidian configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/supabase ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SupabaseConfigBody {
+    pub access_token: String,
+    pub project_id:   Option<String>,
+}
+
+pub async fn post_config_supabase(Json(body): Json<SupabaseConfigBody>) -> impl IntoResponse {
+    let mut content = format!("access_token = \"{}\"\n", esc(&body.access_token));
+    if let Some(ref pid) = body.project_id {
+        if !pid.is_empty() {
+            content.push_str(&format!("project_id = \"{}\"\n", esc(pid)));
+        }
+    }
+    match write_config("supabase.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Supabase configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
 }

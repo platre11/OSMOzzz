@@ -9,6 +9,7 @@ pub mod jira;
 pub mod linear;
 pub mod notion;
 pub mod slack;
+pub mod supabase;
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -245,6 +246,9 @@ pub fn start_all_proxies() -> Vec<McpSubprocess> {
         proxies.push(p);
     }
     if let Some(p) = linear::start() {
+        proxies.push(p);
+    }
+    if let Some(p) = supabase::start() {
         proxies.push(p);
     }
 

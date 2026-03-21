@@ -316,6 +316,19 @@ export default function ConfigPage() {
     },
   })
 
+  // ── Supabase ──────────────────────────────────────────────────────────────
+  const [sbToken,     setSbToken]     = useState('')
+  const [sbProjectId, setSbProjectId] = useState('')
+  const [sbOk,        setSbOk]        = useState(false)
+  const sbMut = useMutation({
+    mutationFn: () => api.saveSupabase(sbToken, sbProjectId || undefined),
+    onSuccess: () => {
+      setSbOk(true); setSbToken('')
+      qc.invalidateQueries({ queryKey: ['config'] })
+      setTimeout(() => setSbOk(false), 4000)
+    },
+  })
+
   // ── Slack, Trello, GitLab, Airtable, Obsidian, Todoist ───────────────────
   // Cards désactivées dans l'UI — pour réactiver : rajouter les useState/useMutation ici
   // et décommenter le JSX correspondant plus bas dans le return
@@ -667,6 +680,59 @@ export default function ConfigPage() {
         </CardBody>
       </Card>
       ── fin Obsidian ───────────────────────────────────────────────────────── */}
+
+      {/* ── Bases de données ──────────────────────────────────────────────── */}
+      <SectionTitle>Bases de données</SectionTitle>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Supabase</CardTitle>
+          <StatusPill $ok={config?.supabase?.configured}>
+            {config?.supabase?.configured
+              ? `✓ ${config.supabase.display ?? 'Configuré'}`
+              : 'Non configuré'}
+          </StatusPill>
+        </CardHeader>
+        <CardBody>
+          <FieldGroup>
+            <FieldRow>
+              <FieldLabel>Access Token</FieldLabel>
+              <ExternalLink href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noreferrer">
+                Générer ↗
+              </ExternalLink>
+            </FieldRow>
+            <Input
+              type="password"
+              value={sbToken}
+              onChange={e => setSbToken(e.target.value)}
+              placeholder="sbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            />
+          </FieldGroup>
+          <FieldGroup>
+            <FieldRow>
+              <FieldLabel>Project ID <span style={{ color: '#9ca3af', fontWeight: 400 }}>(optionnel)</span></FieldLabel>
+              <FieldHint>limite les tools à un seul projet</FieldHint>
+            </FieldRow>
+            <Input
+              type="text"
+              value={sbProjectId}
+              onChange={e => setSbProjectId(e.target.value)}
+              placeholder="abcdefghijklmnop"
+            />
+          </FieldGroup>
+          {sbOk && (
+            <SuccessBanner>
+              <icons.CheckCircle2 size={15} />
+              Supabase configuré ! Redémarre Claude Desktop pour activer les tools.
+            </SuccessBanner>
+          )}
+          {sbMut.isError && <ErrorBanner>Erreur : {String(sbMut.error)}</ErrorBanner>}
+          <SaveButton onClick={() => sbMut.mutate()} disabled={!sbToken || sbMut.isPending}>
+            <icons.Save size={14} />
+            {sbMut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+          </SaveButton>
+        </CardBody>
+      </Card>
 
       {/* ── Démarrage automatique ─────────────────────────────────────────── */}
       <InfoBox>

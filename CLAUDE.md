@@ -649,6 +649,32 @@ export ORT_DYLIB_PATH=$(brew --prefix onnxruntime)/lib/libonnxruntime.dylib
 ./scripts/download-model.sh   # télécharge ~90MB
 ```
 
+### Release publique (GitHub Actions) — NE JAMAIS modifier le workflow existant
+
+**Fichier** : `.github/workflows/release.yml`
+
+Le workflow se déclenche sur un tag `v*`. Il fait tout dans l'ordre :
+1. `brew install onnxruntime protobuf`
+2. Télécharge les modèles ONNX depuis HuggingFace directement (pas de script)
+3. `npm ci && npm run build` (dashboard)
+4. `touch crates/osmozzz-api/src/server.rs` + `cargo build --release -p osmozzz-cli`
+5. Construit le payload `.pkg` à la main (`pkg-root/`) avec `pkgbuild`
+6. Publie `osmozzz.pkg` sur GitHub Releases via `softprops/action-gh-release@v2`
+
+**Pour publier une release :**
+```bash
+git tag v1.2.3
+git push --tags
+```
+
+**Règles strictes :**
+- NE PAS créer de `scripts/release.sh` — le build PKG est inline dans le workflow
+- NE PAS modifier la structure `pkg-root/` — elle correspond au `postinstall`
+- `ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib` — chemin fixe sur les runners GitHub macOS
+- Le `.pkg` s'installe dans `/usr/local/bin/osmozzz` + `/usr/local/lib/libonnxruntime.dylib` + `/Library/OSMOzzz/models/`
+
+---
+
 ### Build rapide (développement) — TOUJOURS utiliser
 
 ```bash
