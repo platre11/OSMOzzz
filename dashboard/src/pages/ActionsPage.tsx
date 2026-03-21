@@ -35,11 +35,6 @@ const PermTitle = styled.h2`font-size: 14px; font-weight: 600; color: #1a1d23; m
 
 const PermDesc = styled.p`font-size: 12px; color: #6b7280; margin: 4px 0 0; line-height: 1.5;`
 
-const PermRow = styled.div`
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px; border-bottom: 1px solid #f9fafb;
-  &:last-child { border-bottom: none; }
-`
 
 const PermLabel = styled.span`font-size: 13px; font-weight: 500; color: #1a1d23;`
 
@@ -55,6 +50,24 @@ const Toggle = styled.button<{ $on: boolean }>`
     left: ${({ $on }) => $on ? '21px' : '3px'}; transition: left .2s;
     box-shadow: 0 1px 3px rgba(0,0,0,.2);
   }
+`
+
+// ── Tableau sources unifié ───────────────────────────────────────────────────
+
+const SourceTable = styled.table`width: 100%; border-collapse: collapse;`
+
+const SourceTh = styled.th<{ $center?: boolean }>`
+  text-align: ${({ $center }) => $center ? 'center' : 'left'};
+  font-size: 11px; font-weight: 600; color: #9ca3af;
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 0 20px 12px; border-bottom: 1px solid #f3f4f6;
+`
+
+const SourceTd = styled.td<{ $center?: boolean }>`
+  padding: 12px 20px; border-bottom: 1px solid #f9fafb;
+  text-align: ${({ $center }) => $center ? 'center' : 'left'};
+  vertical-align: middle;
+  &:last-child { border-bottom: none; }
 `
 
 // ── Liste noire ──────────────────────────────────────────────────────────────
@@ -600,51 +613,59 @@ export default function ActionsPage() {
         </SseStatus>
       </div>
 
-      {/* ── 1. Autorisations MCP ───────────────────────────────────────────── */}
-      <SectionLabel>Autorisations</SectionLabel>
+      {/* ── 1. Tableau sources unifié ──────────────────────────────────────── */}
+      <SectionLabel>Contrôle des sources</SectionLabel>
       <PermSection>
         <PermHeader>
-          <PermTitle>Validation manuelle par outil</PermTitle>
+          <PermTitle>Accès et validation par source</PermTitle>
           <PermDesc>
-            Activez le contrôle manuel pour les outils où vous voulez approuver chaque action avant exécution.
-            Par défaut, tout s'exécute automatiquement.
+            Contrôlez quelles sources sont accessibles à Claude et lesquelles nécessitent une validation manuelle avant exécution.
           </PermDesc>
         </PermHeader>
-        <PermRow>
-          <div>
-            <PermLabel>Gmail</PermLabel>
-            <PermHint>Lire et rechercher des emails</PermHint>
-          </div>
-          <Toggle $on={permEmail} onClick={() => togglePerm('email', permEmail, setPermEmail)} />
-        </PermRow>
-        <PermRow>
-          <div>
-            <PermLabel>Notion</PermLabel>
-            <PermHint>Créer / modifier des pages</PermHint>
-          </div>
-          <Toggle $on={permNotion} onClick={() => togglePerm('notion', permNotion, setPermNotion)} />
-        </PermRow>
-        <PermRow>
-          <div>
-            <PermLabel>GitHub</PermLabel>
-            <PermHint>Créer des issues, pull requests…</PermHint>
-          </div>
-          <Toggle $on={permGithub} onClick={() => togglePerm('github', permGithub, setPermGithub)} />
-        </PermRow>
-        <PermRow>
-          <div>
-            <PermLabel>Linear</PermLabel>
-            <PermHint>Créer / mettre à jour des issues</PermHint>
-          </div>
-          <Toggle $on={permLinear} onClick={() => togglePerm('linear', permLinear, setPermLinear)} />
-        </PermRow>
-        <PermRow>
-          <div>
-            <PermLabel>Jira</PermLabel>
-            <PermHint>Créer des tickets, changer les statuts…</PermHint>
-          </div>
-          <Toggle $on={permJira} onClick={() => togglePerm('jira', permJira, setPermJira)} />
-        </PermRow>
+        <div style={{ padding: '8px 0' }}>
+          <SourceTable>
+            <thead>
+              <tr>
+                <SourceTh>Source</SourceTh>
+                <SourceTh $center>Accès Claude</SourceTh>
+                <SourceTh $center>Validation manuelle</SourceTh>
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                { key: 'email',    label: 'Gmail',      hint: 'Emails IMAP indexés',       perm: 'email'  },
+                { key: 'imessage', label: 'iMessage',   hint: 'SMS et iMessages',           perm: null     },
+                { key: 'chrome',   label: 'Chrome',     hint: 'Historique de navigation',   perm: null     },
+                { key: 'safari',   label: 'Safari',     hint: 'Historique de navigation',   perm: null     },
+                { key: 'notes',    label: 'Notes',      hint: 'Apple Notes',                perm: null     },
+                { key: 'calendar', label: 'Calendrier', hint: 'Apple Calendar',             perm: null     },
+                { key: 'terminal', label: 'Terminal',   hint: 'Historique zsh',             perm: null     },
+                { key: 'file',     label: 'Fichiers',   hint: 'Desktop & Documents',        perm: null     },
+                { key: 'notion',   label: 'Notion',     hint: 'Pages indexées',             perm: 'notion' },
+                { key: 'github',   label: 'GitHub',     hint: 'Issues & PRs indexées',      perm: 'github' },
+                { key: 'linear',   label: 'Linear',     hint: 'Issues indexées',            perm: 'linear' },
+                { key: 'jira',     label: 'Jira',       hint: 'Tickets indexés',            perm: 'jira'   },
+              ] as { key: SourceKey; label: string; hint: string; perm: 'email'|'notion'|'github'|'linear'|'jira'|null }[]).map(({ key, label, hint, perm }) => (
+                <tr key={key}>
+                  <SourceTd>
+                    <PermLabel>{label}</PermLabel>
+                    <PermHint>{hint}</PermHint>
+                  </SourceTd>
+                  <SourceTd $center>
+                    <Toggle $on={sources[key]} onClick={() => toggleSource(key)} />
+                  </SourceTd>
+                  <SourceTd $center>
+                    {perm === 'email'  && <Toggle $on={permEmail}  onClick={() => togglePerm('email',  permEmail,  setPermEmail)}  />}
+                    {perm === 'notion' && <Toggle $on={permNotion} onClick={() => togglePerm('notion', permNotion, setPermNotion)} />}
+                    {perm === 'github' && <Toggle $on={permGithub} onClick={() => togglePerm('github', permGithub, setPermGithub)} />}
+                    {perm === 'linear' && <Toggle $on={permLinear} onClick={() => togglePerm('linear', permLinear, setPermLinear)} />}
+                    {perm === 'jira'   && <Toggle $on={permJira}   onClick={() => togglePerm('jira',   permJira,   setPermJira)}   />}
+                  </SourceTd>
+                </tr>
+              ))}
+            </tbody>
+          </SourceTable>
+        </div>
       </PermSection>
 
       {/* ── 2. Pare-feu de confidentialité ─────────────────────────────────── */}
@@ -708,38 +729,6 @@ export default function ActionsPage() {
         </div>
       </PermSection>
 
-      {/* ── 3. Sources accessibles à Claude ────────────────────────────────── */}
-      <SectionLabel>Sources accessibles à Claude</SectionLabel>
-      <PermSection>
-        <PermHeader>
-          <PermTitle>Contrôle d'accès par source</PermTitle>
-          <PermDesc>
-            Les sources désactivées sont invisibles pour Claude — ni dans search_memory ni dans les tools dédiés. Par défaut tout est accessible.
-          </PermDesc>
-        </PermHeader>
-        {([
-          { key: 'email',    label: 'Gmail',     hint: 'Emails IMAP indexés' },
-          { key: 'imessage', label: 'iMessage',  hint: 'SMS et iMessages' },
-          { key: 'chrome',   label: 'Chrome',    hint: 'Historique de navigation' },
-          { key: 'safari',   label: 'Safari',    hint: 'Historique de navigation' },
-          { key: 'notes',    label: 'Notes',     hint: 'Apple Notes' },
-          { key: 'calendar', label: 'Calendrier',hint: 'Apple Calendar' },
-          { key: 'terminal', label: 'Terminal',  hint: 'Historique zsh' },
-          { key: 'file',     label: 'Fichiers',  hint: 'Desktop & Documents' },
-          { key: 'notion',   label: 'Notion',    hint: 'Pages indexées' },
-          { key: 'github',   label: 'GitHub',    hint: 'Issues & PRs indexées' },
-          { key: 'linear',   label: 'Linear',    hint: 'Issues indexées' },
-          { key: 'jira',     label: 'Jira',      hint: 'Tickets indexés' },
-        ] as { key: SourceKey; label: string; hint: string }[]).map(({ key, label, hint }) => (
-          <PermRow key={key}>
-            <div>
-              <PermLabel>{label}</PermLabel>
-              <PermHint>{hint}</PermHint>
-            </div>
-            <Toggle $on={sources[key]} onClick={() => toggleSource(key)} />
-          </PermRow>
-        ))}
-      </PermSection>
 
       {/* ── 5. Liste noire ─────────────────────────────────────────────────── */}
       <SectionLabel>Liste noire</SectionLabel>

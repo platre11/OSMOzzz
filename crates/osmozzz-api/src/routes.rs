@@ -1745,3 +1745,4 @@ fn truncate(s: &str, max: usize) -> String {
     while !s.is_char_boundary(end) { end -= 1; }
     format!("{}...", &s[..end])
 }
+
