@@ -98,7 +98,9 @@ jobs:
             --wait
 
       - name: Staple PKG
-        run: xcrun stapler staple osmozzz.pkg
+        run: |
+          sleep 30
+          xcrun stapler staple osmozzz.pkg
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
