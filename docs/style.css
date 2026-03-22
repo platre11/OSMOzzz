@@ -238,32 +238,26 @@ h2 {
 
 /* ── VISION ──────────────────────────────────────────────────────────────── */
 
-.vision-grid {
+.vision-intro { margin-bottom: 48px; max-width: 680px; }
+.vision-intro h2 { margin-bottom: 16px; }
+.vision-lead { font-size: 16px; color: var(--muted); line-height: 1.8; }
+
+.vision-features {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 64px;
-  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
 }
 
-.vision-text h2 { margin-bottom: 20px; }
-.vision-text p { font-size: 16px; color: var(--muted); line-height: 1.8; margin-bottom: 14px; }
-
-.vision-values { display: flex; flex-direction: column; gap: 28px; }
-
-.vision-value {
+.vision-feat {
   display: flex; gap: 16px; align-items: flex-start;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px;
 }
 
-.vision-value-icon {
-  font-size: 20px; flex-shrink: 0; margin-top: 2px;
-}
+.vision-feat-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
 
-.vision-value h3 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-.vision-value p  { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0; }
-
-@media (max-width: 640px) {
-  .vision-grid { grid-template-columns: 1fr; gap: 40px; }
-}
+.vision-feat h3 { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+.vision-feat p  { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0; }
 
 /* ── COMPARISON ──────────────────────────────────────────────────────────── */
 

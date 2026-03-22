@@ -2,16 +2,16 @@
 
 ## Vision
 
-OSMOzzz est une source de données centrale, locale et privée, conçue pour collaborer avec Claude Code via MCP.
+OSMOzzz est une source de données centrale, locale et privée, conçue pour collaborer avec tout client IA compatible MCP.
 
 L'objectif : rester maître de ses données. Que ce soit pour **rechercher des informations** dans ses outils externes (emails, fichiers, notes, Notion, Slack, GitHub…) ou pour **déclencher des actions** (envoyer un message, créer une tâche, modifier un fichier), tout passe par OSMOzzz — sans jamais transmettre de données sensibles à l'extérieur.
 
-Claude Code interroge OSMOzzz via ses tools MCP. OSMOzzz fait tout le travail de recherche, de filtrage et d'exécution. Claude ne voit que des résultats déjà triés et approuvés par l'utilisateur.
+Le client IA interroge OSMOzzz via ses tools MCP. OSMOzzz fait tout le travail de recherche, de filtrage et d'exécution. L'IA ne voit que des résultats déjà triés et approuvés par l'utilisateur.
 
 ## Stack technique
 
 - **Rust 2021** · LanceDB 0.14 · ONNX Runtime (ort 2.0.0-rc.11, load-dynamic) · all-MiniLM-L6-v2 (384d)
-- **Transport MCP** : stdin/stdout JSON-RPC 2.0 (Claude Desktop)
+- **Transport MCP** : stdin/stdout JSON-RPC 2.0 (tout client IA compatible MCP)
 - **DB** : `~/.osmozzz/vault/` (LanceDB parquet) · Socket UDS legacy : `~/.osmozzz/osmozzz.sock`
 - **Dashboard** : React 18 + TypeScript + Vite (embarqué dans le binaire via `include_dir!`)
 - **REST API** : Axum sur `127.0.0.1:7878`
@@ -247,11 +247,11 @@ embedding    Vec<f32>     384 dimensions, L2 normalisé
 
 ## Sécurité & Confidentialité
 
-OSMOzzz expose quatre mécanismes de contrôle des données envoyées à Claude.
+OSMOzzz expose quatre mécanismes de contrôle des données envoyées au client IA.
 
 ### 1. Filtre de confidentialité (`~/.osmozzz/privacy.toml`)
 
-Masque automatiquement des patterns sensibles **dans tous les résultats** avant envoi à Claude.
+Masque automatiquement des patterns sensibles **dans tous les résultats** avant envoi au client IA.
 
 ```toml
 credit_card = true   # masque les numéros CB
@@ -265,9 +265,9 @@ Géré via `GET/POST /api/privacy`. S'applique aussi avant tout envoi P2P vers u
 
 ### 2. Alias d'identité / Pseudonymisation (`~/.osmozzz/aliases.toml`)
 
-Remplace les vrais noms par des alias **avant** que Claude ne reçoive les données.
-Claude travaille uniquement avec l'alias — il ne voit jamais l'identité réelle.
-Si Claude cherche un alias dans un tool MCP, OSMOzzz résout l'alias vers le vrai nom dans le vault.
+Remplace les vrais noms par des alias **avant** que le client IA ne reçoive les données.
+Le client IA travaille uniquement avec l'alias — il ne voit jamais l'identité réelle.
+Si le client IA cherche un alias dans un tool MCP, OSMOzzz résout l'alias vers le vrai nom dans le vault.
 
 ```toml
 # ~/.osmozzz/aliases.toml
@@ -279,7 +279,7 @@ Géré via `GET/POST /api/aliases` et la section **Alias d'identité** du dashbo
 
 ### 3. Liste noire / Blacklist (`~/.osmozzz/blacklist.toml`)
 
-Exclut des documents ou des sources entières des résultats envoyés à Claude.
+Exclut des documents ou des sources entières des résultats envoyés au client IA.
 
 ```toml
 [urls]        # URLs de documents spécifiques
@@ -455,9 +455,9 @@ osmozzz search  QUERY [--source FILTER] [--limit N] [--format text|json]
 osmozzz status                          # counts par source
 osmozzz compact                         # merge LanceDB fragments
 osmozzz daemon                          # serveur HTTP + watcher + auto-sync
-osmozzz mcp                             # serveur MCP stdin/stdout (Claude Desktop)
+osmozzz mcp                             # serveur MCP stdin/stdout (tout client IA compatible MCP)
 osmozzz serve   [--socket PATH]         # UDS bridge legacy
-osmozzz install                         # copie modèles ONNX + config Claude Desktop
+osmozzz install                         # copie modèles ONNX + config client MCP
 osmozzz verify  --sig S --source S --url U --content C --ts T  # Proof of Context
 ```
 
@@ -614,7 +614,7 @@ Interface React embarquée dans le binaire (`include_dir!` macro dans `server.rs
 ## Variables d'environnement
 
 ```bash
-# OBLIGATOIRE pour osmozzz mcp (Claude Desktop doit l'avoir)
+# OBLIGATOIRE pour osmozzz mcp (le client IA doit l'avoir dans son env)
 ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib
 
 # Optionnel (fallback sur gmail.toml)
@@ -622,7 +622,7 @@ OSMOZZZ_GMAIL_USER="user@gmail.com"
 OSMOZZZ_GMAIL_PASSWORD="app password"
 ```
 
-**Configuration Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`) :
+**Exemple de configuration (Claude Desktop)** (`~/Library/Application Support/Claude/claude_desktop_config.json`) :
 ```json
 {
   "mcpServers": {
@@ -712,7 +712,7 @@ osmozzz daemon
 config.toml          ← config CLI/daemon (optionnel)
 privacy.toml         ← filtres confidentialité (credit_card, iban, api_keys...)
 blacklist.toml       ← documents bannis par URL/source/identifiant
-aliases.toml         ← pseudonymisation (vrai nom → alias vu par Claude)
+aliases.toml         ← pseudonymisation (vrai nom → alias vu par le client IA)
 audit.jsonl          ← journal d'accès MCP (tool, query, results, blocked) append-only
 identity.toml        ← identité P2P Ed25519 (auto-créé)
 peers.toml           ← peers P2P connus + permissions
@@ -736,13 +736,15 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 
 ## Règles globales
 
+0. **INTERDIT : commandes git sans demande explicite** — ne jamais exécuter `git add`, `git commit`, `git push`, `git reset`, ni aucune commande git destructive ou de publication sans que l'utilisateur le demande explicitement. Modifier des fichiers est autorisé, les commiter/pousser ne l'est JAMAIS de façon autonome.
+
 1. **Jamais de données hors du Mac** — tout est local, les peers P2P ne reçoivent que des résultats filtrés
 2. **Philosophie "moins c'est plus"** — pas de sur-ingénierie
 3. **Build toujours dans l'ordre** : `npm run build` → `touch server.rs` → `cargo install`
 4. **Pas de breaking changes** sur le schéma LanceDB sans migration
 5. **Un sous-agent par domaine** — ne pas mélanger les responsabilités
 6. **Configuration utilisateur** : uniquement via le dashboard, jamais via toml manuels
-7. **ORT_DYLIB_PATH** : toujours injecter dans les configs Claude Desktop/Code (load-dynamic)
+7. **ORT_DYLIB_PATH** : toujours injecter dans les configs du client IA (load-dynamic)
 8. **Privacy filter** : s'applique TOUJOURS avant envoi à un peer P2P
 9. **Permissions P2P** : rechargées à chaque requête (révocables instantanément)
 10. **Audit** : historique append-only, jamais modifié
@@ -769,7 +771,7 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 | Agent | CLAUDE.md | Domaine |
 |-------|-----------|---------|
 | Harvester Agent | `crates/osmozzz-harvester/CLAUDE.md` | Nouvelles sources de données |
-| MCP Tools Agent | `crates/osmozzz-cli/CLAUDE.md` | Interface Claude (tools MCP) |
+| MCP Tools Agent | `crates/osmozzz-cli/CLAUDE.md` | Interface IA (tools MCP) |
 | Storage Agent | `crates/osmozzz-embedder/CLAUDE.md` | LanceDB, recherche, embeddings |
 
 ---
@@ -783,7 +785,7 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 - REST API complète (Axum) avec toutes routes
 - Daemon auto-sync par source avec intervals dédiés
 - Blacklist / ban documents & sources (URL, expéditeur, domaine, chemin)
-- Alias d'identité / pseudonymisation (vrai nom → alias vu par Claude)
+- Alias d'identité / pseudonymisation (vrai nom → alias vu par le client IA)
 - Journal d'accès MCP (audit.jsonl, onglet "Journal d'accès" dashboard)
 - Compact LanceDB
 - Système d'actions avec workflow approbation (ActionQueue + Executor)

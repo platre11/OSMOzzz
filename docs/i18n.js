@@ -23,15 +23,23 @@ window.I18N = {
     'sources.cloud.label': 'Cloud',
 
     // ── Vision ─────────────────────────────────────────────────────────────────
-    'vision.title': 'AI should work for you, not around you.',
-    'vision.1':     'AI is powerful. But connecting it directly to your tools means handing over your data with no filter, no control, no trace.',
-    'vision.2':     'OSMOzzz is the layer that sits between your AI and your world — so you stay in control of what it sees and what it does.',
-    'vision.v1.title': 'Control',
-    'vision.v1.desc':  'You decide what your AI can access, what gets filtered, and what requires your approval.',
-    'vision.v2.title': 'Transparency',
-    'vision.v2.desc':  'Every MCP call is logged. Every result is signed. Nothing happens without a trace.',
-    'vision.v3.title': 'Open source',
-    'vision.v3.desc':  'The code is public. Verify it, fork it, run it yourself.',
+    'vision.title': 'What is OSMOzzz?',
+    'vision.lead':  'OSMOzzz is a local MCP server that connects your AI to your data — emails, files, messages, notes, calendar, and cloud tools. It acts as a privacy layer between your AI and your world: you stay in control of what it sees and what it does.',
+
+    'vision.f1.title': 'Sensitive data filtering',
+    'vision.f1.desc':  'Configure automatic redaction of credit card numbers, IBANs, API keys, or phone numbers before anything reaches your AI.',
+
+    'vision.f2.title': 'Identity aliases',
+    'vision.f2.desc':  'Replace real names and email addresses with aliases. Your AI works with pseudonyms — it never sees your actual contacts unless you allow it.',
+
+    'vision.f3.title': 'Blacklist',
+    'vision.f3.desc':  'Exclude specific documents, senders, domains, or file paths from your AI\'s reach. Blocked at indexing time, not just at search time.',
+
+    'vision.f4.title': 'Action approval',
+    'vision.f4.desc':  'When your AI wants to send a message, create a task, or modify a file — you approve or reject each action before it runs.',
+
+    'vision.f5.title': 'Audit log',
+    'vision.f5.desc':  'Every MCP call is logged locally: which tool, which query, how many results, blocked or not. Nothing happens without a trace.',
 
     // ── Comparison ─────────────────────────────────────────────────────────────
     'compare.title': 'AI alone vs AI + OSMOzzz',
@@ -81,15 +89,23 @@ window.I18N = {
     'sources.cloud.label': 'Cloud',
 
     // ── Vision ─────────────────────────────────────────────────────────────────
-    'vision.title': 'L\'IA devrait travailler pour vous, pas autour de vous.',
-    'vision.1':     'L\'IA est puissante. Mais la connecter directement à vos outils signifie lui confier vos données sans filtre, sans contrôle, sans trace.',
-    'vision.2':     'OSMOzzz est la couche qui s\'interpose entre votre IA et votre monde — pour que vous gardiez le contrôle sur ce qu\'elle voit et ce qu\'elle fait.',
-    'vision.v1.title': 'Contrôle',
-    'vision.v1.desc':  'Vous décidez ce à quoi votre IA peut accéder, ce qui est filtré, et ce qui nécessite votre accord.',
-    'vision.v2.title': 'Transparence',
-    'vision.v2.desc':  'Chaque appel MCP est journalisé. Chaque résultat est signé. Rien ne se passe sans trace.',
-    'vision.v3.title': 'Open source',
-    'vision.v3.desc':  'Le code est public. Vérifiez-le, forkez-le, faites-le tourner vous-même.',
+    'vision.title': 'C\'est quoi OSMOzzz ?',
+    'vision.lead':  'OSMOzzz est un serveur MCP local qui connecte votre IA à vos données — emails, fichiers, messages, notes, agenda, et outils cloud. Il agit comme une couche de confidentialité entre votre IA et votre monde : vous gardez le contrôle sur ce qu\'elle voit et ce qu\'elle fait.',
+
+    'vision.f1.title': 'Filtrage des données sensibles',
+    'vision.f1.desc':  'Configurez le masquage automatique des numéros de CB, IBAN, clés API ou numéros de téléphone avant qu\'ils n\'atteignent votre IA.',
+
+    'vision.f2.title': 'Alias d\'identité',
+    'vision.f2.desc':  'Remplacez les vrais noms et adresses email par des alias. Votre IA travaille avec des pseudonymes — elle ne voit jamais vos vrais contacts, sauf si vous l\'autorisez.',
+
+    'vision.f3.title': 'Liste noire',
+    'vision.f3.desc':  'Excluez des documents, expéditeurs, domaines ou chemins de fichiers de la portée de votre IA. Bloqués à l\'indexation, pas seulement à la recherche.',
+
+    'vision.f4.title': 'Approbation des actions',
+    'vision.f4.desc':  'Quand votre IA veut envoyer un message, créer une tâche ou modifier un fichier — vous approuvez ou rejetez chaque action avant qu\'elle ne s\'exécute.',
+
+    'vision.f5.title': 'Journal d\'accès',
+    'vision.f5.desc':  'Chaque appel MCP est journalisé localement : quel outil, quelle requête, combien de résultats, bloqué ou non. Rien ne se passe sans trace.',
 
     // ── Comparison ─────────────────────────────────────────────────────────────
     'compare.title': 'IA seule vs IA + OSMOzzz',
