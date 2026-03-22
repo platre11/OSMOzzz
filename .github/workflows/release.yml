@@ -59,6 +59,14 @@ jobs:
           chmod +x pkg-root/usr/local/bin/osmozzz
           chmod +x scripts/pkg/postinstall
 
+          # ── Signer le binaire avec hardened runtime ───────────────────────
+          codesign --force --options runtime \
+            --sign "${{ secrets.APPLE_SIGN_IDENTITY }}" \
+            pkg-root/usr/local/bin/osmozzz
+          codesign --force --options runtime \
+            --sign "${{ secrets.APPLE_SIGN_IDENTITY }}" \
+            pkg-root/usr/local/lib/libonnxruntime.dylib
+
           # ── Construire le .pkg ────────────────────────────────────────────
           pkgbuild \
             --root pkg-root \
