@@ -70,7 +70,15 @@ jobs:
 
       - name: Import signing certificate
         run: |
-          # Exporte le certificat Developer ID Installer depuis le keychain CI
+          echo "${{ secrets.APPLE_CERTIFICATE_P12 }}" | base64 --decode > certificate.p12
+          security create-keychain -p "temp-keychain" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "temp-keychain" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "temp-keychain" build.keychain
           xcrun notarytool store-credentials "osmozzz-notary" \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
