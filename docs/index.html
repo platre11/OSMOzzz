@@ -10,6 +10,30 @@
   <meta property="og:type" content="website" />
   <meta name="google-site-verification" content="b13JpwnXSf-z5nDHLwr4QVjPhDAcpXxKmozxCsw-g1k" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    .lang-switcher {
+      display: flex;
+      gap: 2px;
+      background: rgba(255,255,255,.08);
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .lang-btn {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: transparent;
+      color: #9ca3af;
+      transition: background .15s, color .15s;
+    }
+    .lang-btn.active {
+      background: #fff;
+      color: #1a1d23;
+    }
+  </style>
 </head>
 <body>
 
@@ -17,104 +41,149 @@
   <nav>
     <div class="nav-inner">
       <span class="logo">OSMOzzz</span>
-      <div style="display:flex;gap:8px;align-items:center">
-      <a class="btn-ghost" href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-        GitHub
-      </a>
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="lang-switcher">
+          <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+          <button class="lang-btn" data-lang="fr" onclick="setLang('fr')">FR</button>
+        </div>
+        <a class="btn-ghost" href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          <span data-i18n="nav.github"></span>
+        </a>
       </div>
     </div>
   </nav>
 
   <!-- HERO -->
   <section class="hero">
-    <div class="hero-badge">Open Source · MIT License</div>
-    <h1>Local memory<br/>for your AI.</h1>
-    <p class="hero-sub">
-      Give Claude access to your emails, files, messages, calendar and code.<br/>
-      Everything stays on your machine. Nothing is ever sent to the cloud.
-    </p>
+    <div class="hero-badge" data-i18n="hero.badge"></div>
+    <h1 data-i18n="hero.title"></h1>
+    <p class="hero-sub" data-i18n="hero.sub"></p>
     <div class="hero-actions">
       <a class="btn-download" href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download for macOS
+        <span data-i18n="hero.download"></span>
       </a>
-      <span class="hero-meta">macOS 12+ · Free · Open Source</span>
+      <span class="hero-meta" data-i18n="hero.meta"></span>
     </div>
   </section>
 
   <!-- SOURCES -->
   <section class="section section-dark">
     <div class="container">
-      <h2>18 data sources</h2>
-      <p class="section-sub">Local sources work out of the box. Cloud sources need a token.</p>
-      <div class="sources-group">
-        <div class="sources-label">Always on — no config</div>
-        <div class="sources-grid">
-          <div class="source-chip local">📧 Gmail</div>
-          <div class="source-chip local">🌐 Chrome</div>
-          <div class="source-chip local">🧭 Safari</div>
-          <div class="source-chip local">💬 iMessage</div>
-          <div class="source-chip local">📝 Apple Notes</div>
-          <div class="source-chip local">📅 Calendar</div>
-          <div class="source-chip local">💻 Terminal</div>
-          <div class="source-chip local">📁 Files</div>
+      <h2 data-i18n="sources.title"></h2>
+      <p class="section-sub" data-i18n="sources.sub"></p>
+      <div class="sources-split">
+
+        <div class="sources-col">
+          <div class="sources-col-header local">
+            <span class="sources-col-dot local"></span>
+            <span data-i18n="sources.local.label"></span>
+          </div>
+          <div class="sources-cards">
+            <div class="source-card local">📧<span>Gmail</span></div>
+            <div class="source-card local">🌐<span>Chrome</span></div>
+            <div class="source-card local">🧭<span>Safari</span></div>
+            <div class="source-card local">💬<span>iMessage</span></div>
+            <div class="source-card local">📝<span>Apple Notes</span></div>
+            <div class="source-card local">📅<span>Calendar</span></div>
+            <div class="source-card local">💻<span>Terminal</span></div>
+            <div class="source-card local">📁<span>Files</span></div>
+          </div>
         </div>
+
+        <div class="sources-divider"></div>
+
+        <div class="sources-col">
+          <div class="sources-col-header cloud">
+            <span class="sources-col-dot cloud"></span>
+            <span data-i18n="sources.cloud.label"></span>
+          </div>
+          <div class="sources-cards">
+            <div class="source-card cloud">◻<span>Notion</span></div>
+            <div class="source-card cloud">⌥<span>GitHub</span></div>
+            <div class="source-card cloud">◈<span>Linear</span></div>
+            <div class="source-card cloud">◉<span>Jira</span></div>
+            <div class="source-card cloud">⚡<span>Supabase</span></div>
+          </div>
+        </div>
+
       </div>
-      <div class="sources-group" style="margin-top:32px">
-        <div class="sources-label">Cloud — add your token</div>
-        <div class="sources-grid">
-          <div class="source-chip cloud">◻ Notion</div>
-          <div class="source-chip cloud">⌥ GitHub</div>
-          <div class="source-chip cloud">◈ Linear</div>
-          <div class="source-chip cloud">◉ Jira</div>
-          <div class="source-chip cloud"># Slack</div>
-          <div class="source-chip cloud">▦ Trello</div>
-          <div class="source-chip cloud">✓ Todoist</div>
-          <div class="source-chip cloud">⬡ GitLab</div>
-          <div class="source-chip cloud">⊞ Airtable</div>
-          <div class="source-chip cloud">⬤ Obsidian</div>
+    </div>
+  </section>
+
+  <!-- VISION -->
+  <section class="section section-dark">
+    <div class="container">
+      <div class="vision-grid">
+        <div class="vision-text">
+          <h2 data-i18n="vision.title"></h2>
+          <p data-i18n="vision.1"></p>
+          <p data-i18n="vision.2"></p>
+        </div>
+        <div class="vision-values">
+          <div class="vision-value">
+            <span class="vision-value-icon">⚡</span>
+            <div>
+              <h3 data-i18n="vision.v1.title"></h3>
+              <p data-i18n="vision.v1.desc"></p>
+            </div>
+          </div>
+          <div class="vision-value">
+            <span class="vision-value-icon">🔍</span>
+            <div>
+              <h3 data-i18n="vision.v2.title"></h3>
+              <p data-i18n="vision.v2.desc"></p>
+            </div>
+          </div>
+          <div class="vision-value">
+            <span class="vision-value-icon">🔓</span>
+            <div>
+              <h3 data-i18n="vision.v3.title"></h3>
+              <p data-i18n="vision.v3.desc"></p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- FEATURES -->
+  <!-- COMPARISON -->
   <section class="section">
     <div class="container">
-      <h2>Built different.</h2>
-      <p class="section-sub">No cloud sync. No data broker. Just your data, on your machine.</p>
-      <div class="features">
-        <div class="feature">
-          <div class="feature-icon">🔒</div>
-          <h3>100% local</h3>
-          <p>Your data never leaves your machine. OSMOzzz runs entirely on your Mac — no external API, no cloud database.</p>
+      <h2 data-i18n="compare.title"></h2>
+      <p class="section-sub" data-i18n="compare.sub"></p>
+      <div class="compare-grid">
+
+        <div class="compare-col bad">
+          <div class="compare-col-header">
+            <span class="compare-badge bad" data-i18n="compare.without.badge"></span>
+          </div>
+          <ul class="compare-list">
+            <li class="compare-item bad"><span class="compare-icon">✗</span><span data-i18n="compare.without.1"></span></li>
+            <li class="compare-item bad"><span class="compare-icon">✗</span><span data-i18n="compare.without.2"></span></li>
+            <li class="compare-item bad"><span class="compare-icon">✗</span><span data-i18n="compare.without.3"></span></li>
+            <li class="compare-item bad"><span class="compare-icon">✗</span><span data-i18n="compare.without.4"></span></li>
+            <li class="compare-item bad"><span class="compare-icon">✗</span><span data-i18n="compare.without.5"></span></li>
+          </ul>
         </div>
-        <div class="feature">
-          <div class="feature-icon">⚡</div>
-          <h3>Semantic search</h3>
-          <p>Powered by ONNX + LanceDB. Search across all your sources at once with natural language queries.</p>
+
+        <div class="compare-col good">
+          <div class="compare-col-header">
+            <span class="compare-badge good" data-i18n="compare.with.badge"></span>
+          </div>
+          <ul class="compare-list">
+            <li class="compare-item good"><span class="compare-icon">✓</span><span data-i18n="compare.with.1"></span></li>
+            <li class="compare-item good"><span class="compare-icon">✓</span><span data-i18n="compare.with.2"></span></li>
+            <li class="compare-item good"><span class="compare-icon">✓</span><span data-i18n="compare.with.3"></span></li>
+            <li class="compare-item good"><span class="compare-icon">✓</span><span data-i18n="compare.with.4"></span></li>
+            <li class="compare-item good"><span class="compare-icon">✓</span><span data-i18n="compare.with.5"></span></li>
+          </ul>
         </div>
-        <div class="feature">
-          <div class="feature-icon">🔌</div>
-          <h3>MCP native</h3>
-          <p>Works natively with Claude Desktop via the MCP protocol. 24 tools available to Claude out of the box.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">🌐</div>
-          <h3>P2P network</h3>
-          <p>Share your indexed data with teammates over a secure peer-to-peer network. Data stays on each machine.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">📄</div>
-          <h3>PDF search</h3>
-          <p>Search inside PDF content instantly — no indexing required. Reads directly from disk on every query.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">🛡️</div>
-          <h3>Privacy filters</h3>
-          <p>Automatic redaction of credit cards, IBANs, API keys and personal data before any result is returned.</p>
-        </div>
+
+      </div>
+      <div class="compare-conclusion">
+        <p data-i18n="compare.conclusion"></p>
       </div>
     </div>
   </section>
@@ -122,14 +191,14 @@
   <!-- CTA -->
   <section class="section section-cta">
     <div class="container" style="text-align:center">
-      <h2>Ready to give Claude a memory?</h2>
-      <p class="section-sub">Open source. Free forever. Your data stays yours.</p>
+      <h2 data-i18n="cta.title"></h2>
+      <p class="section-sub" data-i18n="cta.sub"></p>
       <a class="btn-download" href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg" style="margin:32px auto 0;display:inline-flex">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download for macOS
+        <span data-i18n="cta.download"></span>
       </a>
       <a class="btn-ghost" href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer" style="margin-top:12px;display:inline-flex">
-        View on GitHub →
+        <span data-i18n="cta.github"></span>
       </a>
     </div>
   </section>
@@ -138,10 +207,13 @@
   <footer>
     <div class="footer-inner">
       <span class="logo" style="font-size:14px">OSMOzzz</span>
-      <span style="color:#4b5563;font-size:13px">MIT License · Built with Rust + React</span>
+      <span style="color:#4b5563;font-size:13px">MIT License</span>
       <a href="https://github.com/platre11/osmozzz" target="_blank" rel="noreferrer" style="color:#6b7280;font-size:13px">GitHub →</a>
     </div>
   </footer>
+
+  <script src="i18n.js"></script>
+  <script src="lang.js"></script>
 
 </body>
 </html>
