@@ -68,6 +68,30 @@ jobs:
             --install-location / \
             osmozzz.pkg
 
+      - name: Import signing certificate
+        run: |
+          # Exporte le certificat Developer ID Installer depuis le keychain CI
+          xcrun notarytool store-credentials "osmozzz-notary" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}"
+
+      - name: Sign PKG
+        run: |
+          productsign \
+            --sign "${{ secrets.APPLE_SIGN_IDENTITY }}" \
+            osmozzz.pkg osmozzz-signed.pkg
+          mv osmozzz-signed.pkg osmozzz.pkg
+
+      - name: Notarize PKG
+        run: |
+          xcrun notarytool submit osmozzz.pkg \
+            --keychain-profile "osmozzz-notary" \
+            --wait
+
+      - name: Staple PKG
+        run: xcrun stapler staple osmozzz.pkg
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -78,5 +102,3 @@ jobs:
             1. Télécharge **osmozzz.pkg**
             2. Double-clique pour installer
             3. Le dashboard s'ouvre automatiquement sur http://localhost:7878
-
-            > Si macOS bloque l'installation : clic droit → Ouvrir → Ouvrir quand même
