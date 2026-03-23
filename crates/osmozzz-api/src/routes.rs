@@ -1162,10 +1162,16 @@ pub async fn post_aliases(Json(body): Json<AliasesBody>) -> impl IntoResponse {
         Some(h) => h.join(".osmozzz/aliases.toml"),
         None => return ApiResponse::<String>::err("impossible de trouver le home dir").into_response(),
     };
-    let mut content = String::from("[map]\n");
+    let mut map = toml::map::Map::new();
     for entry in &body.aliases {
-        content.push_str(&format!("{:?} = {:?}\n", entry.real, entry.alias));
+        map.insert(entry.real.clone(), toml::Value::String(entry.alias.clone()));
     }
+    let mut doc = toml::map::Map::new();
+    doc.insert("map".to_string(), toml::Value::Table(map));
+    let content = match toml::to_string(&toml::Value::Table(doc)) {
+        Ok(s) => s,
+        Err(e) => return ApiResponse::<String>::err(e.to_string()).into_response(),
+    };
     match std::fs::write(&path, content) {
         Ok(_)  => ApiResponse::ok("ok".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),

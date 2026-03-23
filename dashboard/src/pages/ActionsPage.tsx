@@ -524,16 +524,16 @@ export default function ActionsPage() {
   }
 
   // ── Alias Engine ────────────────────────────────────────────────────────
-  const { data: serverAliases = [] } = useQuery({ queryKey: ['aliases'], queryFn: api.getAliases })
+  const { data: serverAliases } = useQuery({ queryKey: ['aliases'], queryFn: api.getAliases })
   const [aliases, setAliases] = useState<Array<{ real: string; alias: string }>>([])
-  const [aliasesSynced, setAliasesSynced] = useState(false)
   const [aliasesDirty, setAliasesDirty] = useState(false)
   const [newReal, setNewReal] = useState('')
   const [newAlias, setNewAlias] = useState('')
-  if (!aliasesSynced && serverAliases !== undefined) {
-    setAliases(serverAliases)
-    setAliasesSynced(true)
-  }
+  useEffect(() => {
+    if (serverAliases !== undefined && !aliasesDirty) {
+      setAliases(serverAliases)
+    }
+  }, [serverAliases])
   const { mutate: saveAliases, isPending: savingAliases } = useMutation({
     mutationFn: () => api.saveAliases(aliases),
     onSuccess: () => {
