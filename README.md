@@ -1,6 +1,6 @@
 # OSMOzzz
 
-🇫🇷 [Lire en français](README.fr.md)
+🌐 **[osm-ozzz.vercel.app](https://osm-ozzz.vercel.app/)**
 
 **OSMOzzz is your private tentacle that binds Claude to your world.**
 

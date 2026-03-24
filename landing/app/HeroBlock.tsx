@@ -293,7 +293,7 @@ export default function HeroBlock() {
     return () => timers.forEach(clearTimeout)
   }, [ready])
 
-  // Charge Three.js seulement quand le canvas devient visible
+  // Charge Three.js seulement quand le canvas devient visibl
   useEffect(() => {
     if (!phase || !canvasRef.current) return
     let cleanup: (() => void) | undefined
