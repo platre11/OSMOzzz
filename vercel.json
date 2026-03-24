@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "outputDirectory": "out"
+  "installCommand": "cd landing && npm install",
+  "buildCommand": "cd landing && npm run build",
+  "outputDirectory": "landing/out"
 }
