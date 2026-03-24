@@ -15,12 +15,46 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
       <body style={{ margin: 0, padding: 0 }}>
-        <StyledComponentsRegistry>
-          <LanguageProvider>
-            {children}
-          </LanguageProvider>
-        </StyledComponentsRegistry>
+        <style>{`
+          @media (max-width: 768px) {
+            #mobile-block {
+              display: flex !important;
+            }
+            #main-content {
+              display: none !important;
+            }
+          }
+        `}</style>
+        <div id="mobile-block" style={{
+          display: 'none',
+          position: 'fixed',
+          inset: 0,
+          background: '#080a10',
+          color: '#e8eaf0',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '16px',
+          textAlign: 'center',
+          padding: '32px',
+          zIndex: 9999,
+          fontFamily: 'system-ui, sans-serif',
+        }}>
+          <p style={{ fontSize: '32px', margin: 0 }}>🖥️</p>
+          <p style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>OSMOzzz is designed for desktop</p>
+          <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>Please open this page on a computer.</p>
+        </div>
+        <div id="main-content">
+          <StyledComponentsRegistry>
+            <LanguageProvider>
+              {children}
+            </LanguageProvider>
+          </StyledComponentsRegistry>
+        </div>
       </body>
     </html>
   )
