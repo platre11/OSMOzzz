@@ -4,9 +4,17 @@ export const translations = {
     navGithub: 'GitHub',
 
     // Hero
+    heroInputLabel: 'Your cloud AI',
+    heroTypewriter: 'What is Z8xJNaS7f82?',
+    heroInputPlaceholder: 'Search your emails, files, notes...',
     heroBadge: 'Open Source · MIT License',
     heroTitle: 'Your AI connected to your world,\nlocked down.',
     heroSub: 'Connect your AI to everything around you — while staying in control of what it sees and does.',
+    heroResponseLabel: 'Response from your AI',
+    heroCaptionLine1: 'acts as a firewall',
+    heroCaptionLine2: 'between your sensitive data and cloud AIs.',
+    heroCaptionTop: 'OSMOzzz understands Z8xJNaS7f82 - OSMOzzz',
+    heroCaptionBottom1: 'OSMOzzz replaces [OSMOzzz] → Z8xJNaS7f82',
     heroDownload: 'Download for macOS',
     heroMeta: 'macOS 12+ · Free · Open Source',
 
@@ -62,9 +70,17 @@ export const translations = {
     navGithub: 'GitHub',
 
     // Hero
+    heroInputLabel: 'Votre IA cloud',
+    heroTypewriter: "C'est quoi Z8xJNaS7f82 ?",
+    heroInputPlaceholder: 'Chercher vos emails, fichiers, notes...',
     heroBadge: 'Open Source · Licence MIT',
     heroTitle: 'Votre IA connectée à votre monde,\nmais sécurisée.',
     heroSub: "Connectez votre IA à tout ce qui vous entoure — en gardant le contrôle sur ce qu'elle voit et ce qu'elle fait.",
+    heroResponseLabel: 'Réponse de votre IA',
+    heroCaptionLine1: 'agit comme un policier',
+    heroCaptionLine2: 'entre vos données sensibles et les IA cloud.',
+    heroCaptionTop: 'OSMOzzz comprend Z8xJNaS7f82 - OSMOzzz',
+    heroCaptionBottom1: 'OSMOzzz remplace [OSMOzzz] → Z8xJNaS7f82',
     heroDownload: 'Télécharger pour macOS',
     heroMeta: 'macOS 12+ · Gratuit · Open Source',
 

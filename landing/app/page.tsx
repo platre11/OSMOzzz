@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react'
 import styled, { createGlobalStyle } from 'styled-components'
 import { useLang } from '../context/LanguageContext'
+import HeroBlock from './HeroBlock'
 
 // ── Global ────────────────────────────────────────────────────────────────────
 
@@ -84,15 +85,15 @@ const HeroBadge = styled.div`
   font-size: 12px; color: var(--muted); font-weight: 500;
 `
 const H1 = styled.h1`
-  font-size: clamp(42px, 7vw, 72px);
+  font-size: clamp(42px, 7vw, 52px);
   font-weight: 800; line-height: 1.1;
   letter-spacing: -0.04em; color: #fff;
   margin-bottom: 24px;
 `
 const HeroSub = styled.p`
-  font-size: clamp(16px, 2.5vw, 19px);
+  font-size: clamp(13px, 2.5vw, 10px);
   color: var(--muted); max-width: 600px;
-  margin: 0 auto 40px; line-height: 1.7;
+  margin: 0 auto 20px; line-height: 1.7;
 `
 const HeroActions = styled.div`
   display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 32px;
@@ -319,8 +320,7 @@ export default function HomePage() {
           {heroLines[0]}
           {heroLines[1] && <><br />{heroLines[1]}</>}
         </H1>
-        <ShieldCanvas ref={shieldRef} />
-
+        <HeroBlock />
         <HeroSub>{t('heroSub')}</HeroSub>
         <HeroActions>
           <BtnDownload href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg">
@@ -329,7 +329,6 @@ export default function HomePage() {
           </BtnDownload>
           <HeroMeta>{t('heroMeta')}</HeroMeta>
         </HeroActions>
-
       </HeroSection>
 
       {/* VISION */}

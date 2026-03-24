@@ -4,6 +4,7 @@ import { translations, Lang, TranslationKey } from '../data/translations'
 
 interface LanguageContextType {
   lang: Lang
+  ready: boolean
   setLang: (lang: Lang) => void
   t: (key: TranslationKey) => string
 }
@@ -12,6 +13,7 @@ const LanguageContext = createContext<LanguageContextType | null>(null)
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>('en')
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('osmozzz-lang') as Lang | null
@@ -23,6 +25,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         ? browser
         : 'en'
     setLangState(detected)
+    setReady(true)
   }, [])
 
   const setLang = (l: Lang) => {
@@ -33,7 +36,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const t = (key: TranslationKey): string => translations[lang][key]
 
   return (
-    <LanguageContext.Provider value={{ lang, setLang, t }}>
+    <LanguageContext.Provider value={{ lang, ready, setLang, t }}>
       {children}
     </LanguageContext.Provider>
   )
