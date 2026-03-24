@@ -1,5 +1,6 @@
 {
-  "outputDirectory": "docs",
-  "buildCommand": "",
-  "installCommand": ""
+  "rootDirectory": "landing",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "outputDirectory": "out"
 }

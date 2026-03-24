@@ -1,4 +1,9 @@
 /target
+
+# Next.js
+landing/.next/
+landing/out/
+landing/node_modules/
 **/*.rs.bk
 Cargo.lock
 
