@@ -17,13 +17,15 @@ const Wrapper = styled.div`
 
 const Side = styled.div`
   position: absolute;
-  top: 0;
-  left: 0;
+  left: calc(50% - 190px);
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 16px;
   width: 380px;
   z-index: 10;
+  transition: top 0.5s linear, left 0.5s linear, transform 0.5s linear;
 `
 
 const canvasEntrance = keyframes`
@@ -144,7 +146,7 @@ const Caption = styled.div<{ $visible: boolean }>`
      FOV 45°, cam Z=5 → Y=0.6 ≈ 27% au-dessus du centre canvas → ~50px vers le haut.
      On se place juste à droite et au-dessus du hex. */
   left: calc(50% + 15px);
-  top: calc(50% - 175px);
+  top: calc(50% - 180px);
   width: 400px;
   display: flex;
   flex-direction: column;
@@ -256,24 +258,11 @@ export default function HeroBlock() {
   const [showFinal, setShowFinal] = useState(false)
   const [showAlias, setShowAlias] = useState(false)
 
+  // Typewriter + déplacement (attend que la langue soit prête)
   useEffect(() => {
-    const wrapper = wrapperRef.current
-    const side    = sideRef.current
-    if (!wrapper || !side) return
+    const side = sideRef.current
+    if (!ready || !side) return
 
-    // Centre Side sans transition
-    const dx = wrapper.offsetWidth  / 2 - side.offsetWidth  / 2
-    const dy = wrapper.offsetHeight / 2 - side.offsetHeight / 2
-    side.style.transition = 'none'
-    side.style.transform  = `translate(${dx}px, ${dy}px)`
-
-    // Active la transition au prochain frame (0.5s = 2x plus rapide)
-    requestAnimationFrame(() => {
-      side.style.transition = 'transform 0.5s linear'
-    })
-
-    // Typewriter — démarre seulement quand la langue est détectée
-    if (!ready) return
     const text = t('heroTypewriter')
     let i = 0
     const typeTimer = setTimeout(() => {
@@ -285,18 +274,15 @@ export default function HeroBlock() {
       timers.push(interval as unknown as ReturnType<typeof setTimeout>)
     }, 400)
 
-    // Bouton : animation click + exit dès que le texte est fini
     const btnTimer = setTimeout(() => setBtnExit(true), 400 + text.length * 65)
 
-    // Déplace Side après que le texte soit écrit + 600ms de pause
     const moveDelay = 400 + text.length * 65 + 600
     const moveTimer = setTimeout(() => {
-      side.style.transition = 'transform 0.5s linear'
-      side.style.transform = 'translate(0px, 0px)'
-      // ContainerLine démarre quand Side finit (0.5s)
+      side.style.top = '0px'
+      side.style.left = '0px'
+      side.style.transform = 'none'
       const slideTimer = setTimeout(() => {
         setSliding(true)
-        // 3D apparaît quand LibneBackgroundBlack commence à partir vers la droite (50% de 1s)
         const show3d = setTimeout(() => setPhase(true), 0)
         timers.push(show3d)
       }, 500)
