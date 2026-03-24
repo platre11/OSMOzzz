@@ -148,26 +148,13 @@ const SectionSub = styled.p`
 // ── Vision ────────────────────────────────────────────────────────────────────
 
 const VisionIntro = styled.div`
-  margin-bottom: 48px; max-width: 680px;
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
 `
 const VisionLead = styled.p`
-  font-size: 16px; color: var(--muted); line-height: 1.8;
-`
-const VisionGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-`
-const VisionFeat = styled.div`
-  display: flex; gap: 16px; align-items: flex-start;
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: 12px; padding: 20px;
-`
-const VisionFeatTitle = styled.h3`
-  font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;
-`
-const VisionFeatDesc = styled.p`
-  font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0;
+  font-size: 16px; color: var(--muted); line-height: 1.9;
+  margin-top: 24px;
 `
 
 // ── Comparison ────────────────────────────────────────────────────────────────
@@ -355,24 +342,10 @@ export default function HomePage() {
         <Container>
           <VisionIntro>
             <H2>{t('visionTitle')}</H2>
-            <VisionLead>{t('visionLead')}</VisionLead>
-          </VisionIntro>
-          <VisionGrid>
-            {([
-              [t('visionF1Title'), t('visionF1Desc')],
-              [t('visionF2Title'), t('visionF2Desc')],
-              [t('visionF3Title'), t('visionF3Desc')],
-              [t('visionF4Title'), t('visionF4Desc')],
-              [t('visionF5Title'), t('visionF5Desc')],
-            ] as [string, string][]).map(([title, desc]) => (
-              <VisionFeat key={title}>
-                <div>
-                  <VisionFeatTitle>{title}</VisionFeatTitle>
-                  <VisionFeatDesc>{desc}</VisionFeatDesc>
-                </div>
-              </VisionFeat>
+            {t('visionBody').split('\n\n').map((p, i) => (
+              <VisionLead key={i}>{p}</VisionLead>
             ))}
-          </VisionGrid>
+          </VisionIntro>
         </Container>
       </Section>
 

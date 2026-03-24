@@ -26,17 +26,7 @@ export const translations = {
 
     // Vision
     visionTitle: 'What is OSMOzzz?',
-    visionLead: 'OSMOzzz is a local MCP server that connects your AI to your data — emails, files, messages, notes, calendar, and cloud tools. It acts as a privacy layer between your AI and your world: you stay in control of what it sees and what it does.',
-    visionF1Title: 'Sensitive data filtering',
-    visionF1Desc: 'Configure automatic redaction of credit card numbers, IBANs, API keys, or phone numbers before anything reaches your AI.',
-    visionF2Title: 'Identity aliases',
-    visionF2Desc: "Replace real names and email addresses with aliases. Your AI works with pseudonyms — it never sees your actual contacts unless you allow it.",
-    visionF3Title: 'Blacklist',
-    visionF3Desc: "Exclude specific documents, senders, domains, or file paths from your AI's reach. Blocked at indexing time, not just at search time.",
-    visionF4Title: 'Action approval',
-    visionF4Desc: 'When your AI wants to send a message, create a task, or modify a file — you approve or reject each action before it runs.',
-    visionF5Title: 'Audit log',
-    visionF5Desc: 'Every MCP call is logged locally: which tool, which query, how many results, blocked or not. Nothing happens without a trace.',
+    visionBody: 'OSMOzzz is a local MCP server that acts as an indispensable security layer between your AI and your sensitive data.\n\nWithout it, every query your AI makes — searching your emails, reading your files, browsing your messages — sends your raw data directly to external servers with no filter, no trace, and no control. OSMOzzz intercepts every request: it indexes your data locally, applies automatic redaction of credit card numbers, IBANs, API keys and personal details, and replaces real identities with aliases before your AI ever sees them.\n\nIn a world where AI models are increasingly connected to everything, OSMOzzz is the only barrier standing between your most sensitive data and the cloud. Nothing leaves your machine unfiltered. Nothing happens without your explicit approval.',
 
     // Comparison
     compareTitle: 'AI alone vs AI + OSMOzzz',
@@ -92,17 +82,7 @@ export const translations = {
 
     // Vision
     visionTitle: "C'est quoi OSMOzzz ?",
-    visionLead: "OSMOzzz est un serveur MCP local qui connecte votre IA à vos données — emails, fichiers, messages, notes, agenda, et outils cloud. Il agit comme une couche de confidentialité entre votre IA et votre monde : vous gardez le contrôle sur ce qu'elle voit et ce qu'elle fait.",
-    visionF1Title: 'Filtrage des données sensibles',
-    visionF1Desc: "Configurez le masquage automatique des numéros de CB, IBAN, clés API ou numéros de téléphone avant qu'ils n'atteignent votre IA.",
-    visionF2Title: "Alias d'identité",
-    visionF2Desc: "Remplacez les vrais noms et adresses email par des alias. Votre IA travaille avec des pseudonymes — elle ne voit jamais vos vrais contacts, sauf si vous l'autorisez.",
-    visionF3Title: 'Liste noire',
-    visionF3Desc: "Excluez des documents, expéditeurs, domaines ou chemins de fichiers de la portée de votre IA. Bloqués à l'indexation, pas seulement à la recherche.",
-    visionF4Title: 'Approbation des actions',
-    visionF4Desc: "Quand votre IA veut envoyer un message, créer une tâche ou modifier un fichier — vous approuvez ou rejetez chaque action avant qu'elle ne s'exécute.",
-    visionF5Title: "Journal d'accès",
-    visionF5Desc: "Chaque appel MCP est journalisé localement : quel outil, quelle requête, combien de résultats, bloqué ou non. Rien ne se passe sans trace.",
+    visionBody: "OSMOzzz est un serveur MCP local qui agit comme une couche de sécurité indispensable entre votre IA et vos données sensibles.\n\nSans lui, chaque requête de votre IA — recherche dans vos emails, lecture de vos fichiers, consultation de vos messages — envoie vos données brutes vers des serveurs externes sans filtre, sans trace, et sans contrôle. OSMOzzz intercepte chaque requête : il indexe vos données localement, applique un masquage automatique des numéros de CB, IBAN, clés API et informations personnelles, et remplace les vraies identités par des alias avant que votre IA ne les voie.\n\nDans un monde où les modèles d'IA sont de plus en plus connectés à tout, OSMOzzz est le seul rempart entre vos données les plus sensibles et le cloud. Rien ne quitte votre machine sans être filtré. Rien ne se passe sans votre approbation explicite.",
 
     // Comparison
     compareTitle: 'IA seule vs IA + OSMOzzz',
