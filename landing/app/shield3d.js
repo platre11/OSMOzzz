@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-export function initShield(container, onRimGlowY) {
+export function initShield(container) {
   const scene = new THREE.Scene();
 
   const camera = new THREE.PerspectiveCamera(
@@ -103,34 +103,11 @@ export function initShield(container, onRimGlowY) {
 
       scene.add(model);
 
-      // RimGlow visible immediately; fade Shield in after 700ms
+      // Fade Shield in after 700ms
       setTimeout(() => {
         shieldFading = true;
         shieldStartTime = performance.now();
       }, 700);
-
-      // Projette RimGlow en coordonnées canvas et notifie HeroBlock
-      const rimGlow = model.getObjectByName("RimGlow");
-      if (rimGlow && onRimGlowY) {
-        scene.updateMatrixWorld(true);
-        const worldPos = new THREE.Vector3();
-        rimGlow.getWorldPosition(worldPos);
-
-        // Y — centre du ring projeté
-        const ndcCenter = worldPos.clone().project(camera);
-        const yPx = ((1 - ndcCenter.y) / 2) * container.clientHeight;
-
-        // X — bord gauche et droit du ring
-        const bbox = new THREE.Box3().setFromObject(rimGlow);
-        const leftPoint  = new THREE.Vector3(bbox.min.x, worldPos.y, worldPos.z);
-        const rightPoint = new THREE.Vector3(bbox.max.x, worldPos.y, worldPos.z);
-        const ndcLeft  = leftPoint.project(camera);
-        const ndcRight = rightPoint.project(camera);
-        const leftXpx  = ((ndcLeft.x  + 1) / 2) * container.clientWidth;
-        const rightXpx = ((ndcRight.x + 1) / 2) * container.clientWidth;
-
-        onRimGlowY(yPx, leftXpx, rightXpx);
-      }
 
       // ── Hexagons_Group — emerge from scale 0 ────────────────────────────
       hexGroupRef = model.getObjectByName("Hexagons_Group");
@@ -182,6 +159,17 @@ export function initShield(container, onRimGlowY) {
     renderer.setSize(container.clientWidth, container.clientHeight);
   };
   window.addEventListener("resize", onResize);
+
+  // ── Scroll tilt ────────────────────────────────────────────────────────────
+  let scrollTiltTarget  = 0;
+  let scrollTiltCurrent = 0;
+  const MAX_TILT = Math.PI / 6; // 30°
+
+  const onScroll = () => {
+    const t = Math.min(window.scrollY / 400, 1);
+    scrollTiltTarget = t * MAX_TILT;
+  };
+  window.addEventListener("scroll", onScroll);
 
   // ── Render loop ────────────────────────────────────────────────────────────
   let animId;
@@ -245,7 +233,19 @@ export function initShield(container, onRimGlowY) {
       hexCenterRef.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), camDir);
     }
 
+    // Scroll tilt — smooth lerp toward target
+    scrollTiltCurrent += (scrollTiltTarget - scrollTiltCurrent) * 0.05;
+
     controls.update();
+
+    // Élève la caméra sans changer le rayon → toujours face à l'origine
+    const radius  = 5;
+    const newY    = Math.sin(scrollTiltCurrent) * radius;
+    const xzDist  = Math.cos(scrollTiltCurrent) * radius;
+    const azimuth = Math.atan2(camera.position.x, camera.position.z);
+    camera.position.set(Math.sin(azimuth) * xzDist, newY, Math.cos(azimuth) * xzDist);
+    camera.lookAt(0, 0, 0);
+
     renderer.render(scene, camera);
   };
   animate();
@@ -253,6 +253,7 @@ export function initShield(container, onRimGlowY) {
   return () => {
     cancelAnimationFrame(animId);
     window.removeEventListener("resize", onResize);
+    window.removeEventListener("scroll", onScroll);
     controls.dispose();
     renderer.dispose();
     if (container.contains(renderer.domElement))

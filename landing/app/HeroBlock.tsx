@@ -99,41 +99,42 @@ const Btn = styled.button<{ $exit?: boolean }>`
   `}
 `
 
-const ContainerLine = styled.div`
+const growDown = keyframes`
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+`
+
+const growRight = keyframes`
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+`
+
+const ContainerLine = styled.div<{ $slide: boolean }>`
   position: absolute;
   top: 100px;
   left: 50px;
-  width: 1px;
+  width: 0;
   height: 150px;
-  background: white;
+  border-right: 1px dashed white;
   z-index: 1;
-`
-
-const Line1 = styled.div`
-  position: absolute;
-  bottom: 0px;
-  left: 0px;
-  width: 250px;
-  height: 1px;
-  background: white;
-`
-
-const slideOutAnim = keyframes`
-  0%    { transform: translateY(0px)   translateX(0px);   opacity: 1; }
-  50%   { transform: translateY(148px) translateX(0px);   opacity: 1; }
-  99%   { transform: translateY(148px) translateX(250px); opacity: 1; }
-  100%  { transform: translateY(148px) translateX(250px); opacity: 0; }
-`
-
-const LibneBackgroundBlack = styled.div<{ $slide: boolean }>`
-  position: absolute;
-  bottom: 0px;
-  left: 0px;
-  width: 250px;
-  height: 150px;
-  background: var(--bg);
+  transform: scaleY(0);
+  transform-origin: top;
   ${p => p.$slide && css`
-    animation: ${slideOutAnim} 1s linear forwards;
+    animation: ${growDown} 0.5s linear forwards;
+  `}
+`
+
+const Line1 = styled.div<{ $slide: boolean }>`
+  position: absolute;
+  bottom: 0px;
+  left: 0px;
+  width: 250px;
+  height: 0;
+  border-top: 1px dashed white;
+  transform: scaleX(0);
+  transform-origin: left;
+  ${p => p.$slide && css`
+    animation: ${growRight} 0.5s linear 0.5s forwards;
   `}
 `
 
@@ -194,29 +195,18 @@ const FinalTextContainer = styled.div<{ $visible: boolean }>`
   pointer-events: none;
 `
 
-const LibneFinalBackgroundBlack = styled.div<{ $slide: boolean }>`
-  position: absolute;
-  top: 0px;
-  left: 0px;
-  width: 150px;
-  height: 200px;
-  background: var(--bg);
-  transform: translateY(${p => p.$slide ? '200px' : '0px'});
-  transition: transform 1s linear;
-  z-index: 2;
-`
-
-const LineFinal1 = styled.div`
-
-`
-
-const LineFinal2 = styled.div`
+const LineFinal2 = styled.div<{ $slide: boolean }>`
   position: absolute;
   bottom: 0px;
   left: 50px;
-  width: 1px;
+  width: 0;
   height: 70px;
-  background: white;
+  border-right: 1px dashed white;
+  transform: scaleY(0);
+  transform-origin: top;
+  ${p => p.$slide && css`
+    animation: ${growDown} 0.5s linear forwards;
+  `}
 `
 
 const AliasCaption = styled.div<{ $visible: boolean }>`
@@ -323,7 +313,7 @@ export default function HeroBlock() {
     let cleanup: (() => void) | undefined
     import('./shield3d').then(({ initShield }) => {
       if (!canvasRef.current) return
-      cleanup = initShield(canvasRef.current, () => {})
+      cleanup = initShield(canvasRef.current)
     })
     const t1 = setTimeout(() => setShowCaption(true), 4100)
     const t2 = setTimeout(() => setShowFinal(true),   4800)
@@ -345,9 +335,8 @@ export default function HeroBlock() {
           <Btn $exit={btnExit}>→</Btn>
         </InputRow>
       </Side>
-      <ContainerLine>
-        <Line1 />
-        <LibneBackgroundBlack $slide={sliding} />
+      <ContainerLine $slide={sliding}>
+        <Line1 $slide={sliding} />
       </ContainerLine>
 
       <CanvasWrapper $visible={phase} $top={canvasTop} $left={canvasLeft} ref={canvasRef} />
@@ -360,9 +349,7 @@ export default function HeroBlock() {
         <CaptionLabel>{t('heroCaptionBottom1')}</CaptionLabel>
       </Caption>
       <FinalTextContainer $visible={showFinal}>
-        <LineFinal1 />
-        <LineFinal2 />
-        <LibneFinalBackgroundBlack $slide={showFinal} />
+        <LineFinal2 $slide={showFinal} />
       </FinalTextContainer>
 
       <AliasCaption $visible={showAlias}>

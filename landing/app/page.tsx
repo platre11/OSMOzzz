@@ -31,9 +31,6 @@ const GlobalStyle = createGlobalStyle`
 
 const NavBar = styled.nav`
   position: sticky; top: 0; z-index: 100;
-  background: rgba(10, 11, 15, 0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
 `
 const NavInner = styled.div`
   max-width: 1000px; margin: 0 auto;
@@ -72,7 +69,20 @@ const BtnGhost = styled.a`
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
 
+const HeroWrapper = styled.div`
+  position: relative;
+  overflow: hidden;
+`
+const HeroBgSvg = styled.svg`
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 0;
+`
 const HeroSection = styled.section`
+  position: relative;
+  z-index: 1;
   max-width: 1000px; margin: 0 auto;
   padding: 96px 24px 80px;
   text-align: center;
@@ -152,9 +162,6 @@ const VisionFeat = styled.div`
   display: flex; gap: 16px; align-items: flex-start;
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 12px; padding: 20px;
-`
-const VisionIcon = styled.span`
-  font-size: 20px; flex-shrink: 0; margin-top: 1px;
 `
 const VisionFeatTitle = styled.h3`
   font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;
@@ -296,40 +303,52 @@ export default function HomePage() {
     <>
       <GlobalStyle />
 
-      {/* NAV */}
-      <NavBar>
-        <NavInner>
-          <Logo>OSMOzzz</Logo>
-          <NavRight>
-            <LangSwitcher>
-              <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
-              <LangBtn $active={lang === 'fr'} onClick={() => setLang('fr')}>FR</LangBtn>
-            </LangSwitcher>
-            <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
-              <GithubIcon />
-              {t('navGithub')}
-            </BtnGhost>
-          </NavRight>
-        </NavInner>
-      </NavBar>
-
-      {/* HERO */}
-      <HeroSection>
-        <HeroBadge>{t('heroBadge')}</HeroBadge>
-        <H1>
-          {heroLines[0]}
-          {heroLines[1] && <><br />{heroLines[1]}</>}
-        </H1>
-        <HeroBlock />
-        <HeroSub>{t('heroSub')}</HeroSub>
-        <HeroActions>
-          <BtnDownload href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg">
-            <DownloadIcon />
-            {t('heroDownload')}
-          </BtnDownload>
-          <HeroMeta>{t('heroMeta')}</HeroMeta>
-        </HeroActions>
-      </HeroSection>
+      {/* HERO + NAV */}
+      <HeroWrapper>
+        <HeroBgSvg viewBox="0 0 1440 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="heroGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#5b5ef4" stopOpacity="0.2" />
+              <stop offset="100%" stopColor="#5b5ef4" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M 0,0 H 1440 V 280 C 1080,280 900,520 720,520 C 540,520 360,280 0,280 Z"
+            fill="url(#heroGrad)"
+          />
+        </HeroBgSvg>
+        <NavBar>
+          <NavInner>
+            <Logo>OSMOzzz</Logo>
+            <NavRight>
+              <LangSwitcher>
+                <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
+                <LangBtn $active={lang === 'fr'} onClick={() => setLang('fr')}>FR</LangBtn>
+              </LangSwitcher>
+              <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
+                <GithubIcon />
+                {t('navGithub')}
+              </BtnGhost>
+            </NavRight>
+          </NavInner>
+        </NavBar>
+        <HeroSection>
+          <HeroBadge>{t('heroBadge')}</HeroBadge>
+          <H1>
+            {heroLines[0]}
+            {heroLines[1] && <><br />{heroLines[1]}</>}
+          </H1>
+          <HeroBlock />
+          <HeroSub>{t('heroSub')}</HeroSub>
+          <HeroActions>
+            <BtnDownload href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg">
+              <DownloadIcon />
+              {t('heroDownload')}
+            </BtnDownload>
+            <HeroMeta>{t('heroMeta')}</HeroMeta>
+          </HeroActions>
+        </HeroSection>
+      </HeroWrapper>
 
       {/* VISION */}
       <Section $dark>
@@ -340,14 +359,13 @@ export default function HomePage() {
           </VisionIntro>
           <VisionGrid>
             {([
-              ['🔒', t('visionF1Title'), t('visionF1Desc')],
-              ['🎭', t('visionF2Title'), t('visionF2Desc')],
-              ['🚫', t('visionF3Title'), t('visionF3Desc')],
-              ['✅', t('visionF4Title'), t('visionF4Desc')],
-              ['📋', t('visionF5Title'), t('visionF5Desc')],
-            ] as [string, string, string][]).map(([icon, title, desc]) => (
+              [t('visionF1Title'), t('visionF1Desc')],
+              [t('visionF2Title'), t('visionF2Desc')],
+              [t('visionF3Title'), t('visionF3Desc')],
+              [t('visionF4Title'), t('visionF4Desc')],
+              [t('visionF5Title'), t('visionF5Desc')],
+            ] as [string, string][]).map(([title, desc]) => (
               <VisionFeat key={title}>
-                <VisionIcon>{icon}</VisionIcon>
                 <div>
                   <VisionFeatTitle>{title}</VisionFeatTitle>
                   <VisionFeatDesc>{desc}</VisionFeatDesc>
@@ -417,17 +435,8 @@ export default function HomePage() {
                 {t('sourcesLocalLabel')}
               </SourcesColHeader>
               <SourcesCards>
-                {[
-                  ['📧', 'Gmail'],
-                  ['🌐', 'Chrome'],
-                  ['🧭', 'Safari'],
-                  ['💬', 'iMessage'],
-                  ['📝', 'Apple Notes'],
-                  ['📅', 'Calendar'],
-                  ['💻', 'Terminal'],
-                  ['📁', 'Files'],
-                ].map(([icon, name]) => (
-                  <SourceCard key={name} $type="local">{icon}<span>{name}</span></SourceCard>
+                {['Gmail','Chrome','Safari','iMessage','Apple Notes','Calendar','Terminal','Files'].map(name => (
+                  <SourceCard key={name} $type="local"><span>{name}</span></SourceCard>
                 ))}
               </SourcesCards>
             </div>
@@ -438,14 +447,8 @@ export default function HomePage() {
                 {t('sourcesCloudLabel')}
               </SourcesColHeader>
               <SourcesCards>
-                {[
-                  ['◻', 'Notion'],
-                  ['⌥', 'GitHub'],
-                  ['◈', 'Linear'],
-                  ['◉', 'Jira'],
-                  ['⚡', 'Supabase'],
-                ].map(([icon, name]) => (
-                  <SourceCard key={name} $type="cloud">{icon}<span>{name}</span></SourceCard>
+                {['Notion','GitHub','Linear','Jira','Supabase'].map(name => (
+                  <SourceCard key={name} $type="cloud"><span>{name}</span></SourceCard>
                 ))}
               </SourcesCards>
             </div>
