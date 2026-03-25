@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import styled, { keyframes, css } from 'styled-components'
 import { useLang } from '../context/LanguageContext'
+import LoupeAnimet from './LoupeAnimet'
 
 // ── Styled ────────────────────────────────────────────────────────────────────
 
@@ -326,6 +327,7 @@ export default function HeroBlock() {
       </ContainerLine>
 
       <CanvasWrapper $visible={phase} $top={canvasTop} $left={canvasLeft} ref={canvasRef} />
+      <LoupeAnimet />
 
       <Caption $visible={showCaption}>
         <Label>OSMOzzz</Label>

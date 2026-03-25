@@ -3,15 +3,15 @@ import React, { useEffect, useRef } from "react";
 import styled from "styled-components";
 
 const Screen = styled.div`
-  position: fixed;
-  top: 5vh;
+  position: absolute;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 1200px;
-  height: 90vh;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  height: 100px;
   overflow: hidden;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 6;
   contain: layout style paint;
 `;
 
@@ -27,7 +27,7 @@ const Cube = styled.div`
 `;
 
 const CORNER_SIZE = "10px";
-const BORDER = "0.5px solid rgba(255, 255, 255, 0.9)";
+const BORDER = "0.5px solid rgba(255, 255, 255, 0.35)";
 
 const CornerTL = styled.div`
   position: absolute;
@@ -66,128 +66,133 @@ const CornerBR = styled.div`
   border-right: ${BORDER};
 `;
 
-// idle: 'none' | 'grow' | 'shrink' | 'pulse-grow' | 'pulse-shrink' | 'rotate'
-// rotate utilisé rarement (2 fois sur 12)
+// 5 téléports en 15 — gaps : 2, 3, 3, 4, 3 (boucle retombe sur 2)
+// → majoritairement 2-3 déplacements, rarement 4, jamais 5+
 const SEQUENCES = [
+  // — gap 2 —
   {
     dx: -0.25,
     dy: -0.2,
     scale: 1.0,
     moveDuration: 900,
-    pauseDuration: 1000,
+    pauseDuration: 900,
     idle: "none",
   },
   {
     dx: 0.3,
-    dy: 0.25,
-    scale: 0.85,
-    moveDuration: 1100,
-    pauseDuration: 1000,
-    idle: "grow",
-  },
-  {
-    dx: -0.05,
-    dy: -0.05,
-    scale: 1.0,
-    moveDuration: 800,
-    pauseDuration: 1200,
-    idle: "none",
-  },
-  {
-    dx: 0.2,
-    dy: -0.35,
+    dy: 0.15,
     scale: 0.9,
-    moveDuration: 1000,
+    moveDuration: 850,
     pauseDuration: 700,
-    idle: "shrink",
+    idle: "teleport",
   },
-  {
-    dx: 0.02,
-    dy: 0.02,
-    scale: 1.0,
-    moveDuration: 600,
-    pauseDuration: 1500,
-    idle: "none",
-  },
-  {
-    dx: 0.1,
-    dy: -0.2,
-    scale: 0.8,
-    moveDuration: 700,
-    pauseDuration: 1100,
-    idle: "pulse-grow",
-  },
+  // — gap 3 —
   {
     dx: -0.15,
     dy: 0.3,
-    scale: 1.1,
+    scale: 1.0,
     moveDuration: 800,
-    pauseDuration: 1000,
-    idle: "none",
-  },
-  {
-    dx: 0.25,
-    dy: 0.15,
-    scale: 1.0,
-    moveDuration: 950,
-    pauseDuration: 800,
-    idle: "rotate",
-  },
-  {
-    dx: -0.02,
-    dy: -0.02,
-    scale: 1.0,
-    moveDuration: 500,
-    pauseDuration: 1800,
-    idle: "none",
-  },
-  {
-    dx: -0.2,
-    dy: -0.3,
-    scale: 0.9,
-    moveDuration: 850,
-    pauseDuration: 600,
-    idle: "pulse-shrink",
-  },
-  {
-    dx: 0.15,
-    dy: 0.35,
-    scale: 1.15,
-    moveDuration: 1050,
-    pauseDuration: 1000,
+    pauseDuration: 900,
     idle: "none",
   },
   {
     dx: 0.2,
-    dy: -0.1,
-    scale: 1.1,
-    moveDuration: 880,
-    pauseDuration: 900,
-    idle: "grow",
-  },
-  {
-    dx: 0.02,
-    dy: -0.02,
-    scale: 1.0,
-    moveDuration: 600,
-    pauseDuration: 1200,
-    idle: "none",
-  },
-  {
-    dx: -0.25,
-    dy: 0.2,
+    dy: -0.25,
     scale: 0.85,
     moveDuration: 1000,
     pauseDuration: 800,
-    idle: "rotate",
+    idle: "none",
   },
   {
     dx: -0.1,
     dy: -0.15,
-    scale: 0.75,
+    scale: 1.0,
     moveDuration: 750,
-    pauseDuration: 1000,
+    pauseDuration: 700,
+    idle: "teleport",
+  },
+  // — gap 3 —
+  {
+    dx: 0.25,
+    dy: 0.2,
+    scale: 1.1,
+    moveDuration: 900,
+    pauseDuration: 800,
+    idle: "rotate",
+  },
+  {
+    dx: -0.2,
+    dy: 0.1,
+    scale: 0.9,
+    moveDuration: 850,
+    pauseDuration: 900,
     idle: "none",
+  },
+  {
+    dx: 0.15,
+    dy: -0.3,
+    scale: 1.0,
+    moveDuration: 800,
+    pauseDuration: 700,
+    idle: "teleport",
+  },
+  // — gap 4 (rare) —
+  {
+    dx: -0.3,
+    dy: -0.1,
+    scale: 0.9,
+    moveDuration: 1000,
+    pauseDuration: 800,
+    idle: "none",
+  },
+  {
+    dx: 0.1,
+    dy: 0.25,
+    scale: 1.0,
+    moveDuration: 900,
+    pauseDuration: 900,
+    idle: "none",
+  },
+  {
+    dx: -0.2,
+    dy: 0.3,
+    scale: 1.1,
+    moveDuration: 850,
+    pauseDuration: 800,
+    idle: "pulse-shrink",
+  },
+  {
+    dx: 0.25,
+    dy: -0.2,
+    scale: 1.0,
+    moveDuration: 750,
+    pauseDuration: 700,
+    idle: "teleport",
+  },
+  // — gap 3 —
+  {
+    dx: -0.15,
+    dy: -0.25,
+    scale: 0.9,
+    moveDuration: 900,
+    pauseDuration: 900,
+    idle: "none",
+  },
+  {
+    dx: 0.2,
+    dy: 0.1,
+    scale: 1.0,
+    moveDuration: 800,
+    pauseDuration: 800,
+    idle: "none",
+  },
+  {
+    dx: -0.1,
+    dy: 0.2,
+    scale: 0.85,
+    moveDuration: 850,
+    pauseDuration: 700,
+    idle: "teleport",
   },
 ];
 
@@ -296,6 +301,27 @@ const LoupeAnimet = () => {
         requestAnimationFrame(frame);
       });
 
+    // Disparition → téléportation → réapparition
+    const doTeleport = async () => {
+      const HIDE_DURATIONS = [1000, 3000, 5000];
+      const hideFor =
+        HIDE_DURATIONS[Math.floor(Math.random() * HIDE_DURATIONS.length)];
+      const W = getW(),
+        H = getH();
+
+      // Rétrécit jusqu'à 0
+      await animateScale(0, 350);
+
+      // Pendant l'invisibilité : téléporte à une nouvelle position aléatoire
+      await sleep(hideFor);
+      pos.x = MARGIN + Math.random() * (W - SIZE - MARGIN * 2);
+      pos.y = MARGIN + Math.random() * (H - SIZE - MARGIN * 2);
+      applyTransform();
+
+      // Réapparaît en grossissant
+      await animateScale(1, 450);
+    };
+
     const doIdle = async (idle, duration) => {
       const base = currentScale;
       switch (idle) {
@@ -314,6 +340,9 @@ const LoupeAnimet = () => {
         case "rotate":
           await doRotate(duration);
           break;
+        case "teleport":
+          await doTeleport();
+          break;
         default:
           await sleep(duration);
           break;
@@ -322,10 +351,13 @@ const LoupeAnimet = () => {
 
     const EDGE_MARGIN = 60;
     const isNearEdge = () => {
-      const W = getW(), H = getH();
+      const W = getW(),
+        H = getH();
       return (
-        pos.x < EDGE_MARGIN || pos.x > W - SIZE - EDGE_MARGIN ||
-        pos.y < EDGE_MARGIN || pos.y > H - SIZE - EDGE_MARGIN
+        pos.x < EDGE_MARGIN ||
+        pos.x > W - SIZE - EDGE_MARGIN ||
+        pos.y < EDGE_MARGIN ||
+        pos.y > H - SIZE - EDGE_MARGIN
       );
     };
 
@@ -334,12 +366,15 @@ const LoupeAnimet = () => {
     const run = async () => {
       while (!cancelled) {
         const seq = SEQUENCES[seqIndex % SEQUENCES.length];
-        const W = getW(), H = getH();
+        const W = getW(),
+          H = getH();
         const targetX = clamp(pos.x + seq.dx * W, MARGIN, W - SIZE - MARGIN);
         const targetY = clamp(pos.y + seq.dy * H, MARGIN, H - SIZE - MARGIN);
 
         await moveTo(targetX, targetY, seq.scale, seq.moveDuration);
-        const idle = isNearEdge() ? 'none' : seq.idle;
+        // téléport toujours autorisé, seules les animations visuelles sont supprimées près des bords
+        const idle =
+          isNearEdge() && seq.idle !== "teleport" ? "none" : seq.idle;
         await doIdle(idle, seq.pauseDuration);
         seqIndex++;
       }
