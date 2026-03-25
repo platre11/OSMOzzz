@@ -38,8 +38,10 @@ const NavInner = styled.div`
   display: flex; align-items: center; justify-content: space-between;
 `
 const Logo = styled.span`
-  font-size: 17px; font-weight: 800; color: var(--accent);
+  font-size: 17px; font-weight: 800;
   letter-spacing: -0.03em;
+  color: #fff;
+
 `
 const NavRight = styled.div`
   display: flex; gap: 12px; align-items: center;
@@ -306,13 +308,13 @@ export default function HomePage() {
         </HeroBgSvg>
         <NavBar>
           <NavInner>
-            <Logo>OSMOzzz</Logo>
+            <Logo>OSMO<span>zzz</span></Logo>
             <NavRight>
               <LangSwitcher>
                 <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
                 <LangBtn $active={lang === 'fr'} onClick={() => setLang('fr')}>FR</LangBtn>
               </LangSwitcher>
-              <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
+              <BtnGhost href="https://github.com/platre11/OSMO<span>zzz</span>" target="_blank" rel="noreferrer">
                 <GithubIcon />
                 {t('navGithub')}
               </BtnGhost>
@@ -328,7 +330,7 @@ export default function HomePage() {
           <HeroBlock />
           <HeroSub>{t('heroSub')}</HeroSub>
           <HeroActions>
-            <BtnDownload href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg">
+            <BtnDownload href="https://github.com/platre11/OSMO<span>zzz</span>/releases/latest/download/osmozzz.pkg">
               <DownloadIcon />
               {t('heroDownload')}
             </BtnDownload>
@@ -436,7 +438,7 @@ export default function HomePage() {
             <H2>{t('ctaTitle')}</H2>
             <SectionSub>{t('ctaSub')}</SectionSub>
             <BtnDownload
-              href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg"
+              href="https://github.com/platre11/OSMO<span>zzz</span>/releases/latest/download/osmozzz.pkg"
               style={{ margin: '32px auto 0', display: 'inline-flex' }}
             >
               <DownloadIcon />
@@ -444,7 +446,7 @@ export default function HomePage() {
             </BtnDownload>
             <br />
             <BtnGhost
-              href="https://github.com/platre11/OSMOzzz"
+              href="https://github.com/platre11/OSMO<span>zzz</span>"
               target="_blank"
               rel="noreferrer"
               style={{ marginTop: '12px', display: 'inline-flex' }}
@@ -458,7 +460,7 @@ export default function HomePage() {
       {/* FOOTER */}
       <FooterEl>
         <FooterInner>
-          <Logo style={{ fontSize: '14px' }}>OSMOzzz</Logo>
+          <Logo style={{ fontSize: '14px' }}>OSMO<span>zzz</span></Logo>
           <span style={{ color: '#4b5563', fontSize: '13px' }}>{t('footerLicense')}</span>
           <FooterLink href="https://github.com/platre11/osmozzz" target="_blank" rel="noreferrer">
             GitHub →

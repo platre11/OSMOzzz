@@ -114,7 +114,7 @@ const growRight = keyframes`
 const ContainerLine = styled.div<{ $slide: boolean }>`
   position: absolute;
   top: 100px;
-  left: 50px;
+  left: 150px;
   width: 0;
   height: 150px;
   border-right: 1px dashed white;
@@ -158,7 +158,7 @@ const Caption = styled.div<{ $visible: boolean }>`
 
 const CaptionLabel = styled.p`
   font-size: 13px;
-  color: #e8eaf0;
+  color: rgba(232, 234, 240, 0.35);
   line-height: 1.6;
   font-weight: 400;
   margin: 0;
