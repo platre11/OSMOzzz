@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import styled, { createGlobalStyle } from 'styled-components'
+import styled, { createGlobalStyle, keyframes, css } from 'styled-components'
 import { useLang } from '../context/LanguageContext'
 import HeroBlock from './HeroBlock'
 import ShieldRadar from './ShieldRadar'
+import CompareSnake from './CompareSnake'
 
 // ── Global ────────────────────────────────────────────────────────────────────
 
@@ -165,42 +166,93 @@ const VisionLead = styled.p`
   margin-top: 24px;
 `
 
+// ── Comparison keyframes ──────────────────────────────────────────────────────
+
+const dotPulse = keyframes`
+  0%, 100% { box-shadow: 0 0 6px rgba(91,94,244,.7), 0 0 0 0 rgba(91,94,244,.4); }
+  50%       { box-shadow: 0 0 10px rgba(91,94,244,1), 0 0 0 6px rgba(91,94,244,0); }
+`
+const rowFadeIn = keyframes`
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+`
+
 // ── Comparison ────────────────────────────────────────────────────────────────
 
-const CompareGrid = styled.div`
-  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
-  @media (max-width: 640px) { grid-template-columns: 1fr; }
+const CompareTable = styled.div`
+  border-radius: 16px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.07);
 `
-const CompareCol = styled.div<{ $bad?: boolean }>`
-  border-radius: 16px; padding: 32px;
-  border: 1px solid ${p => p.$bad ? 'rgba(239,68,68,.2)' : 'rgba(22,163,74,.2)'};
-  background: ${p => p.$bad ? 'rgba(239,68,68,.04)' : 'rgba(22,163,74,.04)'};
+const CompareHeaderRow = styled.div`
+  display: grid; grid-template-columns: 1fr 1fr;
 `
-const CompareBadge = styled.span<{ $bad?: boolean }>`
-  display: inline-block;
-  font-size: 12px; font-weight: 700;
-  padding: 5px 14px; border-radius: 99px;
-  letter-spacing: 0.02em;
-  background: ${p => p.$bad ? 'rgba(239,68,68,.12)' : 'rgba(22,163,74,.12)'};
-  color: ${p => p.$bad ? '#f87171' : '#4ade80'};
+const CompareHeaderBad = styled.div`
+  padding: 20px 28px;
+  border-right: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.02);
+  display: flex; align-items: center; gap: 10px;
 `
-const CompareList = styled.ul`
-  list-style: none; display: flex; flex-direction: column; gap: 14px; margin-top: 24px;
+const CompareHeaderGood = styled.div`
+  padding: 20px 28px;
+  background: rgba(91,94,244,.07);
+  display: flex; align-items: center; gap: 10px;
 `
-const CompareItem = styled.li<{ $bad?: boolean }>`
+const CompareHeaderLabel = styled.span<{ $good?: boolean }>`
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: ${p => p.$good ? '#a5b4fc' : 'rgba(107,114,128,.7)'};
+`
+const CompareHeaderDot = styled.span<{ $good?: boolean }>`
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: ${p => p.$good ? '#5b5ef4' : 'rgba(107,114,128,.4)'};
+  ${p => p.$good && css`animation: ${dotPulse} 2s ease-in-out infinite;`}
+`
+const CompareBody = styled.div`
+  display: grid; grid-template-columns: 1fr 1fr;
+`
+const CompareBadCol = styled.div`
+  border-right: 1px solid rgba(255,255,255,.05);
+`
+const CompareGoodCol = styled.div``
+const CompareRow = styled.div<{ $index?: number }>`
+  border-top: 1px solid rgba(255,255,255,.05);
+  animation: ${rowFadeIn} .4s ease both;
+  animation-delay: ${p => `${(p.$index ?? 0) * 80}ms`};
+  &:hover { background-color: rgba(255,255,255,.015); }
+`
+const CompareCellBad = styled.div`
+  padding: 20px 28px;
   display: flex; align-items: flex-start; gap: 12px;
-  font-size: 14px; line-height: 1.55; color: var(--muted);
+  font-size: 13.5px; line-height: 1.6; color: rgba(107,114,128,.7);
 `
-const CompareIcon = styled.span<{ $bad?: boolean }>`
-  font-size: 13px; font-weight: 800; flex-shrink: 0; margin-top: 1px;
-  color: ${p => p.$bad ? '#f87171' : '#4ade80'};
+const CompareCellGood = styled.div`
+  padding: 20px 28px;
+  display: flex; align-items: flex-start; gap: 12px;
+  font-size: 13.5px; line-height: 1.6; color: #c8cdd8;
+`
+const CellIcon = styled.span<{ $good?: boolean }>`
+  flex-shrink: 0; margin-top: 2px;
+  font-size: 11px; font-weight: 900;
+  color: ${p => p.$good ? '#4ade80' : 'rgba(239,68,68,.5)'};
 `
 const CompareConclusion = styled.div`
-  margin-top: 40px; text-align: center; padding: 28px 32px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(91,94,244,.08), rgba(22,163,74,.06));
+  margin-top: 16px; padding: 32px 40px;
+  border-radius: 16px; position: relative; overflow: hidden;
+  background: #0d0e18;
   border: 1px solid rgba(91,94,244,.2);
-  p { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+  display: flex; align-items: center; justify-content: center;
+  &::before {
+    content: ''; position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 500px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(91,94,244,.6), transparent);
+  }
+  &::after {
+    content: ''; position: absolute;
+    top: -80px; left: 50%; transform: translateX(-50%);
+    width: 400px; height: 160px;
+    background: radial-gradient(ellipse, rgba(91,94,244,.12) 0%, transparent 70%);
+  }
+  p { font-size: 19px; font-weight: 700; color: #fff; letter-spacing: -0.02em; position: relative; z-index: 1; }
 `
 
 // ── Sources ───────────────────────────────────────────────────────────────────
@@ -361,46 +413,71 @@ export default function HomePage() {
       </Section>
 
       {/* COMPARISON */}
-      <Section >
+      <Section>
         <Container>
-          <H2>{t('compareTitle')}</H2>
-          <SectionSub>{t('compareSub')}</SectionSub>
-          <CompareGrid>
-            <CompareCol $bad>
-              <CompareBadge $bad>{t('compareWithoutBadge')}</CompareBadge>
-              <CompareList>
-                {([
-                  t('compareWithout1'),
-                  t('compareWithout2'),
-                  t('compareWithout3'),
-                  t('compareWithout4'),
-                  t('compareWithout5'),
-                ]).map((item, i) => (
-                  <CompareItem key={i} $bad>
-                    <CompareIcon $bad>✗</CompareIcon>
-                    <span>{item}</span>
-                  </CompareItem>
+          <H2>
+            {t('compareTitle').split(/\s+vs\s+/i)[0]}{' '}
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '0.45em', fontWeight: 800, letterSpacing: '0.08em',
+              padding: '3px 10px', borderRadius: '6px',
+              position: 'relative', overflow: 'hidden',
+              border: 'none',
+              verticalAlign: 'middle', margin: '0 6px', top: '-3px',
+              color: '#fff',
+            }}>
+              {/* angle bas-gauche rouge */}
+              <span style={{ position: 'absolute', bottom: 0, left: 0, width: 8, height: 8, borderBottom: '1.5px solid rgba(239,68,68,.7)', borderLeft: '1.5px solid rgba(239,68,68,.7)' }} />
+              {/* angle haut-droite vert */}
+              <span style={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, borderTop: '1.5px solid rgba(34,197,94,.7)', borderRight: '1.5px solid rgba(34,197,94,.7)' }} />
+              <span style={{ position: 'relative', zIndex: 1 }}>VS</span>
+            </span>{' '}
+            {t('compareTitle').split(/\s+vs\s+/i)[1]}
+          </H2>
+          <SectionSub>
+            {t('compareSub').replace(/[—–]\s*.+$/, '— ')}
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              {t('compareSub').match(/[—–]\s*(.+)$/)?.[1]}
+              <svg viewBox="0 0 160 12" style={{ position: 'absolute', bottom: '-6px', left: 0, width: '100%', height: '10px', overflow: 'visible', pointerEvents: 'none' }}>
+                <path d="M 0 9 Q 80 2 160 6" fill="none" stroke="rgba(239,68,68,.9)" strokeWidth="1.2" strokeLinecap="round" />
+                <path d="M 60 13 Q 120 7 160 10" fill="none" stroke="rgba(239,68,68,.65)" strokeWidth="1" strokeLinecap="round" />
+              </svg>
+            </span>
+          </SectionSub>
+          <CompareTable>
+            <CompareHeaderRow>
+              <CompareHeaderBad>
+                <CompareHeaderDot />
+                <CompareHeaderLabel>{t('compareWithoutBadge').replace(/\s*\S+$/, '').trim()}</CompareHeaderLabel>
+              </CompareHeaderBad>
+              <CompareHeaderGood>
+                <CompareHeaderDot $good />
+                <CompareHeaderLabel $good>{t('compareWithBadge')}</CompareHeaderLabel>
+              </CompareHeaderGood>
+            </CompareHeaderRow>
+            <CompareBody>
+              <CompareBadCol>
+                {[1,2,3,4,5].map(i => (
+                  <CompareRow key={i} $index={i}>
+                    <CompareCellBad>
+                      <CellIcon>✕</CellIcon>
+                      <span>{t(`compareWithout${i}` as any)}</span>
+                    </CompareCellBad>
+                  </CompareRow>
                 ))}
-              </CompareList>
-            </CompareCol>
-            <CompareCol>
-              <CompareBadge>{t('compareWithBadge')}</CompareBadge>
-              <CompareList>
-                {([
-                  t('compareWith1'),
-                  t('compareWith2'),
-                  t('compareWith3'),
-                  t('compareWith4'),
-                  t('compareWith5'),
-                ]).map((item, i) => (
-                  <CompareItem key={i}>
-                    <CompareIcon>✓</CompareIcon>
-                    <span>{item}</span>
-                  </CompareItem>
+              </CompareBadCol>
+              <CompareSnake>
+                {[1,2,3,4,5].map(i => (
+                  <CompareRow key={i} $index={i} data-snake-row>
+                    <CompareCellGood>
+                      <CellIcon $good>✓</CellIcon>
+                      <span>{t(`compareWith${i}` as any)}</span>
+                    </CompareCellGood>
+                  </CompareRow>
                 ))}
-              </CompareList>
-            </CompareCol>
-          </CompareGrid>
+              </CompareSnake>
+            </CompareBody>
+          </CompareTable>
           <CompareConclusion>
             <p>{t('compareConclusion')}</p>
           </CompareConclusion>
