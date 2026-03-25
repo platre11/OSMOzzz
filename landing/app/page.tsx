@@ -485,7 +485,17 @@ export default function HomePage() {
       </Section>
 
       {/* SOURCES */}
-      <Section $dark>
+      <Section style={{ position: 'relative', overflow: 'hidden' }}>
+        {/* Pill background */}
+        <div style={{
+          position: 'absolute',
+          top: '50%', left: '13%',
+          transform: 'translateY(-50%)',
+          width: '100%', height: '85%',
+          borderRadius: '999px 0 0 999px',
+          background: 'linear-gradient(90deg, rgba(91,94,244,.08) 0%, rgba(91,94,244,.03) 60%, transparent 100%)',
+          pointerEvents: 'none',
+        }} />
         <Container>
           <H2>{t('sourcesTitle')}</H2>
           <SectionSub>{t('sourcesSub')}</SectionSub>

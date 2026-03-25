@@ -327,7 +327,7 @@ export default function HeroBlock() {
       </ContainerLine>
 
       <CanvasWrapper $visible={phase} $top={canvasTop} $left={canvasLeft} ref={canvasRef} />
-      <LoupeAnimet />
+      {phase && <LoupeAnimet />}
 
       <Caption $visible={showCaption}>
         <Label>OSMOzzz</Label>
