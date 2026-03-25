@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import styled, { createGlobalStyle } from 'styled-components'
 import { useLang } from '../context/LanguageContext'
 import HeroBlock from './HeroBlock'
+import ShieldRadar from './ShieldRadar'
 
 // ── Global ────────────────────────────────────────────────────────────────────
 
@@ -149,10 +150,15 @@ const SectionSub = styled.p`
 
 // ── Vision ────────────────────────────────────────────────────────────────────
 
+const VisionLayout = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 72px;
+  @media (max-width: 760px) { flex-direction: column; gap: 40px; }
+`
 const VisionIntro = styled.div`
-  max-width: 720px;
-  margin: 0 auto;
-  text-align: center;
+  flex: 1;
+  min-width: 0;
 `
 const VisionLead = styled.p`
   font-size: 16px; color: var(--muted); line-height: 1.9;
@@ -342,12 +348,15 @@ export default function HomePage() {
       {/* VISION */}
       <Section $dark>
         <Container>
-          <VisionIntro>
-            <H2>{t('visionTitle')}</H2>
-            {t('visionBody').split('\n\n').map((p, i) => (
-              <VisionLead key={i}>{p}</VisionLead>
-            ))}
-          </VisionIntro>
+          <VisionLayout>
+            <VisionIntro>
+              <H2>{t('visionTitle')}</H2>
+              {t('visionBody').split('\n\n').map((p, i) => (
+                <VisionLead key={i}>{p}</VisionLead>
+              ))}
+            </VisionIntro>
+            <ShieldRadar />
+          </VisionLayout>
         </Container>
       </Section>
 
