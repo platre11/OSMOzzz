@@ -346,7 +346,7 @@ export default function HomePage() {
       </HeroWrapper>
 
       {/* VISION */}
-      <Section $dark>
+      <Section >
         <Container>
           <VisionLayout>
             <VisionIntro>
@@ -361,7 +361,7 @@ export default function HomePage() {
       </Section>
 
       {/* COMPARISON */}
-      <Section>
+      <Section >
         <Container>
           <H2>{t('compareTitle')}</H2>
           <SectionSub>{t('compareSub')}</SectionSub>
