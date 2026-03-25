@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import styled, { createGlobalStyle } from 'styled-components'
 import { useLang } from '../context/LanguageContext'
 import HeroBlock from './HeroBlock'
+import LoupeAnimet from './LoupeAnimet'
 
 // ── Global ────────────────────────────────────────────────────────────────────
 
@@ -291,6 +292,7 @@ export default function HomePage() {
   return (
     <>
       <GlobalStyle />
+      <LoupeAnimet />
 
       {/* HERO + NAV */}
       <HeroWrapper>

@@ -28,9 +28,99 @@ osmozzz-harvester → toutes les sources de données (20 harvesters + FSEvents w
 osmozzz-embedder  → ONNX + LanceDB (OnnxEmbedder, VectorStore, Vault, Blacklist)
 osmozzz-bridge    → serveur UDS legacy (stdin/stdout bridge, peu utilisé)
 osmozzz-api       → REST API + dashboard (Axum) + ActionQueue + Executor
-osmozzz-cli       → CLI (clap) + serveur MCP + daemon
+osmozzz-cli       → CLI (clap) + serveur MCP + daemon + MCP proxies
 osmozzz-p2p       → réseau P2P mesh (iroh QUIC, identité Ed25519, permissions, audit)
 ```
+
+---
+
+## Architecture Duale — Harvesters + MCP Proxies (FONDAMENTAL)
+
+**OSMOzzz est TOUJOURS l'intermédiaire unique entre Claude et toutes les sources de données.**
+Claude ne parle jamais directement à Notion, Jira, Supabase, etc. Tout passe par OSMOzzz.
+
+Il existe deux systèmes complémentaires dans OSMOzzz :
+
+### 1. Harvesters Rust — Indexation locale
+
+Les harvesters appellent les APIs cloud directement via `reqwest`, transforment les données en `Document` et les indexent dans LanceDB (ONNX).
+
+```
+API cloud → harvester Rust (reqwest) → Vec<Document> → Vault (LanceDB) → search_* tools
+```
+
+Utilisés pour : **recherche sémantique** dans les données passées.
+
+### 2. MCP Proxies — Subprocesses MCP tiers
+
+Pour les **actions en temps réel** (créer une issue, envoyer un message, exécuter du SQL...), OSMOzzz lance des **subprocesses MCP via `bunx`** (Bun). Ces subprocesses sont des packages npm MCP officiels, proxifiés par OSMOzzz en JSON-RPC stdin/stdout.
+
+```
+Claude → OSMOzzz MCP (Rust) → subprocess bunx @pkg/mcp-server → API cloud
+```
+
+**Fichiers** : `crates/osmozzz-cli/src/mcp_proxy/`
+
+| Fichier | Package npm | Config |
+|---------|------------|--------|
+| `jira.rs` | `@aashari/mcp-server-atlassian-jira` | `~/.osmozzz/jira.toml` |
+| `github.rs` | `@modelcontextprotocol/server-github` | `~/.osmozzz/github.toml` |
+| `notion.rs` | `@notionhq/notion-mcp-server` | `~/.osmozzz/notion.toml` |
+| `slack.rs` | `@modelcontextprotocol/server-slack` | `~/.osmozzz/slack.toml` |
+| `linear.rs` | `@tacticlaunch/mcp-linear` | `~/.osmozzz/linear.toml` |
+| `supabase.rs` | `@supabase/mcp-server-supabase` | `~/.osmozzz/supabase.toml` |
+
+**Mécanisme** (`McpSubprocess`) :
+- Vérifie/installe Bun automatiquement (`~/.bun/bin/bun`)
+- Lance `bunx x --bun <package>` avec les env vars du `.toml`
+- Handshake JSON-RPC 2.0 (`initialize` + `notifications/initialized`)
+- Découverte automatique des tools (`tools/list`)
+- Proxifie les appels de Claude vers le subprocess (`tools/call`)
+- Si le `.toml` est absent → subprocess non démarré silencieusement
+
+**Démarrage** : `start_all_proxies()` dans `mod.rs` → appelé au lancement de `osmozzz mcp`.
+
+### Tableau comparatif
+
+| | Harvester (Rust) | MCP Proxy (Subprocess) |
+|---|---|---|
+| **Rôle** | Indexation (passé) | Actions temps réel |
+| **Transport** | reqwest HTTP | bunx subprocess JSON-RPC |
+| **Output** | Vec<Document> → LanceDB | Réponse JSON → Claude |
+| **Tools** | `search_*` dans mcp.rs | Tools natifs du package npm |
+| **Dépendance** | Cargo (reqwest) | Bun runtime (auto-installé) |
+| **Config** | `~/.osmozzz/*.toml` | `~/.osmozzz/*.toml` (même fichier) |
+
+### Supabase MCP Proxy — Détail
+
+**Package** : `@supabase/mcp-server-supabase` (officiel Supabase)
+**Config** : `~/.osmozzz/supabase.toml`
+
+```toml
+access_token = "sbp_xxxx..."   # Personal Access Token (supabase.com/dashboard/account/tokens)
+project_id   = "xxxx"          # optionnel — restreint à un projet spécifique
+```
+
+**~38 tools disponibles** répartis en groupes :
+
+| Groupe | Tools principaux |
+|--------|-----------------|
+| Base de données | `execute_sql`, `list_tables`, `list_extensions`, `apply_migration` |
+| Debugging | `get_logs` (API, PostgreSQL, Edge Functions, Auth, Storage), `get_advisors` |
+| Développement | `get_project_url`, `get_publishable_keys`, `generate_typescript_types` |
+| Edge Functions | `list_edge_functions`, `deploy_edge_function` |
+| Storage | `list_storage_buckets`, `get_storage_config` |
+| Branching | `create_branch`, `list_branches`, `merge_branch`, `reset_branch` |
+| Compte | `list_projects`, `create_project`, `pause_project`, `get_cost` |
+| Docs | `search_docs` |
+
+### Pattern pour ajouter un nouveau MCP Proxy
+
+1. Créer `crates/osmozzz-cli/src/mcp_proxy/nom.rs` (charger config TOML + appeler `McpSubprocess::start()`)
+2. Déclarer `pub mod nom;` dans `mod.rs`
+3. Ajouter `if let Some(p) = nom::start() { proxies.push(p); }` dans `start_all_proxies()`
+4. Ajouter la route `POST /api/config/nom` dans `routes.rs`
+5. Ajouter card dans le dashboard (ConfigPage)
 
 ---
 
