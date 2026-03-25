@@ -43,6 +43,7 @@ osmozzz-p2p       → réseau P2P mesh (iroh QUIC, identité Ed25519, permission
 Notion, Github, Linear, Jira, Slack, Trello, Todoist, Gitlab, Airtable, Obsidian, Contacts, Arc`
 
 **Document** :
+
 ```
 id            : String (UUID v4)
 source        : SourceType
@@ -77,6 +78,7 @@ trait Embedder {
 **ActionStatus** : `Pending | Approved | Rejected | Expired`
 
 **ActionRequest** :
+
 ```
 id             : String (UUID v4)
 tool           : String (nom du tool MCP ex: "act_send_email")
@@ -92,6 +94,7 @@ mcp_proxy      : Option<serde_json::Value>
 ### Système de confidentialité (`src/filter/`)
 
 **PrivacyConfig** (TOML à `~/.osmozzz/privacy.toml`) :
+
 ```toml
 credit_card = true   # masque les numéros CB
 iban        = true   # masque les IBAN
@@ -108,20 +111,21 @@ Le filtre s'applique sur le contenu **avant** envoi aux peers P2P.
 
 ### Sources locales macOS
 
-| Harvester | Source type | Sync daemon | Méthode |
-|-----------|-------------|-------------|---------|
-| `chrome.rs` | `chrome` | Manuel | Shadow copy SQLite `~/Library/Application Support/Google/Chrome/Default/History` |
-| `safari.rs` | `safari` | 60s | Shadow copy SQLite `~/Library/Safari/History.db` |
-| `imessage.rs` | `imessage` | 60s | Shadow copy SQLite `~/Library/Messages/chat.db` + Contacts |
-| `notes.rs` | `notes` | 60s | AppleScript bridge |
-| `calendar.rs` | `calendar` | 60s | AppleScript bridge |
-| `terminal.rs` | `terminal` | 60s | `~/.zsh_history` |
-| `contacts.rs` | `contacts` | 10min | macOS Contacts DB |
-| `arc.rs` | `arc` | 60s | Arc browser history SQLite |
+| Harvester     | Source type | Sync daemon | Méthode                                                                          |
+| ------------- | ----------- | ----------- | -------------------------------------------------------------------------------- |
+| `chrome.rs`   | `chrome`    | Manuel      | Shadow copy SQLite `~/Library/Application Support/Google/Chrome/Default/History` |
+| `safari.rs`   | `safari`    | 60s         | Shadow copy SQLite `~/Library/Safari/History.db`                                 |
+| `imessage.rs` | `imessage`  | 60s         | Shadow copy SQLite `~/Library/Messages/chat.db` + Contacts                       |
+| `notes.rs`    | `notes`     | 60s         | AppleScript bridge                                                               |
+| `calendar.rs` | `calendar`  | 60s         | AppleScript bridge                                                               |
+| `terminal.rs` | `terminal`  | 60s         | `~/.zsh_history`                                                                 |
+| `contacts.rs` | `contacts`  | 10min       | macOS Contacts DB                                                                |
+| `arc.rs`      | `arc`       | 60s         | Arc browser history SQLite                                                       |
 
 ### Sources fichiers locaux
 
 **`files.rs` — FileHarvester** (source type : `file`, `markdown`, `pdf`) :
+
 - Répertoires scannés : `~/Desktop`, `~/Documents`, `~/Downloads`
 - Extensions texte (8) : `md, mdx, txt, rst, org, tex, adoc, csv`
 - Extensions image ignorées (17) : `png, jpg, jpeg, gif, svg, webp, ico, bmp, tiff, heic, heif, avif, raw, cr2, nef, arw`
@@ -130,25 +134,26 @@ Le filtre s'applique sur le contenu **avant** envoi aux peers P2P.
 - Dirs ignorés (24) : `node_modules, .git, target, __pycache__, .cargo, dist, build, .next, .nuxt, vendor, .build, Pods, DerivedData, .gradle, .idea, venv, .venv, env, .tox, .osmozzz, Library, Temp, obj, Logs`
 
 **`watcher.rs` — FSEvents monitor** :
+
 - `DEBOUNCE_MS=500`, `STARTUP_GRACE_SECS=15` (ignore les events au démarrage)
 - Émet `WatchEvent::Upsert(Vec<Document>)` sur création/modification
 - Scrute : `~/Desktop`, `~/Documents`
 
 ### Sources cloud (nécessitent un fichier `~/.osmozzz/*.toml`)
 
-| Harvester | Source type | Config | Sync daemon | API |
-|-----------|-------------|--------|-------------|-----|
-| `gmail.rs` | `email` | `gmail.toml` | 15min | IMAP imap.gmail.com:993 |
-| `notion.rs` | `notion` | `notion.toml` | 60min | REST api.notion.com |
-| `github.rs` | `github` | `github.toml` | 60min | REST api.github.com v3 |
-| `linear.rs` | `linear` | `linear.toml` | 60min | GraphQL api.linear.app |
-| `jira.rs` | `jira` | `jira.toml` | 60min | REST Atlassian |
-| `slack.rs` | `slack` | `slack.toml` | 30min | REST slack.com/api |
-| `trello.rs` | `trello` | `trello.toml` | 60min | REST api.trello.com |
-| `todoist.rs` | `todoist` | `todoist.toml` | 15min | REST API v2 |
-| `gitlab.rs` | `gitlab` | `gitlab.toml` | 60min | REST (défaut: gitlab.com) |
-| `airtable.rs` | `airtable` | `airtable.toml` | 60min | REST api.airtable.com |
-| `obsidian.rs` | `obsidian` | `obsidian.toml` | 5min | Filesystem vault local |
+| Harvester     | Source type | Config          | Sync daemon | API                       |
+| ------------- | ----------- | --------------- | ----------- | ------------------------- |
+| `gmail.rs`    | `email`     | `gmail.toml`    | 15min       | IMAP imap.gmail.com:993   |
+| `notion.rs`   | `notion`    | `notion.toml`   | 60min       | REST api.notion.com       |
+| `github.rs`   | `github`    | `github.toml`   | 60min       | REST api.github.com v3    |
+| `linear.rs`   | `linear`    | `linear.toml`   | 60min       | GraphQL api.linear.app    |
+| `jira.rs`     | `jira`      | `jira.toml`     | 60min       | REST Atlassian            |
+| `slack.rs`    | `slack`     | `slack.toml`    | 30min       | REST slack.com/api        |
+| `trello.rs`   | `trello`    | `trello.toml`   | 60min       | REST api.trello.com       |
+| `todoist.rs`  | `todoist`   | `todoist.toml`  | 15min       | REST API v2               |
+| `gitlab.rs`   | `gitlab`    | `gitlab.toml`   | 60min       | REST (défaut: gitlab.com) |
+| `airtable.rs` | `airtable`  | `airtable.toml` | 60min       | REST api.airtable.com     |
+| `obsidian.rs` | `obsidian`  | `obsidian.toml` | 5min        | Filesystem vault local    |
 
 ### Format des fichiers de config cloud
 
@@ -204,6 +209,7 @@ vault_path = "~/Documents/MyVault"
 ### Vault (`src/vault.rs`)
 
 Interface principale :
+
 ```rust
 Vault::open(model_path, tokenizer_path, db_path) -> Result<Vault>
 vault.embed_raw(text) -> Result<Vec<f32>>
@@ -306,6 +312,7 @@ Log append-only de **tous les appels MCP** reçus (quel tool, quelle requête, c
 ```
 
 Champs :
+
 - `ts` — timestamp Unix
 - `tool` — nom du tool MCP appelé (ex: `search_memory`, `search_emails`)
 - `query` — requête envoyée
@@ -342,6 +349,7 @@ pub struct AppState {
 ### ActionQueue (`src/action_queue.rs`)
 
 Thread-safe `VecDeque` + canal broadcast SSE :
+
 - `push(action)` — ajoute + notifie les abonnés SSE
 - `pending()` — filtre Pending, marque Expired si > 5min
 - `approve(id)` / `reject(id)` — met à jour le statut + notifie
@@ -350,28 +358,29 @@ Thread-safe `VecDeque` + canal broadcast SSE :
 
 ### Executor (`src/executor.rs`) — 16 actions supportées
 
-| Tool | Action |
-|------|--------|
-| `act_send_email` | SMTP via Gmail config (lettre) |
-| `act_create_notion_page` | Notion API |
-| `act_send_slack_message` | Slack API |
-| `act_create_linear_issue` | Linear API |
-| `act_create_todoist_task` | Todoist API |
-| `act_create_github_issue` | GitHub API |
-| `act_create_trello_card` | Trello API |
-| `act_create_gitlab_issue` | GitLab API |
-| `act_send_imessage` | AppleScript bridge |
-| `act_create_calendar_event` | AppleScript |
-| `act_delete_calendar_event` | AppleScript |
-| `act_delete_note` | AppleScript |
-| `act_create_folder` | Filesystem |
-| `act_rename_file` | Filesystem |
-| `act_delete_file` | Filesystem |
-| `act_run_command` | Shell (bash -c) |
+| Tool                        | Action                         |
+| --------------------------- | ------------------------------ |
+| `act_send_email`            | SMTP via Gmail config (lettre) |
+| `act_create_notion_page`    | Notion API                     |
+| `act_send_slack_message`    | Slack API                      |
+| `act_create_linear_issue`   | Linear API                     |
+| `act_create_todoist_task`   | Todoist API                    |
+| `act_create_github_issue`   | GitHub API                     |
+| `act_create_trello_card`    | Trello API                     |
+| `act_create_gitlab_issue`   | GitLab API                     |
+| `act_send_imessage`         | AppleScript bridge             |
+| `act_create_calendar_event` | AppleScript                    |
+| `act_delete_calendar_event` | AppleScript                    |
+| `act_delete_note`           | AppleScript                    |
+| `act_create_folder`         | Filesystem                     |
+| `act_rename_file`           | Filesystem                     |
+| `act_delete_file`           | Filesystem                     |
+| `act_run_command`           | Shell (bash -c)                |
 
 ### Routes REST (`src/routes.rs`)
 
 #### Statut & Recherche
+
 ```
 GET  /api/status                              → counts par source + métriques
 GET  /api/search?q=...&source=...&from=...&to=... → recherche groupée par source
@@ -380,6 +389,7 @@ GET  /api/config                              → état des connecteurs (configu
 ```
 
 #### Configuration des connecteurs (11)
+
 ```
 POST /api/config/gmail
 POST /api/config/notion
@@ -395,6 +405,7 @@ POST /api/config/obsidian
 ```
 
 #### Documents & Blacklist
+
 ```
 GET  /api/open?url=...                        → ouvre un fichier dans Finder/app
 GET  /api/messages/contacts                   → contacts iMessage
@@ -415,6 +426,7 @@ POST /api/aliases                             → créer/modifier alias
 ```
 
 #### Actions (workflow approbation)
+
 ```
 GET  /api/actions                             → toutes les actions (historique)
 GET  /api/actions/pending                     → actions en attente
@@ -430,6 +442,7 @@ GET  /api/audit                               → log d'audit
 ```
 
 #### Réseau P2P
+
 ```
 GET    /api/network/peers                     → peers connus + état connexion
 POST   /api/network/invite                    → générer lien d'invitation (base64 addr iroh)
@@ -464,6 +477,7 @@ osmozzz verify  --sig S --source S --url U --content C --ts T  # Proof of Contex
 ### Daemon (`src/commands/daemon.rs`)
 
 Séquence de démarrage :
+
 1. Copie des modèles ONNX vers `~/.osmozzz/models/`
 2. Ouverture du Vault (LanceDB + ONNX)
 3. Initialisation du nœud P2P iroh
@@ -533,7 +547,14 @@ PeerPermissions {
 ### Audit (`history.rs`)
 
 ```jsonl
-{"ts":1710000000,"peer_id":"aabb...","peer_name":"Thomas","query":"budget Q1","results_count":5,"blocked":false}
+{
+  "ts": 1710000000,
+  "peer_id": "aabb...",
+  "peer_name": "Thomas",
+  "query": "budget Q1",
+  "results_count": 5,
+  "blocked": false
+}
 ```
 
 ---
@@ -541,45 +562,49 @@ PeerPermissions {
 ## Les 25 tools MCP (`src/commands/mcp.rs`)
 
 ### Recherche sémantique
-| Tool | Paramètres | Description |
-|------|-----------|-------------|
+
+| Tool            | Paramètres    | Description                                     |
+| --------------- | ------------- | ----------------------------------------------- |
 | `search_memory` | query, limit? | Vectoriel ONNX blended (global + emails forcés) |
 
 ### Recherche par source (keyword exact)
-| Tool | Paramètres | Source |
-|------|-----------|--------|
-| `search_emails` | keyword, limit? | email |
-| `get_emails_by_date` | query?, limit? | email par période |
-| `read_email` | id | email (contenu complet par URL) |
-| `search_messages` | keyword, limit? | imessage |
-| `search_notes` | keyword, limit? | notes |
-| `search_terminal` | keyword, limit? | terminal |
-| `search_calendar` | keyword, limit? | calendar |
-| `get_upcoming_events` | limit? | calendar (prochains événements) |
-| `search_notion` | keyword, limit? | notion |
-| `search_github` | keyword, limit? | github |
-| `search_linear` | keyword, limit? | linear |
-| `search_jira` | keyword, limit? | jira |
-| `search_slack` | keyword, limit? | slack |
-| `search_trello` | keyword, limit? | trello |
-| `search_todoist` | keyword, limit? | todoist |
-| `search_gitlab` | keyword, limit? | gitlab |
-| `search_airtable` | keyword, limit? | airtable |
-| `search_obsidian` | keyword, limit? | obsidian |
+
+| Tool                  | Paramètres      | Source                          |
+| --------------------- | --------------- | ------------------------------- |
+| `search_emails`       | keyword, limit? | email                           |
+| `get_emails_by_date`  | query?, limit?  | email par période               |
+| `read_email`          | id              | email (contenu complet par URL) |
+| `search_messages`     | keyword, limit? | imessage                        |
+| `search_notes`        | keyword, limit? | notes                           |
+| `search_terminal`     | keyword, limit? | terminal                        |
+| `search_calendar`     | keyword, limit? | calendar                        |
+| `get_upcoming_events` | limit?          | calendar (prochains événements) |
+| `search_notion`       | keyword, limit? | notion                          |
+| `search_github`       | keyword, limit? | github                          |
+| `search_linear`       | keyword, limit? | linear                          |
+| `search_jira`         | keyword, limit? | jira                            |
+| `search_slack`        | keyword, limit? | slack                           |
+| `search_trello`       | keyword, limit? | trello                          |
+| `search_todoist`      | keyword, limit? | todoist                         |
+| `search_gitlab`       | keyword, limit? | gitlab                          |
+| `search_airtable`     | keyword, limit? | airtable                        |
+| `search_obsidian`     | keyword, limit? | obsidian                        |
 
 ### Filesystem
-| Tool | Paramètres | Description |
-|------|-----------|-------------|
-| `find_file` | name, limit? | recherche par nom/chemin |
-| `fetch_content` | path, query?, block_index?, offset?, length? | lire fichier + RAG scoring optionnel |
-| `get_recent_files` | hours? | fichiers récemment modifiés |
-| `list_directory` | path | lister un répertoire |
-| `index_files` | path | déclencher l'indexation |
+
+| Tool               | Paramètres                                   | Description                          |
+| ------------------ | -------------------------------------------- | ------------------------------------ |
+| `find_file`        | name, limit?                                 | recherche par nom/chemin             |
+| `fetch_content`    | path, query?, block_index?, offset?, length? | lire fichier + RAG scoring optionnel |
+| `get_recent_files` | hours?                                       | fichiers récemment modifiés          |
+| `list_directory`   | path                                         | lister un répertoire                 |
+| `index_files`      | path                                         | déclencher l'indexation              |
 
 ### Admin
-| Tool | Paramètres | Description |
-|------|-----------|-------------|
-| `get_status` | — | counts par source |
+
+| Tool         | Paramètres | Description       |
+| ------------ | ---------- | ----------------- |
+| `get_status` | —          | counts par source |
 
 ### Workflow action (approbation obligatoire)
 
@@ -591,21 +616,23 @@ Tout tool préfixé `act_` crée une `ActionRequest` → visible dans le dashboa
 
 Interface React embarquée dans le binaire (`include_dir!` macro dans `server.rs`).
 
-| Page | Route | Description |
-|------|-------|-------------|
-| **Statut** | `/` | Counts par source, métriques disk/RAM/vecteurs |
-| **Recherche** | `/search` | Recherche multi-source + filtres date + scope peer |
-| **Récents** | `/recent` | Documents récents par source, filtres |
-| **Configuration** | `/config` | Configuration des connecteurs cloud |
-| **Actions** | `/actions` | File d'approbation (SSE temps réel) |
-| **Réseau** | `/network` | Peers P2P, invitations, permissions, historique |
+| Page              | Route      | Description                                        |
+| ----------------- | ---------- | -------------------------------------------------- |
+| **Statut**        | `/`        | Counts par source, métriques disk/RAM/vecteurs     |
+| **Recherche**     | `/search`  | Recherche multi-source + filtres date + scope peer |
+| **Récents**       | `/recent`  | Documents récents par source, filtres              |
+| **Configuration** | `/config`  | Configuration des connecteurs cloud                |
+| **Actions**       | `/actions` | File d'approbation (SSE temps réel)                |
+| **Réseau**        | `/network` | Peers P2P, invitations, permissions, historique    |
 
 **Règles d'affichage des sources :**
+
 - Sources locales (10) : toujours présentes (Chrome, Safari, Email, iMessage, Notes, Calendar, Terminal, Fichiers, Contacts, Arc)
 - Sources cloud (10) : présentes seulement si le `.toml` de config existe
 - Sources P2P : affichées uniquement si peers connectés
 
 **Recherche avancée :**
+
 - Multi-terme AND : `qonto + style`
 - Filtre de périmètre : [Moi seulement | Tout le réseau | peer_name...]
 
@@ -623,6 +650,7 @@ OSMOZZZ_GMAIL_PASSWORD="app password"
 ```
 
 **Exemple de configuration (Claude Desktop)** (`~/Library/Application Support/Claude/claude_desktop_config.json`) :
+
 ```json
 {
   "mcpServers": {
@@ -654,6 +682,7 @@ export ORT_DYLIB_PATH=$(brew --prefix onnxruntime)/lib/libonnxruntime.dylib
 **Fichier** : `.github/workflows/release.yml`
 
 Le workflow se déclenche sur un tag `v*`. Il fait tout dans l'ordre :
+
 1. `brew install onnxruntime protobuf`
 2. Télécharge les modèles ONNX depuis HuggingFace directement (pas de script)
 3. `npm ci && npm run build` (dashboard)
@@ -662,12 +691,14 @@ Le workflow se déclenche sur un tag `v*`. Il fait tout dans l'ordre :
 6. Publie `osmozzz.pkg` sur GitHub Releases via `softprops/action-gh-release@v2`
 
 **Pour publier une release :**
+
 ```bash
 git tag v1.2.3
 git push --tags
 ```
 
 **Règles strictes :**
+
 - NE PAS créer de `scripts/release.sh` — le build PKG est inline dans le workflow
 - NE PAS modifier la structure `pkg-root/` — elle correspond au `postinstall`
 - `ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib` — chemin fixe sur les runners GitHub macOS
@@ -683,6 +714,7 @@ osmozzz daemon
 ```
 
 `build.sh` fait :
+
 1. `npm run build` **seulement si** `dashboard/src/` a changé depuis le dernier build
 2. `touch crates/osmozzz-api/src/server.rs` (force recompilation include_dir!)
 3. `cargo build --release -p osmozzz-cli` (incremental, ~30s si peu de changements)
@@ -699,6 +731,7 @@ osmozzz daemon
 ```
 
 **Important** :
+
 - Frontend changé → `npm run build` + `touch server.rs` requis
 - Rust seul changé → `./build.sh` suffit (skip npm automatiquement)
 - `cargo build` ≠ `cargo install` : le daemon utilise `~/.cargo/bin/osmozzz` (install)
@@ -768,17 +801,18 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 
 ## Sous-agents disponibles
 
-| Agent | CLAUDE.md | Domaine |
-|-------|-----------|---------|
-| Harvester Agent | `crates/osmozzz-harvester/CLAUDE.md` | Nouvelles sources de données |
-| MCP Tools Agent | `crates/osmozzz-cli/CLAUDE.md` | Interface IA (tools MCP) |
-| Storage Agent | `crates/osmozzz-embedder/CLAUDE.md` | LanceDB, recherche, embeddings |
+| Agent           | CLAUDE.md                            | Domaine                        |
+| --------------- | ------------------------------------ | ------------------------------ |
+| Harvester Agent | `crates/osmozzz-harvester/CLAUDE.md` | Nouvelles sources de données   |
+| MCP Tools Agent | `crates/osmozzz-cli/CLAUDE.md`       | Interface IA (tools MCP)       |
+| Storage Agent   | `crates/osmozzz-embedder/CLAUDE.md`  | LanceDB, recherche, embeddings |
 
 ---
 
 ## Roadmap
 
 ### Fait ✅
+
 - 20 harvesters (locaux + cloud + contacts + arc)
 - 25 tools MCP (search, filesystem, get_status, get_upcoming_events)
 - Dashboard 5 pages (Statut, Recherche, Récents, Config, Actions, Réseau)
@@ -799,8 +833,5 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 - Arc browser harvester
 - Recherche multi-terme AND (`+`)
 
-### À faire 🔲
-- Recherche hybride BM25 + vecteurs
-- Search MCP P2P tool (`search_network`)
-- Notifications badge dashboard (peer queries temps réel)
-- QR code invitation P2P
+http://localhost:5173/
+http://localhost:3000/

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import styled from 'styled-components'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -105,6 +106,19 @@ const Toggle = styled.button<{ $on: boolean }>`
   }
 `
 
+const CollapseBtn = styled.button`
+  background: none; border: none; cursor: pointer; padding: 4px;
+  color: #9ca3af; font-size: 10px; display: flex; align-items: center;
+  transition: color .15s; margin-left: 8px;
+  &:hover { color: #6b7280; }
+`
+
+const ChevronIcon = styled.span<{ $open: boolean }>`
+  display: inline-block;
+  transform: ${({ $open }) => $open ? 'rotate(90deg)' : 'rotate(0deg)'};
+  transition: transform .2s ease;
+`
+
 const DefaultTag = styled.span`
   font-size: 10px;
   font-weight: 500;
@@ -162,6 +176,7 @@ const RULES: RuleMeta[] = [
 
 export function PrivacyPanel() {
   const qc = useQueryClient()
+  const [open, setOpen] = useState(true)
 
   const { data: config } = useQuery({
     queryKey: ['privacy'],
@@ -192,11 +207,16 @@ export function PrivacyPanel() {
             <Subtitle>Ce qui est activé sera masqué dans les réponses de Claude. Tes données locales restent intactes.</Subtitle>
           </div>
         </HeaderLeft>
-        <Badge $count={activeCount}>
-          {activeCount} filtre{activeCount !== 1 ? 's' : ''} actif{activeCount !== 1 ? 's' : ''}
-        </Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Badge $count={activeCount}>
+            {activeCount} filtre{activeCount !== 1 ? 's' : ''} actif{activeCount !== 1 ? 's' : ''}
+          </Badge>
+          <CollapseBtn onClick={() => setOpen(v => !v)}>
+            <ChevronIcon $open={open}>▶</ChevronIcon>
+          </CollapseBtn>
+        </div>
       </Header>
-      <Body>
+      {open && <Body>
         {RULES.map(rule => (
           <Row key={rule.key}>
             <RowLeft>
@@ -214,7 +234,7 @@ export function PrivacyPanel() {
             />
           </Row>
         ))}
-      </Body>
+      </Body>}
     </Panel>
   )
 }

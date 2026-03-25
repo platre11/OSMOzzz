@@ -404,13 +404,19 @@ export const api = {
 
   // ─── Alias Engine ────────────────────────────────────────────────────────────
 
-  getAliases: async (): Promise<Array<{ real: string; alias: string }>> => {
+  getAliases: async (): Promise<{ aliases: Array<{ real: string; alias: string; alias_type?: string }>; types: string[] }> => {
     const r = await axios.get(`${BASE}/aliases`)
-    return r.data.data ?? []
+    const raw = r.data.data
+    // Nouveau format : { aliases: [...], types: [...] }
+    if (raw && !Array.isArray(raw) && Array.isArray(raw.aliases)) {
+      return { aliases: raw.aliases ?? [], types: raw.types ?? [] }
+    }
+    // Ancien format : tableau plat [{real, alias}]
+    return { aliases: Array.isArray(raw) ? raw : [], types: [] }
   },
 
-  saveAliases: async (aliases: Array<{ real: string; alias: string }>): Promise<void> => {
-    await axios.post(`${BASE}/aliases`, { aliases })
+  saveAliases: async (aliases: Array<{ real: string; alias: string; alias_type?: string }>, types: string[]): Promise<void> => {
+    await axios.post(`${BASE}/aliases`, { aliases, types })
   },
 
   saveSourceAccess: async (access: {

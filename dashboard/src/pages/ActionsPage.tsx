@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Zap, PlugZap, Shield, Ban } from 'lucide-react'
 import styled, { keyframes } from 'styled-components'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api } from '../api'
@@ -10,15 +11,35 @@ import BlacklistPanel from '../components/BlacklistPanel'
 
 const spin = keyframes`to { transform: rotate(360deg); }`
 
-const Page = styled.div`display: flex; flex-direction: column; gap: 32px;`
+const Layout = styled.div`display: flex; gap: 0; min-height: 0;`
 
-const PageTitle = styled.h1`font-size: 22px; font-weight: 700; color: #1a1d23; letter-spacing: -.02em;`
-
-const SectionLabel = styled.h2`
-  font-size: 11px; font-weight: 600; color: #9ca3af;
-  text-transform: uppercase; letter-spacing: .08em;
-  margin-bottom: -16px;
+const Sidebar = styled.nav`
+  width: 200px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  padding-right: 16px;
 `
+
+const SideNavItem = styled.button<{ $active: boolean }>`
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 12px; border-radius: 8px;
+  border: none; cursor: pointer; text-align: left;
+  font-size: 13px; font-weight: ${({ $active }) => $active ? '600' : '500'};
+  background: ${({ $active }) => $active ? '#ededff' : 'transparent'};
+  color: ${({ $active }) => $active ? '#5b5ef4' : '#6b7280'};
+  transition: all .15s;
+  &:hover { background: ${({ $active }) => $active ? '#ededff' : '#f3f4f6'}; color: ${({ $active }) => $active ? '#5b5ef4' : '#374151'}; }
+`
+
+const SideNavIcon = styled.span`width: 16px; height: 16px; display: flex; align-items: center; flex-shrink: 0;`
+
+const Content = styled.div`flex: 1; min-width: 0;`
+
+const ContentHeader = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+`
+
+const PageTitle = styled.h1`font-size: 18px; font-weight: 700; color: #1a1d23; letter-spacing: -.02em;`
 
 // ── Autorisations MCP ────────────────────────────────────────────────────────
 
@@ -127,11 +148,6 @@ const AliasInput = styled.input`
 const AliasAddBtn = styled.button`
   background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
   padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
-  &:hover { opacity: .88; } &:disabled { opacity: .4; cursor: default; }
-`
-const AliasSaveBtn = styled.button`
-  background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
-  padding: 8px 20px; font-size: 13px; font-weight: 600; cursor: pointer;
   &:hover { opacity: .88; } &:disabled { opacity: .4; cursor: default; }
 `
 
@@ -467,6 +483,8 @@ function ActionCardItem({ action, onDecision }: {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
+  type Section = 'flux' | 'sources' | 'privacy' | 'blacklist'
+  const [activeSection, setActiveSection] = useState<Section>('flux')
   const [tab, setTab] = useState<'pending' | 'history' | 'journal'>('pending')
   const [sseConnected, setSseConnected] = useState(false)
   const [showBlacklist, setShowBlacklist] = useState(false)
@@ -524,29 +542,66 @@ export default function ActionsPage() {
   }
 
   // ── Alias Engine ────────────────────────────────────────────────────────
-  const { data: serverAliases } = useQuery({ queryKey: ['aliases'], queryFn: api.getAliases })
-  const [aliases, setAliases] = useState<Array<{ real: string; alias: string }>>([])
+  type AliasEntry = { real: string; alias: string; alias_type?: string }
+  const { data: serverAliasData } = useQuery({ queryKey: ['aliases'], queryFn: api.getAliases })
+  const [aliases, setAliases] = useState<AliasEntry[]>([])
+  const [aliasTypes, setAliasTypes] = useState<string[]>([])
   const [aliasesDirty, setAliasesDirty] = useState(false)
+  const [selectedType, setSelectedType] = useState<string | null>(null)
   const [newReal, setNewReal] = useState('')
   const [newAlias, setNewAlias] = useState('')
+  const [newTypeName, setNewTypeName] = useState('')
+  const [showAddType, setShowAddType] = useState(false)
   useEffect(() => {
-    if (serverAliases !== undefined && !aliasesDirty) {
-      setAliases(serverAliases)
+    if (serverAliasData !== undefined && !aliasesDirty) {
+      setAliases(serverAliasData.aliases)
+      setAliasTypes(serverAliasData.types)
+      if (serverAliasData.types.length > 0) setSelectedType(t => t ?? serverAliasData.types[0])
     }
-  }, [serverAliases])
+  }, [serverAliasData])
   const { mutate: saveAliases, isPending: savingAliases } = useMutation({
-    mutationFn: () => api.saveAliases(aliases),
+    mutationFn: (payload: { aliases: AliasEntry[]; types: string[] }) =>
+      api.saveAliases(payload.aliases, payload.types),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['aliases'] })
       setAliasesDirty(false)
     },
   })
+
+  function persistNow(nextAliases: AliasEntry[], nextTypes: string[]) {
+    saveAliases({ aliases: nextAliases, types: nextTypes })
+  }
+
   function addAlias() {
     const real = newReal.trim(); const alias = newAlias.trim()
     if (!real || !alias || aliases.some(a => a.real === real)) return
-    setAliases(prev => [...prev, { real, alias }])
+    const next = [...aliases, { real, alias, alias_type: selectedType ?? undefined }]
+    setAliases(next)
     setAliasesDirty(true)
     setNewReal(''); setNewAlias('')
+    persistNow(next, aliasTypes)
+  }
+  function removeAlias(real: string) {
+    const next = aliases.filter(a => a.real !== real)
+    setAliases(next)
+    persistNow(next, aliasTypes)
+  }
+  function addType() {
+    const t = newTypeName.trim()
+    if (!t || aliasTypes.includes(t)) return
+    const nextTypes = [...aliasTypes, t]
+    setAliasTypes(nextTypes)
+    setNewTypeName(''); setShowAddType(false)
+    if (selectedType === null) setSelectedType(t)
+    persistNow(aliases, nextTypes)
+  }
+  function deleteType(t: string) {
+    const nextTypes = aliasTypes.filter(x => x !== t)
+    const nextAliases = aliases.map(a => a.alias_type === t ? { ...a, alias_type: undefined } : a)
+    setAliasTypes(nextTypes)
+    setAliases(nextAliases)
+    if (selectedType === t) setSelectedType(nextTypes[0] ?? null)
+    persistNow(nextAliases, nextTypes)
   }
 
   // ── Blacklist count ──────────────────────────────────────────────────────
@@ -601,220 +656,248 @@ export default function ActionsPage() {
 
   const history = all.filter(a => a.status !== 'pending')
 
+  const NAV_ITEMS = [
+    { id: 'flux',      label: 'Flux d\'actions', Icon: Zap    },
+    { id: 'sources',   label: 'Sources',          Icon: PlugZap },
+    { id: 'privacy',   label: 'Confidentialité',  Icon: Shield  },
+    { id: 'blacklist', label: 'Liste noire',       Icon: Ban     },
+  ] as const
+
   return (
-    <Page>
+    <Layout>
 
-      {/* ── En-tête ────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <PageTitle>Actions MCP</PageTitle>
-        <SseStatus>
-          <LiveDot $active={sseConnected} />
-          {sseConnected ? 'Temps réel actif' : 'Connexion...'}
-        </SseStatus>
-      </div>
-
-      {/* ── 1. Tableau sources unifié ──────────────────────────────────────── */}
-      <SectionLabel>Contrôle des sources</SectionLabel>
-      <PermSection>
-        <PermHeader>
-          <PermTitle>Accès et validation par source</PermTitle>
-          <PermDesc>
-            Contrôlez quelles sources sont accessibles à Claude et lesquelles nécessitent une validation manuelle avant exécution.
-          </PermDesc>
-        </PermHeader>
-        <div style={{ padding: '8px 0' }}>
-          <SourceTable>
-            <thead>
-              <tr>
-                <SourceTh>Source</SourceTh>
-                <SourceTh $center>Accès Claude</SourceTh>
-                <SourceTh $center>Validation manuelle</SourceTh>
-              </tr>
-            </thead>
-            <tbody>
-              {([
-                { key: 'email',    label: 'Gmail',      hint: 'Emails IMAP indexés',       perm: 'email'  },
-                { key: 'imessage', label: 'iMessage',   hint: 'SMS et iMessages',           perm: null     },
-                { key: 'chrome',   label: 'Chrome',     hint: 'Historique de navigation',   perm: null     },
-                { key: 'safari',   label: 'Safari',     hint: 'Historique de navigation',   perm: null     },
-                { key: 'notes',    label: 'Notes',      hint: 'Apple Notes',                perm: null     },
-                { key: 'calendar', label: 'Calendrier', hint: 'Apple Calendar',             perm: null     },
-                { key: 'terminal', label: 'Terminal',   hint: 'Historique zsh',             perm: null     },
-                { key: 'file',     label: 'Fichiers',   hint: 'Desktop & Documents',        perm: null     },
-                { key: 'notion',   label: 'Notion',     hint: 'Pages indexées',             perm: 'notion' },
-                { key: 'github',   label: 'GitHub',     hint: 'Issues & PRs indexées',      perm: 'github' },
-                { key: 'linear',   label: 'Linear',     hint: 'Issues indexées',            perm: 'linear' },
-                { key: 'jira',     label: 'Jira',       hint: 'Tickets indexés',            perm: 'jira'   },
-              ] as { key: SourceKey; label: string; hint: string; perm: 'email'|'notion'|'github'|'linear'|'jira'|null }[]).map(({ key, label, hint, perm }) => (
-                <tr key={key}>
-                  <SourceTd>
-                    <PermLabel>{label}</PermLabel>
-                    <PermHint>{hint}</PermHint>
-                  </SourceTd>
-                  <SourceTd $center>
-                    <Toggle $on={sources[key]} onClick={() => toggleSource(key)} />
-                  </SourceTd>
-                  <SourceTd $center>
-                    {perm === 'email'  && <Toggle $on={permEmail}  onClick={() => togglePerm('email',  permEmail,  setPermEmail)}  />}
-                    {perm === 'notion' && <Toggle $on={permNotion} onClick={() => togglePerm('notion', permNotion, setPermNotion)} />}
-                    {perm === 'github' && <Toggle $on={permGithub} onClick={() => togglePerm('github', permGithub, setPermGithub)} />}
-                    {perm === 'linear' && <Toggle $on={permLinear} onClick={() => togglePerm('linear', permLinear, setPermLinear)} />}
-                    {perm === 'jira'   && <Toggle $on={permJira}   onClick={() => togglePerm('jira',   permJira,   setPermJira)}   />}
-                  </SourceTd>
-                </tr>
-              ))}
-            </tbody>
-          </SourceTable>
+      {/* ── Sidebar ── */}
+      <Sidebar>
+        <div style={{ marginBottom: 16 }}>
+          <SseStatus>
+            <LiveDot $active={sseConnected} />
+            {sseConnected ? 'Temps réel actif' : 'Connexion...'}
+          </SseStatus>
         </div>
-      </PermSection>
+        {NAV_ITEMS.map(({ id, label, Icon }) => (
+          <SideNavItem
+            key={id}
+            $active={activeSection === id}
+            onClick={() => setActiveSection(id)}
+          >
+            <SideNavIcon><Icon size={15} /></SideNavIcon>
+            {label}
+            {id === 'flux' && pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
+          </SideNavItem>
+        ))}
+      </Sidebar>
 
-      {/* ── 2. Pare-feu de confidentialité ─────────────────────────────────── */}
-      <SectionLabel>Confidentialité</SectionLabel>
-      <PrivacyPanel />
+      {/* ── Contenu ── */}
+      <Content>
 
-      {/* ── 3. Alias d'identité ─────────────────────────────────────────────── */}
-      <SectionLabel>Alias d'identité</SectionLabel>
-      <PermSection>
-        <PermHeader>
-          <PermTitle>Pseudonymisation des données</PermTitle>
-          <PermDesc>
-            Remplace les vrais noms par des alias avant envoi à Claude. Claude travaille avec l'alias — il ne voit jamais l'identité réelle. Si Claude cherche un alias, OSMOzzz retrouve le vrai nom dans le vault.
-          </PermDesc>
-        </PermHeader>
-        <div style={{ padding: '16px 20px' }}>
-          <AliasTable>
-            <thead>
-              <tr>
-                <AliasTh>Vrai nom / identifiant</AliasTh>
-                <AliasTh style={{ width: 32 }} />
-                <AliasTh>Alias vu par Claude</AliasTh>
-                <AliasTh style={{ width: 90 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {aliases.length === 0 && (
-                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: '#9ca3af', fontSize: 13 }}>
-                  Aucun alias défini.
-                </td></tr>
-              )}
-              {aliases.map(({ real, alias }) => (
-                <tr key={real}>
-                  <AliasTd><strong>{real}</strong></AliasTd>
-                  <AliasArrow>→</AliasArrow>
-                  <AliasMuted>{alias}</AliasMuted>
-                  <AliasTd style={{ textAlign: 'right' }}>
-                    <AliasDelBtn onClick={() => { setAliases(prev => prev.filter(a => a.real !== real)); setAliasesDirty(true) }}>
-                      Supprimer
-                    </AliasDelBtn>
-                  </AliasTd>
-                </tr>
-              ))}
-            </tbody>
-          </AliasTable>
-          <AliasAddRow>
-            <AliasInput placeholder="Vrai nom (ex: Jean Pierre)" value={newReal}
-              onChange={e => setNewReal(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addAlias()} />
-            <span style={{ color: '#d1d5db', fontSize: 18 }}>→</span>
-            <AliasInput placeholder="Alias (ex: Matisse Mouseu)" value={newAlias}
-              onChange={e => setNewAlias(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addAlias()} />
-            <AliasAddBtn onClick={addAlias} disabled={!newReal.trim() || !newAlias.trim()}>Ajouter</AliasAddBtn>
-          </AliasAddRow>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-            <AliasSaveBtn onClick={() => saveAliases()} disabled={savingAliases || !aliasesDirty}>
-              {savingAliases ? 'Enregistrement…' : 'Enregistrer'}
-            </AliasSaveBtn>
-          </div>
-        </div>
-      </PermSection>
+        {/* 1. Flux d'actions */}
+        {activeSection === 'flux' && (
+          <ActionsBlock>
+            <ContentHeader>
+              <PageTitle>Flux d'actions</PageTitle>
+            </ContentHeader>
+            <ActionsHeader>
+              <TabRow>
+                <Tab $active={tab === 'pending'} onClick={() => setTab('pending')}>
+                  En attente
+                  {pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
+                </Tab>
+                <Tab $active={tab === 'history'} onClick={() => setTab('history')}>Historique</Tab>
+                <Tab $active={tab === 'journal'} onClick={() => setTab('journal')}>Journal d'accès</Tab>
+              </TabRow>
+            </ActionsHeader>
 
-
-      {/* ── 5. Liste noire ─────────────────────────────────────────────────── */}
-      <SectionLabel>Liste noire</SectionLabel>
-      <BlacklistCard>
-        <BlacklistLeft>
-          <BlacklistTitle>Éléments bannis</BlacklistTitle>
-          <BlacklistDesc>
-            Documents, expéditeurs ou domaines exclus des résultats envoyés à Claude.
-          </BlacklistDesc>
-        </BlacklistLeft>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <BlacklistCount $n={bannedCount}>
-            {bannedCount} banni{bannedCount !== 1 ? 's' : ''}
-          </BlacklistCount>
-          <ManageBtn onClick={() => setShowBlacklist(true)}>Gérer</ManageBtn>
-        </div>
-      </BlacklistCard>
-
-      {showBlacklist && (
-        <BlacklistPanel source="all" onClose={() => setShowBlacklist(false)} />
-      )}
-
-      {/* ── 6. Flux d'actions ──────────────────────────────────────────────── */}
-      <SectionLabel>Flux d'actions</SectionLabel>
-      <ActionsBlock>
-        <ActionsHeader>
-          <TabRow>
-            <Tab $active={tab === 'pending'} onClick={() => setTab('pending')}>
-              En attente
-              {pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
-            </Tab>
-            <Tab $active={tab === 'history'} onClick={() => setTab('history')}>
-              Historique
-            </Tab>
-            <Tab $active={tab === 'journal'} onClick={() => setTab('journal')}>
-              Journal d'accès
-            </Tab>
-          </TabRow>
-        </ActionsHeader>
-
-        {tab === 'pending' && (
-          <>
-            {loadingPending && <Loader />}
-            {!loadingPending && pending.length === 0 && (
-              <EmptyMsg>
-                Aucune action en attente.<br />
-                Claude soumettra ici ses demandes d'actions pour validation.
-              </EmptyMsg>
+            {tab === 'pending' && (
+              <>
+                {loadingPending && <Loader />}
+                {!loadingPending && pending.length === 0 && (
+                  <EmptyMsg>Aucune action en attente.<br />Claude soumettra ici ses demandes d'actions pour validation.</EmptyMsg>
+                )}
+                <CardList>{pending.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
+              </>
             )}
-            <CardList>
-              {pending.map(action => (
-                <ActionCardItem key={action.id} action={action} onDecision={invalidate} />
-              ))}
-            </CardList>
+            {tab === 'history' && (
+              <>
+                {loadingAll && <Loader />}
+                {!loadingAll && history.length === 0 && <EmptyMsg>Aucune action dans l'historique.</EmptyMsg>}
+                <CardList>{history.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
+              </>
+            )}
+            {tab === 'journal' && (
+              <>
+                {loadingAudit && <Loader />}
+                {!loadingAudit && auditEntries.length === 0 && (
+                  <EmptyMsg>Aucune activité enregistrée.<br />Le journal se remplit dès que Claude utilise un tool OSMOzzz.</EmptyMsg>
+                )}
+                <JournalList>{auditEntries.map((e, i) => <JournalEntryRow key={i} entry={e} />)}</JournalList>
+              </>
+            )}
+          </ActionsBlock>
+        )}
+
+        {/* 2. Sources */}
+        {activeSection === 'sources' && (
+          <>
+            <ContentHeader>
+              <PageTitle>Contrôle des sources</PageTitle>
+            </ContentHeader>
+            <PermSection>
+              <PermHeader>
+                <PermTitle>Accès et validation par source</PermTitle>
+                <PermDesc>Contrôlez quelles sources sont accessibles à Claude et lesquelles nécessitent une validation manuelle avant exécution.</PermDesc>
+              </PermHeader>
+              <div style={{ padding: '8px 0' }}>
+                <SourceTable>
+                  <thead>
+                    <tr>
+                      <SourceTh>Source</SourceTh>
+                      <SourceTh $center>Accès Claude</SourceTh>
+                      <SourceTh $center>Validation manuelle</SourceTh>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {([
+                      { key: 'email',    label: 'Gmail',      hint: 'Emails IMAP indexés',       perm: 'email'  },
+                      { key: 'imessage', label: 'iMessage',   hint: 'SMS et iMessages',           perm: null     },
+                      { key: 'chrome',   label: 'Chrome',     hint: 'Historique de navigation',   perm: null     },
+                      { key: 'safari',   label: 'Safari',     hint: 'Historique de navigation',   perm: null     },
+                      { key: 'notes',    label: 'Notes',      hint: 'Apple Notes',                perm: null     },
+                      { key: 'calendar', label: 'Calendrier', hint: 'Apple Calendar',             perm: null     },
+                      { key: 'terminal', label: 'Terminal',   hint: 'Historique zsh',             perm: null     },
+                      { key: 'file',     label: 'Fichiers',   hint: 'Desktop & Documents',        perm: null     },
+                      { key: 'notion',   label: 'Notion',     hint: 'Pages indexées',             perm: 'notion' },
+                      { key: 'github',   label: 'GitHub',     hint: 'Issues & PRs indexées',      perm: 'github' },
+                      { key: 'linear',   label: 'Linear',     hint: 'Issues indexées',            perm: 'linear' },
+                      { key: 'jira',     label: 'Jira',       hint: 'Tickets indexés',            perm: 'jira'   },
+                    ] as { key: SourceKey; label: string; hint: string; perm: 'email'|'notion'|'github'|'linear'|'jira'|null }[]).map(({ key, label, hint, perm }) => (
+                      <tr key={key}>
+                        <SourceTd><PermLabel>{label}</PermLabel><PermHint>{hint}</PermHint></SourceTd>
+                        <SourceTd $center><Toggle $on={sources[key]} onClick={() => toggleSource(key)} /></SourceTd>
+                        <SourceTd $center>
+                          {perm === 'email'  && <Toggle $on={permEmail}  onClick={() => togglePerm('email',  permEmail,  setPermEmail)}  />}
+                          {perm === 'notion' && <Toggle $on={permNotion} onClick={() => togglePerm('notion', permNotion, setPermNotion)} />}
+                          {perm === 'github' && <Toggle $on={permGithub} onClick={() => togglePerm('github', permGithub, setPermGithub)} />}
+                          {perm === 'linear' && <Toggle $on={permLinear} onClick={() => togglePerm('linear', permLinear, setPermLinear)} />}
+                          {perm === 'jira'   && <Toggle $on={permJira}   onClick={() => togglePerm('jira',   permJira,   setPermJira)}   />}
+                        </SourceTd>
+                      </tr>
+                    ))}
+                  </tbody>
+                </SourceTable>
+              </div>
+            </PermSection>
           </>
         )}
 
-        {tab === 'history' && (
+        {/* 3. Confidentialité + Alias */}
+        {activeSection === 'privacy' && (
           <>
-            {loadingAll && <Loader />}
-            {!loadingAll && history.length === 0 && (
-              <EmptyMsg>Aucune action dans l'historique.</EmptyMsg>
-            )}
-            <CardList>
-              {history.map(action => (
-                <ActionCardItem key={action.id} action={action} onDecision={invalidate} />
-              ))}
-            </CardList>
+            <ContentHeader>
+              <PageTitle>Confidentialité</PageTitle>
+            </ContentHeader>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <PrivacyPanel />
+              <PermSection>
+                <PermHeader>
+                  <PermTitle>Alias d'identité</PermTitle>
+                  <PermDesc>Remplace les vrais noms par des alias avant envoi à Claude. Organisez vos alias par type.</PermDesc>
+                </PermHeader>
+                <div style={{ display: 'flex', minHeight: 0 }}>
+                  {/* Mini sidebar types */}
+                  <div style={{ width: 160, borderRight: '1px solid #f3f4f6', padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {aliasTypes.map(t => (
+                      <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <SideNavItem $active={selectedType === t} onClick={() => setSelectedType(t)} style={{ fontSize: 12, padding: '6px 10px', flex: 1 }}>
+                          {t} ({aliases.filter(a => a.alias_type === t).length})
+                        </SideNavItem>
+                        <AliasDelBtn onClick={() => deleteType(t)} style={{ padding: '2px 6px', fontSize: 10 }}>✕</AliasDelBtn>
+                      </div>
+                    ))}
+                    {showAddType ? (
+                      <div style={{ padding: '6px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <AliasInput placeholder="Nom du type" value={newTypeName}
+                          onChange={e => setNewTypeName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') addType(); if (e.key === 'Escape') setShowAddType(false) }}
+                          style={{ fontSize: 12, padding: '5px 8px' }} autoFocus />
+                        <AliasAddBtn onClick={addType} disabled={!newTypeName.trim()} style={{ fontSize: 11, padding: '4px 8px' }}>OK</AliasAddBtn>
+                      </div>
+                    ) : (
+                      <button onClick={() => setShowAddType(true)} style={{ background: 'none', border: '1px dashed #d1d5db', borderRadius: 7, padding: '5px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer', marginTop: 4, textAlign: 'left' }}>
+                        + Nouveau type
+                      </button>
+                    )}
+                  </div>
+                  {/* Contenu aliases */}
+                  <div style={{ flex: 1, padding: '12px 16px', minWidth: 0 }}>
+                    <AliasTable>
+                      <thead>
+                        <tr>
+                          <AliasTh>Vrai nom</AliasTh>
+                          <AliasTh style={{ width: 24 }} />
+                          <AliasTh>Alias</AliasTh>
+                          <AliasTh style={{ width: 80 }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aliases.filter(a => selectedType === null || a.alias_type === selectedType).length === 0 && (
+                          <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: '#9ca3af', fontSize: 13 }}>Aucun alias{selectedType ? ` dans "${selectedType}"` : ''}.</td></tr>
+                        )}
+                        {aliases
+                          .filter(a => selectedType === null || a.alias_type === selectedType)
+                          .map(({ real, alias }) => (
+                            <tr key={real}>
+                              <AliasTd><strong>{real}</strong></AliasTd>
+                              <AliasArrow>→</AliasArrow>
+                              <AliasMuted>{alias}</AliasMuted>
+                              <AliasTd style={{ textAlign: 'right' }}>
+                                <AliasDelBtn onClick={() => removeAlias(real)}>
+                                  Supprimer
+                                </AliasDelBtn>
+                              </AliasTd>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </AliasTable>
+                    <AliasAddRow style={{ marginTop: 12 }}>
+                      <AliasInput placeholder="Vrai nom" value={newReal}
+                        onChange={e => setNewReal(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addAlias()} />
+                      <span style={{ color: '#d1d5db', fontSize: 16 }}>→</span>
+                      <AliasInput placeholder="Alias" value={newAlias}
+                        onChange={e => setNewAlias(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addAlias()} />
+                      <AliasAddBtn onClick={addAlias} disabled={!newReal.trim() || !newAlias.trim() || savingAliases}>
+                        {savingAliases ? '…' : 'Ajouter'}
+                      </AliasAddBtn>
+                    </AliasAddRow>
+                  </div>
+                </div>
+              </PermSection>
+            </div>
           </>
         )}
 
-        {tab === 'journal' && (
+        {/* 5. Liste noire */}
+        {activeSection === 'blacklist' && (
           <>
-            {loadingAudit && <Loader />}
-            {!loadingAudit && auditEntries.length === 0 && (
-              <EmptyMsg>Aucune activité enregistrée.<br />Le journal se remplit dès que Claude utilise un tool OSMOzzz.</EmptyMsg>
-            )}
-            <JournalList>
-              {auditEntries.map((entry, i) => (
-                <JournalEntryRow key={i} entry={entry} />
-              ))}
-            </JournalList>
+            <ContentHeader>
+              <PageTitle>Liste noire</PageTitle>
+            </ContentHeader>
+            <BlacklistCard>
+              <BlacklistLeft>
+                <BlacklistTitle>Éléments bannis</BlacklistTitle>
+                <BlacklistDesc>Documents, expéditeurs ou domaines exclus des résultats envoyés à Claude.</BlacklistDesc>
+              </BlacklistLeft>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <BlacklistCount $n={bannedCount}>{bannedCount} banni{bannedCount !== 1 ? 's' : ''}</BlacklistCount>
+                <ManageBtn onClick={() => setShowBlacklist(true)}>Gérer</ManageBtn>
+              </div>
+            </BlacklistCard>
+            {showBlacklist && <BlacklistPanel source="all" onClose={() => setShowBlacklist(false)} />}
           </>
         )}
-      </ActionsBlock>
 
-    </Page>
+      </Content>
+    </Layout>
   )
 }

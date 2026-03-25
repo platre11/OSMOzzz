@@ -1124,35 +1124,65 @@ fn source_str_to_enum(s: &str) -> Option<osmozzz_p2p::SharedSource> {
 pub struct AliasEntry {
     pub real: String,
     pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AliasesResponse {
+    pub aliases: Vec<AliasEntry>,
+    pub types: Vec<String>,
 }
 
 #[derive(Deserialize)]
 pub struct AliasesBody {
     pub aliases: Vec<AliasEntry>,
+    #[serde(default)]
+    pub types: Vec<String>,
 }
 
 pub async fn get_aliases() -> impl IntoResponse {
     let path = match dirs_next::home_dir() {
         Some(h) => h.join(".osmozzz/aliases.toml"),
-        None => return ApiResponse::ok(Vec::<AliasEntry>::new()).into_response(),
+        None => return ApiResponse::ok(AliasesResponse { aliases: vec![], types: vec![] }).into_response(),
     };
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return ApiResponse::ok(Vec::<AliasEntry>::new()).into_response(),
+        Err(_) => return ApiResponse::ok(AliasesResponse { aliases: vec![], types: vec![] }).into_response(),
     };
     let t: toml::Value = match content.parse() {
         Ok(v) => v,
-        Err(_) => return ApiResponse::ok(Vec::<AliasEntry>::new()).into_response(),
+        Err(_) => return ApiResponse::ok(AliasesResponse { aliases: vec![], types: vec![] }).into_response(),
     };
-    let mut entries = Vec::new();
-    if let Some(map) = t.get("map").and_then(|v| v.as_table()) {
-        for (real, alias) in map {
-            if let Some(alias_str) = alias.as_str() {
-                entries.push(AliasEntry { real: real.clone(), alias: alias_str.to_string() });
+    // Nouveau format : [[entries]] + [meta].types
+    let mut entries: Vec<AliasEntry> = Vec::new();
+    if let Some(arr) = t.get("entries").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let (Some(real), Some(alias)) = (
+                item.get("real").and_then(|v| v.as_str()),
+                item.get("alias").and_then(|v| v.as_str()),
+            ) {
+                let alias_type = item.get("alias_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+                entries.push(AliasEntry { real: real.to_string(), alias: alias.to_string(), alias_type });
             }
         }
     }
-    ApiResponse::ok(entries).into_response()
+    // Compat ancien format [map]
+    if entries.is_empty() {
+        if let Some(map) = t.get("map").and_then(|v| v.as_table()) {
+            for (real, alias) in map {
+                if let Some(alias_str) = alias.as_str() {
+                    entries.push(AliasEntry { real: real.clone(), alias: alias_str.to_string(), alias_type: None });
+                }
+            }
+        }
+    }
+    let types: Vec<String> = t.get("meta")
+        .and_then(|v| v.get("types"))
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    ApiResponse::ok(AliasesResponse { aliases: entries, types }).into_response()
 }
 
 // ─── POST /api/aliases ───────────────────────────────────────────────────────
@@ -1162,12 +1192,24 @@ pub async fn post_aliases(Json(body): Json<AliasesBody>) -> impl IntoResponse {
         Some(h) => h.join(".osmozzz/aliases.toml"),
         None => return ApiResponse::<String>::err("impossible de trouver le home dir").into_response(),
     };
-    let mut map = toml::map::Map::new();
-    for entry in &body.aliases {
-        map.insert(entry.real.clone(), toml::Value::String(entry.alias.clone()));
-    }
+    // [[entries]] avec alias_type optionnel
+    let entries_arr: Vec<toml::Value> = body.aliases.iter().map(|entry| {
+        let mut tbl = toml::map::Map::new();
+        tbl.insert("real".to_string(), toml::Value::String(entry.real.clone()));
+        tbl.insert("alias".to_string(), toml::Value::String(entry.alias.clone()));
+        if let Some(t) = &entry.alias_type {
+            tbl.insert("alias_type".to_string(), toml::Value::String(t.clone()));
+        }
+        toml::Value::Table(tbl)
+    }).collect();
+    // [meta] types
+    let mut meta_tbl = toml::map::Map::new();
+    meta_tbl.insert("types".to_string(), toml::Value::Array(
+        body.types.iter().map(|t| toml::Value::String(t.clone())).collect()
+    ));
     let mut doc = toml::map::Map::new();
-    doc.insert("map".to_string(), toml::Value::Table(map));
+    doc.insert("meta".to_string(), toml::Value::Table(meta_tbl));
+    doc.insert("entries".to_string(), toml::Value::Array(entries_arr));
     let content = match toml::to_string(&toml::Value::Table(doc)) {
         Ok(s) => s,
         Err(e) => return ApiResponse::<String>::err(e.to_string()).into_response(),
