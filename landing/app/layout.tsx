@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="google-site-verification" content="CuQrOmCvSxySRg7lJtSwEbSDaVYj5mjoxrzADCTyjq8" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </head>
       <body style={{ margin: 0, padding: 0 }}>
         <style>{`
