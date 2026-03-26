@@ -331,38 +331,28 @@ const DownloadIcon = () => (
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-function PrixLines() {
-  const ref = useRef<SVGSVGElement>(null)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect() } }, { threshold: 1.0 })
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [])
+function PrixLines({ visible }: { visible: boolean }) {
 
   return (
-    <svg ref={ref} viewBox="0 0 160 12" style={{ position: 'absolute', bottom: '-6px', left: 0, width: '100%', height: '10px', overflow: 'visible', pointerEvents: 'none' }}>
+    <svg viewBox="0 0 160 12" style={{ position: 'absolute', bottom: '-6px', left: 0, width: '100%', height: '10px', overflow: 'visible', pointerEvents: 'none' }}>
       <path
         d="M 0 9 Q 80 2 160 6"
-        fill="none" stroke="rgba(239,68,68,.9)" strokeWidth="1.2" strokeLinecap="round"
+        fill="none" stroke="rgba(220,38,38,1)" strokeWidth="1.2" strokeLinecap="round"
         pathLength="1"
         style={{
           strokeDasharray: 1,
           strokeDashoffset: visible ? 0 : 1,
-          transition: visible ? 'stroke-dashoffset 0.7s ease 0.1s' : 'none',
+          transition: visible ? 'stroke-dashoffset 1.2s ease 0s' : 'none',
         }}
       />
       <path
         d="M 60 13 Q 120 7 160 10"
-        fill="none" stroke="rgba(239,68,68,.65)" strokeWidth="1" strokeLinecap="round"
+        fill="none" stroke="rgba(220,38,38,.75)" strokeWidth="1" strokeLinecap="round"
         pathLength="1"
         style={{
           strokeDasharray: 1,
           strokeDashoffset: visible ? 0 : -1,
-          transition: visible ? 'stroke-dashoffset 0.6s ease 0.3s' : 'none',
+          transition: visible ? 'stroke-dashoffset 1.0s ease 1.2s' : 'none',
         }}
       />
     </svg>
@@ -372,6 +362,19 @@ function PrixLines() {
 export default function HomePage() {
   const { lang, setLang, t } = useLang()
   const shieldRef = useRef<HTMLDivElement>(null)
+  const compareTableRef = useRef<HTMLDivElement>(null)
+  const [compareVisible, setCompareVisible] = useState(false)
+
+  useEffect(() => {
+    const el = compareTableRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setCompareVisible(true); obs.disconnect() } },
+      { threshold: 0.85 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!shieldRef.current) return
@@ -476,10 +479,10 @@ export default function HomePage() {
             {t('compareSub').replace(/[—–]\s*.+$/, '— ')}
             <span style={{ position: 'relative', display: 'inline-block' }}>
               {t('compareSub').match(/[—–]\s*(.+)$/)?.[1]}
-              <PrixLines />
+              <PrixLines visible={compareVisible} />
             </span>
           </SectionSub>
-          <CompareTable>
+          <CompareTable ref={compareTableRef}>
             <CompareHeaderRow>
               <CompareHeaderBad>
                 <CompareHeaderDot />
