@@ -1,6 +1,6 @@
 /// Connecteur Notion — @notionhq/notion-mcp-server (officiel)
 /// Config : ~/.osmozzz/notion.toml
-use super::McpSubprocess;
+use super::LazyProxy;
 
 pub struct NotionConfig {
     pub token: String,
@@ -17,20 +17,22 @@ impl NotionConfig {
     }
 }
 
-pub fn start() -> Option<McpSubprocess> {
+pub fn lazy() -> Option<LazyProxy> {
     let cfg = NotionConfig::load().or_else(|| {
         eprintln!("[OSMOzzz MCP] Notion non configuré (~/.osmozzz/notion.toml absent)");
         None
     })?;
 
-    McpSubprocess::start(
+    let headers = format!(
+        "{{\"Authorization\": \"Bearer {}\", \"Notion-Version\": \"2022-06-28\"}}",
+        cfg.token
+    );
+
+    Some(LazyProxy::new(
         "notion",
         "@notionhq/notion-mcp-server",
-        &[
-            ("OPENAPI_MCP_HEADERS", &format!(
-                "{{\"Authorization\": \"Bearer {}\", \"Notion-Version\": \"2022-06-28\"}}",
-                cfg.token
-            )),
+        vec![
+            ("OPENAPI_MCP_HEADERS".to_string(), headers),
         ],
-    )
+    ))
 }

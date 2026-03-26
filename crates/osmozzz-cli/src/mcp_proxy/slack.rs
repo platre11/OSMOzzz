@@ -1,6 +1,6 @@
 /// Connecteur Slack — @modelcontextprotocol/server-slack (officiel Anthropic)
 /// Config : ~/.osmozzz/slack.toml
-use super::McpSubprocess;
+use super::LazyProxy;
 
 pub struct SlackConfig {
     pub token:   String,
@@ -19,18 +19,18 @@ impl SlackConfig {
     }
 }
 
-pub fn start() -> Option<McpSubprocess> {
+pub fn lazy() -> Option<LazyProxy> {
     let cfg = SlackConfig::load().or_else(|| {
         eprintln!("[OSMOzzz MCP] Slack non configuré (~/.osmozzz/slack.toml absent)");
         None
     })?;
 
-    McpSubprocess::start(
+    Some(LazyProxy::new(
         "slack",
         "@modelcontextprotocol/server-slack",
-        &[
-            ("SLACK_BOT_TOKEN", &cfg.token),
-            ("SLACK_TEAM_ID",   &cfg.team_id),
+        vec![
+            ("SLACK_BOT_TOKEN".to_string(), cfg.token),
+            ("SLACK_TEAM_ID".to_string(),   cfg.team_id),
         ],
-    )
+    ))
 }

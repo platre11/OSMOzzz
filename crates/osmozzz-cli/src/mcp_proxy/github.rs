@@ -1,6 +1,6 @@
 /// Connecteur GitHub — @modelcontextprotocol/server-github (officiel)
 /// Config : ~/.osmozzz/github.toml
-use super::McpSubprocess;
+use super::LazyProxy;
 
 pub struct GithubConfig {
     pub token: String,
@@ -17,17 +17,17 @@ impl GithubConfig {
     }
 }
 
-pub fn start() -> Option<McpSubprocess> {
+pub fn lazy() -> Option<LazyProxy> {
     let cfg = GithubConfig::load().or_else(|| {
         eprintln!("[OSMOzzz MCP] GitHub non configuré (~/.osmozzz/github.toml absent)");
         None
     })?;
 
-    McpSubprocess::start(
+    Some(LazyProxy::new(
         "github",
         "@modelcontextprotocol/server-github",
-        &[
-            ("GITHUB_PERSONAL_ACCESS_TOKEN", &cfg.token),
+        vec![
+            ("GITHUB_PERSONAL_ACCESS_TOKEN".to_string(), cfg.token),
         ],
-    )
+    ))
 }

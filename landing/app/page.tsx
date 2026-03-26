@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import styled, { createGlobalStyle, keyframes, css } from 'styled-components'
 import { useLang } from '../context/LanguageContext'
 import HeroBlock from './HeroBlock'
@@ -331,6 +331,44 @@ const DownloadIcon = () => (
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+function PrixLines() {
+  const ref = useRef<SVGSVGElement>(null)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect() } }, { threshold: 1.0 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  return (
+    <svg ref={ref} viewBox="0 0 160 12" style={{ position: 'absolute', bottom: '-6px', left: 0, width: '100%', height: '10px', overflow: 'visible', pointerEvents: 'none' }}>
+      <path
+        d="M 0 9 Q 80 2 160 6"
+        fill="none" stroke="rgba(239,68,68,.9)" strokeWidth="1.2" strokeLinecap="round"
+        pathLength="1"
+        style={{
+          strokeDasharray: 1,
+          strokeDashoffset: visible ? 0 : 1,
+          transition: visible ? 'stroke-dashoffset 0.7s ease 0.1s' : 'none',
+        }}
+      />
+      <path
+        d="M 60 13 Q 120 7 160 10"
+        fill="none" stroke="rgba(239,68,68,.65)" strokeWidth="1" strokeLinecap="round"
+        pathLength="1"
+        style={{
+          strokeDasharray: 1,
+          strokeDashoffset: visible ? 0 : -1,
+          transition: visible ? 'stroke-dashoffset 0.6s ease 0.3s' : 'none',
+        }}
+      />
+    </svg>
+  )
+}
+
 export default function HomePage() {
   const { lang, setLang, t } = useLang()
   const shieldRef = useRef<HTMLDivElement>(null)
@@ -372,7 +410,7 @@ export default function HomePage() {
                 <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
                 <LangBtn $active={lang === 'fr'} onClick={() => setLang('fr')}>FR</LangBtn>
               </LangSwitcher>
-              <BtnGhost href="https://github.com/platre11/OSMO<span>zzz</span>" target="_blank" rel="noreferrer">
+              <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
                 <GithubIcon />
                 {t('navGithub')}
               </BtnGhost>
@@ -388,7 +426,7 @@ export default function HomePage() {
           <HeroBlock />
           <HeroSub>{t('heroSub')}</HeroSub>
           <HeroActions>
-            <BtnDownload href="https://github.com/platre11/OSMO<span>zzz</span>/releases/latest/download/osmozzz.pkg">
+            <BtnDownload href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg">
               <DownloadIcon />
               {t('heroDownload')}
             </BtnDownload>
@@ -438,10 +476,7 @@ export default function HomePage() {
             {t('compareSub').replace(/[—–]\s*.+$/, '— ')}
             <span style={{ position: 'relative', display: 'inline-block' }}>
               {t('compareSub').match(/[—–]\s*(.+)$/)?.[1]}
-              <svg viewBox="0 0 160 12" style={{ position: 'absolute', bottom: '-6px', left: 0, width: '100%', height: '10px', overflow: 'visible', pointerEvents: 'none' }}>
-                <path d="M 0 9 Q 80 2 160 6" fill="none" stroke="rgba(239,68,68,.9)" strokeWidth="1.2" strokeLinecap="round" />
-                <path d="M 60 13 Q 120 7 160 10" fill="none" stroke="rgba(239,68,68,.65)" strokeWidth="1" strokeLinecap="round" />
-              </svg>
+              <PrixLines />
             </span>
           </SectionSub>
           <CompareTable>
@@ -534,7 +569,7 @@ export default function HomePage() {
             <H2>{t('ctaTitle')}</H2>
             <SectionSub>{t('ctaSub')}</SectionSub>
             <BtnDownload
-              href="https://github.com/platre11/OSMO<span>zzz</span>/releases/latest/download/osmozzz.pkg"
+              href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz.pkg"
               style={{ margin: '32px auto 0', display: 'inline-flex' }}
             >
               <DownloadIcon />
@@ -542,7 +577,7 @@ export default function HomePage() {
             </BtnDownload>
             <br />
             <BtnGhost
-              href="https://github.com/platre11/OSMO<span>zzz</span>"
+              href="https://github.com/platre11/OSMOzzz"
               target="_blank"
               rel="noreferrer"
               style={{ marginTop: '12px', display: 'inline-flex' }}

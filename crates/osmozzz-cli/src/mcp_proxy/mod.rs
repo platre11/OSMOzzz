@@ -228,29 +228,62 @@ impl McpSubprocess {
     }
 }
 
-// ─── Démarre tous les proxies configurés ─────────────────────────────────────
+// ─── Proxy paresseux (lazy) — subprocess démarré à la première utilisation ───
 
-pub fn start_all_proxies() -> Vec<McpSubprocess> {
+pub struct LazyProxy {
+    pub name:    String,
+    package:     String,
+    env_vars:    Vec<(String, String)>,
+    subprocess:  Option<McpSubprocess>,
+}
+
+impl LazyProxy {
+    pub fn new(name: &str, package: &str, env_vars: Vec<(String, String)>) -> Self {
+        Self {
+            name:       name.to_string(),
+            package:    package.to_string(),
+            env_vars,
+            subprocess: None,
+        }
+    }
+
+    fn ensure_started(&mut self) -> Option<&mut McpSubprocess> {
+        if self.subprocess.is_none() {
+            let env_refs: Vec<(&str, &str)> = self.env_vars.iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            self.subprocess = McpSubprocess::start(&self.name, &self.package, &env_refs);
+        }
+        self.subprocess.as_mut()
+    }
+
+    /// Démarre le subprocess si nécessaire et retourne la liste des tools disponibles.
+    pub fn list_tools(&mut self) -> Vec<Value> {
+        self.ensure_started()
+            .map(|p| p.tools.clone())
+            .unwrap_or_default()
+    }
+
+    /// Démarre le subprocess si nécessaire et appelle le tool demandé.
+    pub fn call_tool(&mut self, tool_name: &str, arguments: &Value) -> Result<String, String> {
+        let name = self.name.clone();
+        self.ensure_started()
+            .ok_or_else(|| format!("Impossible de démarrer le subprocess {}", name))?
+            .call_tool(tool_name, arguments)
+    }
+}
+
+// ─── Charge tous les proxies configurés (sans démarrer les subprocessus) ─────
+
+pub fn start_all_proxies() -> Vec<LazyProxy> {
     let mut proxies = Vec::new();
 
-    if let Some(p) = jira::start() {
-        proxies.push(p);
-    }
-    if let Some(p) = github::start() {
-        proxies.push(p);
-    }
-    if let Some(p) = notion::start() {
-        proxies.push(p);
-    }
-    if let Some(p) = slack::start() {
-        proxies.push(p);
-    }
-    if let Some(p) = linear::start() {
-        proxies.push(p);
-    }
-    if let Some(p) = supabase::start() {
-        proxies.push(p);
-    }
+    if let Some(p) = jira::lazy()     { proxies.push(p); }
+    if let Some(p) = github::lazy()   { proxies.push(p); }
+    if let Some(p) = notion::lazy()   { proxies.push(p); }
+    if let Some(p) = slack::lazy()    { proxies.push(p); }
+    if let Some(p) = linear::lazy()   { proxies.push(p); }
+    if let Some(p) = supabase::lazy() { proxies.push(p); }
 
     proxies
 }

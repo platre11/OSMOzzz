@@ -1,6 +1,6 @@
 /// Connecteur Jira — @aashari/mcp-server-atlassian-jira
 /// Config : ~/.osmozzz/jira.toml
-use super::McpSubprocess;
+use super::LazyProxy;
 
 pub struct JiraConfig {
     pub base_url: String,
@@ -21,13 +21,12 @@ impl JiraConfig {
     }
 }
 
-pub fn start() -> Option<McpSubprocess> {
+pub fn lazy() -> Option<LazyProxy> {
     let cfg = JiraConfig::load().or_else(|| {
         eprintln!("[OSMOzzz MCP] Jira non configuré (~/.osmozzz/jira.toml absent)");
         None
     })?;
 
-    // Le package attend le nom du site uniquement (sans https://)
     let site_name = cfg.base_url
         .trim_start_matches("https://")
         .trim_start_matches("http://")
@@ -36,13 +35,13 @@ pub fn start() -> Option<McpSubprocess> {
         .unwrap_or(&cfg.base_url)
         .to_string();
 
-    McpSubprocess::start(
+    Some(LazyProxy::new(
         "jira",
         "@aashari/mcp-server-atlassian-jira",
-        &[
-            ("ATLASSIAN_SITE_NAME",  &site_name),
-            ("ATLASSIAN_USER_EMAIL", &cfg.email),
-            ("ATLASSIAN_API_TOKEN",  &cfg.token),
+        vec![
+            ("ATLASSIAN_SITE_NAME".to_string(),  site_name),
+            ("ATLASSIAN_USER_EMAIL".to_string(), cfg.email),
+            ("ATLASSIAN_API_TOKEN".to_string(),  cfg.token),
         ],
-    )
+    ))
 }

@@ -1,6 +1,6 @@
 /// Connecteur Linear — @linear/mcp-server (officiel Linear)
 /// Config : ~/.osmozzz/linear.toml
-use super::McpSubprocess;
+use super::LazyProxy;
 
 pub struct LinearConfig {
     pub api_key: String,
@@ -17,17 +17,17 @@ impl LinearConfig {
     }
 }
 
-pub fn start() -> Option<McpSubprocess> {
+pub fn lazy() -> Option<LazyProxy> {
     let cfg = LinearConfig::load().or_else(|| {
         eprintln!("[OSMOzzz MCP] Linear non configuré (~/.osmozzz/linear.toml absent)");
         None
     })?;
 
-    McpSubprocess::start(
+    Some(LazyProxy::new(
         "linear",
         "@tacticlaunch/mcp-linear",
-        &[
-            ("LINEAR_API_TOKEN", &cfg.api_key),
+        vec![
+            ("LINEAR_API_TOKEN".to_string(), cfg.api_key),
         ],
-    )
+    ))
 }

@@ -1,6 +1,6 @@
 /// Connecteur Supabase — @supabase/mcp-server-supabase (officiel)
 /// Config : ~/.osmozzz/supabase.toml
-use super::McpSubprocess;
+use super::LazyProxy;
 
 pub struct SupabaseConfig {
     pub access_token: String,
@@ -19,27 +19,22 @@ impl SupabaseConfig {
     }
 }
 
-pub fn start() -> Option<McpSubprocess> {
+pub fn lazy() -> Option<LazyProxy> {
     let cfg = SupabaseConfig::load().or_else(|| {
         eprintln!("[OSMOzzz MCP] Supabase non configuré (~/.osmozzz/supabase.toml absent)");
         None
     })?;
 
-    let mut env_vars: Vec<(&str, String)> = vec![
-        ("SUPABASE_ACCESS_TOKEN", cfg.access_token.clone()),
+    let mut env_vars = vec![
+        ("SUPABASE_ACCESS_TOKEN".to_string(), cfg.access_token),
     ];
-
-    let project_ref_owned;
-    if let Some(ref pid) = cfg.project_id {
-        project_ref_owned = pid.clone();
-        env_vars.push(("SUPABASE_PROJECT_REF", project_ref_owned));
+    if let Some(pid) = cfg.project_id {
+        env_vars.push(("SUPABASE_PROJECT_REF".to_string(), pid));
     }
 
-    let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
-
-    McpSubprocess::start(
+    Some(LazyProxy::new(
         "supabase",
         "@supabase/mcp-server-supabase",
-        &env_refs,
-    )
+        env_vars,
+    ))
 }

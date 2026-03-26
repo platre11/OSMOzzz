@@ -1,5 +1,9 @@
 # OSMOzzz — Documentation Complète
 
+http://localhost:5173/
+http://localhost:3000/
+npx @anthropic-ai/claude-code
+
 ## Vision
 
 OSMOzzz est une source de données centrale, locale et privée, conçue pour collaborer avec tout client IA compatible MCP.
@@ -61,16 +65,17 @@ Claude → OSMOzzz MCP (Rust) → subprocess bunx @pkg/mcp-server → API cloud
 
 **Fichiers** : `crates/osmozzz-cli/src/mcp_proxy/`
 
-| Fichier | Package npm | Config |
-|---------|------------|--------|
-| `jira.rs` | `@aashari/mcp-server-atlassian-jira` | `~/.osmozzz/jira.toml` |
-| `github.rs` | `@modelcontextprotocol/server-github` | `~/.osmozzz/github.toml` |
-| `notion.rs` | `@notionhq/notion-mcp-server` | `~/.osmozzz/notion.toml` |
-| `slack.rs` | `@modelcontextprotocol/server-slack` | `~/.osmozzz/slack.toml` |
-| `linear.rs` | `@tacticlaunch/mcp-linear` | `~/.osmozzz/linear.toml` |
-| `supabase.rs` | `@supabase/mcp-server-supabase` | `~/.osmozzz/supabase.toml` |
+| Fichier       | Package npm                           | Config                     |
+| ------------- | ------------------------------------- | -------------------------- |
+| `jira.rs`     | `@aashari/mcp-server-atlassian-jira`  | `~/.osmozzz/jira.toml`     |
+| `github.rs`   | `@modelcontextprotocol/server-github` | `~/.osmozzz/github.toml`   |
+| `notion.rs`   | `@notionhq/notion-mcp-server`         | `~/.osmozzz/notion.toml`   |
+| `slack.rs`    | `@modelcontextprotocol/server-slack`  | `~/.osmozzz/slack.toml`    |
+| `linear.rs`   | `@tacticlaunch/mcp-linear`            | `~/.osmozzz/linear.toml`   |
+| `supabase.rs` | `@supabase/mcp-server-supabase`       | `~/.osmozzz/supabase.toml` |
 
 **Mécanisme** (`McpSubprocess`) :
+
 - Vérifie/installe Bun automatiquement (`~/.bun/bin/bun`)
 - Lance `bunx x --bun <package>` avec les env vars du `.toml`
 - Handshake JSON-RPC 2.0 (`initialize` + `notifications/initialized`)
@@ -82,14 +87,14 @@ Claude → OSMOzzz MCP (Rust) → subprocess bunx @pkg/mcp-server → API cloud
 
 ### Tableau comparatif
 
-| | Harvester (Rust) | MCP Proxy (Subprocess) |
-|---|---|---|
-| **Rôle** | Indexation (passé) | Actions temps réel |
-| **Transport** | reqwest HTTP | bunx subprocess JSON-RPC |
-| **Output** | Vec<Document> → LanceDB | Réponse JSON → Claude |
-| **Tools** | `search_*` dans mcp.rs | Tools natifs du package npm |
-| **Dépendance** | Cargo (reqwest) | Bun runtime (auto-installé) |
-| **Config** | `~/.osmozzz/*.toml` | `~/.osmozzz/*.toml` (même fichier) |
+|                | Harvester (Rust)        | MCP Proxy (Subprocess)             |
+| -------------- | ----------------------- | ---------------------------------- |
+| **Rôle**       | Indexation (passé)      | Actions temps réel                 |
+| **Transport**  | reqwest HTTP            | bunx subprocess JSON-RPC           |
+| **Output**     | Vec<Document> → LanceDB | Réponse JSON → Claude              |
+| **Tools**      | `search_*` dans mcp.rs  | Tools natifs du package npm        |
+| **Dépendance** | Cargo (reqwest)         | Bun runtime (auto-installé)        |
+| **Config**     | `~/.osmozzz/*.toml`     | `~/.osmozzz/*.toml` (même fichier) |
 
 ### Supabase MCP Proxy — Détail
 
@@ -103,16 +108,16 @@ project_id   = "xxxx"          # optionnel — restreint à un projet spécifiqu
 
 **~38 tools disponibles** répartis en groupes :
 
-| Groupe | Tools principaux |
-|--------|-----------------|
-| Base de données | `execute_sql`, `list_tables`, `list_extensions`, `apply_migration` |
-| Debugging | `get_logs` (API, PostgreSQL, Edge Functions, Auth, Storage), `get_advisors` |
-| Développement | `get_project_url`, `get_publishable_keys`, `generate_typescript_types` |
-| Edge Functions | `list_edge_functions`, `deploy_edge_function` |
-| Storage | `list_storage_buckets`, `get_storage_config` |
-| Branching | `create_branch`, `list_branches`, `merge_branch`, `reset_branch` |
-| Compte | `list_projects`, `create_project`, `pause_project`, `get_cost` |
-| Docs | `search_docs` |
+| Groupe          | Tools principaux                                                            |
+| --------------- | --------------------------------------------------------------------------- |
+| Base de données | `execute_sql`, `list_tables`, `list_extensions`, `apply_migration`          |
+| Debugging       | `get_logs` (API, PostgreSQL, Edge Functions, Auth, Storage), `get_advisors` |
+| Développement   | `get_project_url`, `get_publishable_keys`, `generate_typescript_types`      |
+| Edge Functions  | `list_edge_functions`, `deploy_edge_function`                               |
+| Storage         | `list_storage_buckets`, `get_storage_config`                                |
+| Branching       | `create_branch`, `list_branches`, `merge_branch`, `reset_branch`            |
+| Compte          | `list_projects`, `create_project`, `pause_project`, `get_cost`              |
+| Docs            | `search_docs`                                                               |
 
 ### Pattern pour ajouter un nouveau MCP Proxy
 
@@ -922,6 +927,3 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 - Contacts macOS harvester
 - Arc browser harvester
 - Recherche multi-terme AND (`+`)
-
-http://localhost:5173/
-http://localhost:3000/
