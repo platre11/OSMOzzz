@@ -701,6 +701,7 @@ pub async fn sync_source_after_action(tool: &str, vault: &std::sync::Arc<osmozzz
         "trello"  => osmozzz_harvester::TrelloHarvester::new().harvest().await,
         "gitlab"  => osmozzz_harvester::GitlabHarvester::new().harvest().await,
         "slack"    => osmozzz_harvester::SlackHarvester::new().harvest().await,
+        #[cfg(target_os = "macos")]
         "calendar" => osmozzz_harvester::CalendarHarvester::new().harvest().await,
         _ => return,
     };
