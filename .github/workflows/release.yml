@@ -158,11 +158,9 @@ jobs:
             3. Le dashboard s'ouvre automatiquement sur http://localhost:7878
 
             ## Installation Windows
-            1. Télécharge **osmozzz-windows.zip**
-            2. Extrais le dossier (clic droit → Extraire tout)
-            3. Ouvre un terminal dans le dossier extrait
-            4. Lance `.\osmozzz.exe daemon`
-            5. Le dashboard s'ouvre sur http://localhost:7878
+            1. Télécharge **osmozzz-setup.exe**
+            2. Double-clique pour installer
+            3. Le dashboard s'ouvre automatiquement sur http://localhost:7878
 
             > Note : Windows peut afficher un avertissement SmartScreen — clique sur "Informations complémentaires" puis "Exécuter quand même"
 
@@ -183,8 +181,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install protobuf
-        run: choco install protoc --no-progress -y
+      - name: Install dependencies
+        run: choco install protoc nsis --no-progress -y
 
       - name: Download ONNX Runtime
         run: |
@@ -218,14 +216,20 @@ jobs:
 
       - name: Package release
         run: |
+          # Assemble dist-windows/
           New-Item -ItemType Directory dist-windows | Out-Null
+          New-Item -ItemType Directory dist-windows/models | Out-Null
           Copy-Item target/release/osmozzz.exe dist-windows/
           Copy-Item onnxruntime-dist/onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll dist-windows/
-          New-Item -ItemType Directory dist-windows/models | Out-Null
-          Copy-Item models/* dist-windows/models/
-          Compress-Archive -Path dist-windows -DestinationPath osmozzz-windows.zip
+          Copy-Item models/all-MiniLM-L6-v2.onnx dist-windows/models/
+          Copy-Item models/tokenizer.json dist-windows/models/
+
+          # Build NSIS installer
+          $version = ("${{ github.ref_name }}").TrimStart('v')
+          $distDir = (Resolve-Path dist-windows).Path
+          makensis /DVERSION=$version /DDIST_DIR=$distDir scripts\windows\installer.nsi
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: osmozzz-windows.zip
+          files: osmozzz-setup.exe

@@ -448,7 +448,7 @@ export default function HomePage() {
                 <AppleIcon />
                 {t('heroDownloadMac')}
               </BtnDownload>
-              <BtnDownloadWin href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-windows.zip">
+              <BtnDownloadWin href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-setup.exe">
                 <WindowsIcon />
                 {t('heroDownloadWindows')}
               </BtnDownloadWin>
@@ -596,7 +596,7 @@ export default function HomePage() {
                 <AppleIcon />
                 {t('ctaDownloadMac')}
               </BtnDownload>
-              <BtnDownloadWin href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-windows.zip">
+              <BtnDownloadWin href="https://github.com/platre11/OSMOzzz/releases/latest/download/osmozzz-setup.exe">
                 <WindowsIcon />
                 {t('ctaDownloadWindows')}
               </BtnDownloadWin>
