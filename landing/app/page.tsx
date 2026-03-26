@@ -6,6 +6,23 @@ import HeroBlock from './HeroBlock'
 import ShieldRadar from './ShieldRadar'
 import CompareSnake from './CompareSnake'
 
+function SiteLogo({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none">
+      {/* Carré central léger */}
+      <rect x="20" y="20" width="24" height="24" rx="1"
+        stroke="rgba(255,255,255,0.55)" strokeWidth="0.6" />
+      {/* Coins brackets */}
+      <path d="M 20 28 L 20 20 L 28 20" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M 36 20 L 44 20 L 44 28" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M 20 36 L 20 44 L 28 44" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M 44 36 L 44 44 L 36 44" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Point central */}
+      <circle cx="32" cy="32" r="2.5" fill="#ffffff" />
+    </svg>
+  )
+}
+
 // ── Global ────────────────────────────────────────────────────────────────────
 
 const GlobalStyle = createGlobalStyle`
@@ -38,12 +55,6 @@ const NavInner = styled.div`
   max-width: 1000px; margin: 0 auto;
   padding: 0 24px; height: 56px;
   display: flex; align-items: center; justify-content: space-between;
-`
-const Logo = styled.span`
-  font-size: 17px; font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #fff;
-
 `
 const NavRight = styled.div`
   display: flex; gap: 12px; align-items: center;
@@ -424,7 +435,7 @@ export default function HomePage() {
         </HeroBgSvg>
         <NavBar>
           <NavInner>
-            <Logo>OSMO<span>zzz</span></Logo>
+            <SiteLogo size={80} />
             <NavRight>
               <LangSwitcher>
                 <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
@@ -456,7 +467,6 @@ export default function HomePage() {
                 {t('heroDownloadWindows')}
               </BtnDownloadWin>
             </DownloadRow>
-            <HeroMeta>{t('heroMeta')}</HeroMeta>
           </HeroActions>
         </HeroSection>
       </HeroWrapper>
@@ -620,7 +630,7 @@ export default function HomePage() {
       {/* FOOTER */}
       <FooterEl>
         <FooterInner>
-          <Logo style={{ fontSize: '14px' }}>OSMO<span>zzz</span></Logo>
+          <SiteLogo size={36} />
           <span style={{ color: '#4b5563', fontSize: '13px' }}>{t('footerLicense')}</span>
           <FooterLink href="https://github.com/platre11/osmozzz" target="_blank" rel="noreferrer">
             GitHub →
