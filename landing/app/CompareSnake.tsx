@@ -14,6 +14,18 @@ const SnakeSvg = styled.svg`
   pointer-events: none;
   overflow: visible;
   z-index: 5;
+  -webkit-mask-image: linear-gradient(to right,
+    transparent 0%,
+    black 6%,
+    black 94%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(to right,
+    transparent 0%,
+    black 6%,
+    black 94%,
+    transparent 100%
+  );
 `
 
 const AnimatedPath = styled.path<{ $total: number }>`

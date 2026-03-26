@@ -287,18 +287,21 @@ const SourcesDot = styled.span<{ $type: 'local' | 'cloud' }>`
   box-shadow: ${p => p.$type === 'local' ? '0 0 6px #4ade80' : '0 0 6px #a5b4fc'};
 `
 const SourcesCards = styled.div`
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px;
+  display: flex; flex-wrap: wrap; gap: 10px;
 `
 const SourceCard = styled.div<{ $type: 'local' | 'cloud' }>`
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 500;
-  transition: transform .15s, border-color .15s; cursor: default;
-  span { color: var(--text); }
-  background: ${p => p.$type === 'local' ? 'rgba(22,163,74,.07)' : 'rgba(91,94,244,.07)'};
-  border: 1px solid ${p => p.$type === 'local' ? 'rgba(22,163,74,.2)' : 'rgba(91,94,244,.2)'};
+  padding: 8px 18px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; letter-spacing: .02em;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  transition: transform .15s, box-shadow .15s; cursor: default;
+  color: ${p => p.$type === 'local' ? 'rgba(74,222,128,.9)' : 'rgba(139,148,255,.9)'};
+  background: ${p => p.$type === 'local' ? 'rgba(22,163,74,.1)' : 'rgba(91,94,244,.1)'};
+  border: 1px solid ${p => p.$type === 'local' ? 'rgba(74,222,128,.2)' : 'rgba(139,148,255,.2)'};
   &:hover {
     transform: translateY(-2px);
-    border-color: ${p => p.$type === 'local' ? 'rgba(22,163,74,.4)' : 'rgba(91,94,244,.4)'};
+    box-shadow: ${p => p.$type === 'local'
+      ? '0 4px 20px rgba(74,222,128,.15)'
+      : '0 4px 20px rgba(139,148,255,.15)'};
   }
 `
 
@@ -564,7 +567,7 @@ export default function HomePage() {
                 {t('sourcesLocalLabel')}
               </SourcesColHeader>
               <SourcesCards>
-                {['Gmail','Chrome','Safari','iMessage','Apple Notes','Calendar','Terminal','Files'].map(name => (
+                {['Chrome','Safari','iMessage','Apple Notes','Calendar','Terminal','Files'].map(name => (
                   <SourceCard key={name} $type="local"><span>{name}</span></SourceCard>
                 ))}
               </SourcesCards>
@@ -576,7 +579,7 @@ export default function HomePage() {
                 {t('sourcesCloudLabel')}
               </SourcesColHeader>
               <SourcesCards>
-                {['Notion','GitHub','Linear','Jira','Supabase'].map(name => (
+                {['Gmail','Notion','GitHub','Linear','Jira','Supabase'].map(name => (
                   <SourceCard key={name} $type="cloud"><span>{name}</span></SourceCard>
                 ))}
               </SourcesCards>
