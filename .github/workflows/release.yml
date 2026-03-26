@@ -153,7 +153,79 @@ jobs:
           files: osmozzz.pkg
           body: |
             ## Installation macOS
-
             1. Télécharge **osmozzz.pkg**
             2. Double-clique pour installer
             3. Le dashboard s'ouvre automatiquement sur http://localhost:7878
+
+            ## Installation Windows
+            1. Télécharge **osmozzz-windows.zip**
+            2. Extrais le dossier (clic droit → Extraire tout)
+            3. Ouvre un terminal dans le dossier extrait
+            4. Lance `.\osmozzz.exe daemon`
+            5. Le dashboard s'ouvre sur http://localhost:7878
+
+            > Note : Windows peut afficher un avertissement SmartScreen — clique sur "Informations complémentaires" puis "Exécuter quand même"
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install protobuf
+        run: choco install protoc --no-progress -y
+
+      - name: Download ONNX Runtime
+        run: |
+          $version = "1.20.1"
+          Invoke-WebRequest `
+            -Uri "https://github.com/microsoft/onnxruntime/releases/download/v${version}/onnxruntime-win-x64-${version}.zip" `
+            -OutFile onnxruntime.zip
+          Expand-Archive onnxruntime.zip -DestinationPath onnxruntime-dist
+
+      - name: Download ONNX model
+        run: |
+          New-Item -ItemType Directory -Force models | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx" `
+            -OutFile models/all-MiniLM-L6-v2.onnx
+          Invoke-WebRequest `
+            -Uri "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json" `
+            -OutFile models/tokenizer.json
+
+      - name: Build frontend
+        run: |
+          Set-Location dashboard
+          npm ci
+          npm run build
+
+      - name: Build binary
+        run: |
+          $env:ORT_DYLIB_PATH = "$env:GITHUB_WORKSPACE\onnxruntime-dist\onnxruntime-win-x64-1.20.1\lib\onnxruntime.dll"
+          (Get-Item "crates/osmozzz-api/src/server.rs").LastWriteTime = Get-Date
+          cargo build --release -p osmozzz-cli
+
+      - name: Package release
+        run: |
+          New-Item -ItemType Directory dist-windows | Out-Null
+          Copy-Item target/release/osmozzz.exe dist-windows/
+          Copy-Item onnxruntime-dist/onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll dist-windows/
+          New-Item -ItemType Directory dist-windows/models | Out-Null
+          Copy-Item models/* dist-windows/models/
+          Compress-Archive -Path dist-windows -DestinationPath osmozzz-windows.zip
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: osmozzz-windows.zip

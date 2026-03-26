@@ -15,8 +15,9 @@ export const translations = {
     heroCaptionLine2: 'between your sensitive data and cloud AIs.',
     heroCaptionTop: 'OSMOzzz understands Z8xJNaS7f82 - OSMOzzz',
     heroCaptionBottom1: 'OSMOzzz replaces [OSMOzzz] → Z8xJNaS7f82',
-    heroDownload: 'Download for macOS',
-    heroMeta: 'macOS 12+ · Free · Open Source',
+    heroDownloadMac: 'Download for Mac',
+    heroDownloadWindows: 'Download for Windows',
+    heroMeta: 'Free · Open Source',
 
     // Sources
     sourcesTitle: 'Everything your AI can access',
@@ -48,7 +49,8 @@ export const translations = {
     // CTA
     ctaTitle: 'Give your AI access to your world.',
     ctaSub: 'Open source. You decide what your AI sees.',
-    ctaDownload: 'Download for macOS',
+    ctaDownloadMac: 'Download for Mac',
+    ctaDownloadWindows: 'Download for Windows',
     ctaGithub: 'View on GitHub →',
 
     // Footer
@@ -71,8 +73,9 @@ export const translations = {
     heroCaptionLine2: 'entre vos données sensibles et les IA cloud.',
     heroCaptionTop: 'OSMOzzz comprend Z8xJNaS7f82 - OSMOzzz',
     heroCaptionBottom1: 'OSMOzzz remplace [OSMOzzz] → Z8xJNaS7f82',
-    heroDownload: 'Télécharger pour macOS',
-    heroMeta: 'macOS 12+ · Gratuit · Open Source',
+    heroDownloadMac: 'Télécharger pour Mac',
+    heroDownloadWindows: 'Télécharger pour Windows',
+    heroMeta: 'Gratuit · Open Source',
 
     // Sources
     sourcesTitle: 'Tout ce à quoi votre IA peut accéder',
@@ -104,7 +107,8 @@ export const translations = {
     // CTA
     ctaTitle: 'Donnez à votre IA accès à votre monde.',
     ctaSub: 'Open source. Vous décidez ce que votre IA voit.',
-    ctaDownload: 'Télécharger pour macOS',
+    ctaDownloadMac: 'Télécharger pour Mac',
+    ctaDownloadWindows: 'Télécharger pour Windows',
     ctaGithub: 'Voir sur GitHub →',
 
     // Footer
