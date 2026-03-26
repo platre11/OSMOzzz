@@ -203,7 +203,7 @@ const LineFinal2 = styled.div<{ $slide: boolean }>`
   bottom: 0px;
   left: 50px;
   width: 0;
-  height: 70px;
+  height: 90px;
   border-right: 1px dashed white;
   transform: scaleY(0);
   transform-origin: top;
