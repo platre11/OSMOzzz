@@ -902,18 +902,19 @@ fn scan_injection(text: &str) -> (String, bool) {
 fn sanitize_proxy_response(text: &str) -> String {
     use osmozzz_core::filter::{PrivacyConfig, PrivacyFilter};
 
-    // Applique toujours le filtre api_keys (indépendant de la config utilisateur)
-    let cfg = PrivacyConfig {
-        api_keys: true,
-        // Les autres restent à false ici — l'utilisateur contrôle ça via sa config
-        credit_card: false, iban: false, email: false, phone: false,
-    };
+    // Lit la config utilisateur (privacy.toml) + force api_keys toujours actif
+    let mut cfg = PrivacyConfig::load();
+    cfg.api_keys = true;
+
     let filter = PrivacyFilter::from_config(&cfg);
     let filtered = filter.apply(text);
 
-    // En plus : masque les JWT (eyJ....) et les tokens base64 longs (Atlassian, etc.)
-    // via remplacement simple sans regex externe
-    mask_long_tokens(&filtered)
+    // Masque les JWT et tokens base64 longs (Atlassian, GitHub PAT, etc.)
+    let filtered = mask_long_tokens(&filtered);
+
+    // Applique les alias utilisateur (aliases.toml) — même logique que les sources indexées
+    let aliases = load_aliases();
+    apply_aliases(&filtered, &aliases)
 }
 
 /// Masque les tokens longs sans espaces qui ressemblent à des credentials.
