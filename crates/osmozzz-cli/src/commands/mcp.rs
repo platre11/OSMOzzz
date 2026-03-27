@@ -777,10 +777,24 @@ fn load_aliases() -> Vec<(String, String)> {
         Err(_) => return vec![],
     };
     let mut pairs = Vec::new();
-    if let Some(map) = t.get("map").and_then(|v| v.as_table()) {
-        for (real, alias) in map {
-            if let Some(alias_str) = alias.as_str() {
-                pairs.push((real.clone(), alias_str.to_string()));
+    // Nouveau format : [[entries]] avec real/alias(/alias_type)
+    if let Some(arr) = t.get("entries").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let (Some(real), Some(alias)) = (
+                item.get("real").and_then(|v| v.as_str()),
+                item.get("alias").and_then(|v| v.as_str()),
+            ) {
+                pairs.push((real.to_string(), alias.to_string()));
+            }
+        }
+    }
+    // Ancien format : [map] clé/valeur (compat)
+    if pairs.is_empty() {
+        if let Some(map) = t.get("map").and_then(|v| v.as_table()) {
+            for (real, alias) in map {
+                if let Some(alias_str) = alias.as_str() {
+                    pairs.push((real.clone(), alias_str.to_string()));
+                }
             }
         }
     }
@@ -1416,7 +1430,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 let msg = if results.is_empty() {
                                     format!("Aucun email trouvé contenant \"{}\".\n\nConseil : essaie un mot-clé plus court ou plus général.", keyword)
                                 } else {
-                                    format_email_list(&results)
+                                    format_email_list_kw(&results, Some(&keyword))
                                 };
                                 audit_log("search_emails", &keyword, results.len(), false, Some(&msg));
                                 send(&Response::ok(id, json!({
@@ -2517,6 +2531,10 @@ fn extract_email_meta(content: &str) -> (String, String) {
 /// Liste compacte d'emails : objet + expéditeur + date + ID.
 /// Claude appelle ensuite read_email(id) pour le contenu complet.
 fn format_email_list(results: &[(Option<String>, String, String)]) -> String {
+    format_email_list_kw(results, None)
+}
+
+fn format_email_list_kw(results: &[(Option<String>, String, String)], keyword: Option<&str>) -> String {
     if results.is_empty() {
         return "Aucun email trouvé.".to_string();
     }
@@ -2525,16 +2543,53 @@ fn format_email_list(results: &[(Option<String>, String, String)]) -> String {
         let (from, date) = extract_email_meta(content);
         let subject = title.as_deref().unwrap_or("(sans objet)");
         let msg_id = url.trim_start_matches("gmail://message/");
-        // Encode '@' → '[at]' pour éviter le masquage par le filtre de confidentialité.
-        // read_email décode automatiquement '[at]' → '@'.
         let msg_id_display = msg_id.replace('@', "[at]");
         out.push_str(&format!(
-            "{}. 📧 {}\n   De   : {}\n   Date : {}\n   ID   : {}\n\n",
+            "{}. 📧 {}\n   De   : {}\n   Date : {}\n   ID   : {}\n",
             i + 1, subject, from, date, msg_id_display
         ));
+        // Snippet : extrait ~80 chars autour du keyword dans le corps
+        if let Some(kw) = keyword {
+            if let Some(snippet) = extract_snippet(content, kw) {
+                out.push_str(&format!("   ↳ \"…{}…\"\n", snippet));
+            }
+        }
+        out.push('\n');
     }
     out.push_str("→ Pour lire un email : read_email(id=\"...\")");
     out
+}
+
+/// Trouve le keyword dans le texte (insensible à la casse) et retourne ~80 chars autour.
+fn extract_snippet(text: &str, keyword: &str) -> Option<String> {
+    if keyword.is_empty() { return None; }
+    let lower_text = text.to_lowercase();
+    let lower_kw   = keyword.to_lowercase();
+    let pos = lower_text.find(&lower_kw as &str)?;
+    // Recule de 40 chars (en respectant les frontières UTF-8)
+    let start = {
+        let target = pos.saturating_sub(40);
+        let mut s = pos;
+        while s > target && !text.is_char_boundary(s) { s -= 1; }
+        while s > target { s -= 1; if text.is_char_boundary(s) { break; } }
+        s
+    };
+    // Avance de 80 chars après le début du match
+    let end = {
+        let target = (pos + keyword.len() + 40).min(text.len());
+        let mut e = target;
+        while e < text.len() && !text.is_char_boundary(e) { e += 1; }
+        e
+    };
+    let snippet = text[start..end]
+        .replace('\n', " ")
+        .replace('\r', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut b = 80usize.min(snippet.len());
+    while b > 0 && !snippet.is_char_boundary(b) { b -= 1; }
+    Some(snippet[..b].to_string())
 }
 
 // ─── Formatter générique pour les nouvelles sources ──────────────────────────

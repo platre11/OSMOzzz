@@ -35,6 +35,16 @@ impl Vault {
         self.embedder.embed(text)
     }
 
+    /// Re-open the LanceDB connection after machine sleep/wake.
+    pub async fn heal(&self) -> osmozzz_core::Result<()> {
+        self.store.heal().await
+    }
+
+    /// Quick health check — returns Err if the connection is stale.
+    pub async fn health_check(&self) -> osmozzz_core::Result<()> {
+        self.store.health_check().await
+    }
+
     /// Compact the vector store: merge all fragment files and prune old versions.
     pub async fn compact(&self) -> osmozzz_core::Result<()> {
         self.store.compact().await

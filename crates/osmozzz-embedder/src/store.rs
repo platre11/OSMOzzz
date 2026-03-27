@@ -20,7 +20,7 @@ const TABLE_NAME: &str = "documents";
 const EMBEDDING_DIM: i32 = 384;
 
 pub struct VectorStore {
-    conn: Connection,
+    conn: Arc<tokio::sync::RwLock<Connection>>,
     table: Arc<tokio::sync::RwLock<Option<Table>>>,
     db_path: String,
 }
@@ -36,12 +36,40 @@ impl VectorStore {
             .map_err(|e| OsmozzError::Storage(format!("LanceDB connect: {}", e)))?;
 
         let store = Self {
-            conn,
+            conn: Arc::new(tokio::sync::RwLock::new(conn)),
             table: Arc::new(tokio::sync::RwLock::new(None)),
             db_path: db_path.to_string(),
         };
         store.ensure_table().await?;
         Ok(store)
+    }
+
+    /// Re-open the LanceDB connection and table after machine sleep/wake.
+    /// Call this if operations start failing (count returns 0, queries error out).
+    pub async fn heal(&self) -> Result<()> {
+        tracing::info!("VectorStore: healing connection after sleep/wake...");
+        // Drop cached table first so ensure_table re-opens it
+        *self.table.write().await = None;
+        // Re-create connection
+        let new_conn = connect(&self.db_path)
+            .execute()
+            .await
+            .map_err(|e| OsmozzError::Storage(format!("LanceDB reconnect: {}", e)))?;
+        *self.conn.write().await = new_conn;
+        // Re-open table from fresh connection
+        self.ensure_table().await?;
+        tracing::info!("VectorStore: healed successfully.");
+        Ok(())
+    }
+
+    /// Quick health check: count rows. Returns Err if the connection is stale.
+    pub async fn health_check(&self) -> Result<()> {
+        let table = self.get_table().await?;
+        table
+            .count_rows(None)
+            .await
+            .map(|_| ())
+            .map_err(|e| OsmozzError::Storage(format!("Health check: {}", e)))
     }
 
     fn schema() -> Arc<Schema> {
@@ -68,8 +96,9 @@ impl VectorStore {
     }
 
     async fn ensure_table(&self) -> Result<()> {
-        let existing = self
-            .conn
+        // Clone the connection so we don't hold the lock across await points.
+        let conn = self.conn.read().await.clone();
+        let existing = conn
             .table_names()
             .execute()
             .await
@@ -78,7 +107,7 @@ impl VectorStore {
         let schema = Self::schema();
 
         let table = if existing.contains(&TABLE_NAME.to_string()) {
-            self.conn
+            conn
                 .open_table(TABLE_NAME)
                 .execute()
                 .await
@@ -89,7 +118,7 @@ impl VectorStore {
                 vec![Ok::<RecordBatch, ArrowError>(empty)].into_iter(),
                 schema,
             );
-            self.conn
+            conn
                 .create_table(TABLE_NAME, reader)
                 .execute()
                 .await

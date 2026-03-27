@@ -160,6 +160,24 @@ pub async fn run(cfg: Config) -> Result<()> {
         }
     });
 
+    // Health check périodique — guérit le vault si la connexion LanceDB est devenue
+    // obsolète après une veille machine (sleep/wake macOS).
+    let health_vault = Arc::clone(&vault);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        interval.tick().await; // skip first tick (startup)
+        loop {
+            interval.tick().await;
+            if let Err(e) = health_vault.health_check().await {
+                eprintln!("[OSMOzzz Daemon] Vault stale ({}), reconnexion en cours…", e);
+                match health_vault.heal().await {
+                    Ok(_)  => eprintln!("[OSMOzzz Daemon] Vault reconnecté avec succès."),
+                    Err(e) => eprintln!("[OSMOzzz Daemon] Échec reconnexion vault : {}", e),
+                }
+            }
+        }
+    });
+
     // Ouvrir le dashboard dans le navigateur par défaut après 500ms
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;

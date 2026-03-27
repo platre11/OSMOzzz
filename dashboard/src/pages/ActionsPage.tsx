@@ -574,15 +574,16 @@ export default function ActionsPage() {
 
   function addAlias() {
     const real = newReal.trim(); const alias = newAlias.trim()
-    if (!real || !alias || aliases.some(a => a.real === real)) return
+    // Doublon uniquement au sein du même type (pas global)
+    if (!real || !alias || aliases.some(a => a.real === real && a.alias_type === (selectedType ?? undefined))) return
     const next = [...aliases, { real, alias, alias_type: selectedType ?? undefined }]
     setAliases(next)
     setAliasesDirty(true)
     setNewReal(''); setNewAlias('')
     persistNow(next, aliasTypes)
   }
-  function removeAlias(real: string) {
-    const next = aliases.filter(a => a.real !== real)
+  function removeAlias(real: string, aliasType?: string) {
+    const next = aliases.filter(a => !(a.real === real && a.alias_type === aliasType))
     setAliases(next)
     persistNow(next, aliasTypes)
   }
@@ -844,13 +845,13 @@ export default function ActionsPage() {
                         )}
                         {aliases
                           .filter(a => selectedType === null || a.alias_type === selectedType)
-                          .map(({ real, alias }) => (
-                            <tr key={real}>
+                          .map(({ real, alias, alias_type }) => (
+                            <tr key={`${real}__${alias_type ?? ''}`}>
                               <AliasTd><strong>{real}</strong></AliasTd>
                               <AliasArrow>→</AliasArrow>
                               <AliasMuted>{alias}</AliasMuted>
                               <AliasTd style={{ textAlign: 'right' }}>
-                                <AliasDelBtn onClick={() => removeAlias(real)}>
+                                <AliasDelBtn onClick={() => removeAlias(real, alias_type)}>
                                   Supprimer
                                 </AliasDelBtn>
                               </AliasTd>
