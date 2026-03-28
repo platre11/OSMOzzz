@@ -145,7 +145,6 @@ export interface ActionEvent {
 export interface PrivacyConfig {
   credit_card: boolean
   iban: boolean
-  api_keys: boolean
   email: boolean
   phone: boolean
 }
@@ -342,7 +341,7 @@ export const api = {
 
   getPrivacy: async (): Promise<PrivacyConfig> => {
     const r = await axios.get(`${BASE}/privacy`)
-    return r.data.data ?? { credit_card: true, iban: true, api_keys: true, email: false, phone: false }
+    return r.data.data ?? { credit_card: true, iban: true, email: false, phone: false }
   },
 
   setPrivacy: async (config: PrivacyConfig): Promise<void> => {

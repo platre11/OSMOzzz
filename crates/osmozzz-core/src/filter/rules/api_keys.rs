@@ -8,31 +8,18 @@ pub struct ApiKeysRule {
 impl ApiKeysRule {
     pub fn new() -> Self {
         Self {
+            // Clés API génériques non liées aux connecteurs OSMOzzz (optionnel utilisateur)
+            // Les tokens connecteurs sont dans ConnectorTokensRule (toujours actif)
             re: Regex::new(concat!(
                 r"(?x)",
-                // OpenAI / Stripe
-                r"sk-[a-zA-Z0-9]{20,}",
+                // OpenAI / Stripe / Anthropic (sk- générique)
+                r"sk-[a-zA-Z0-9\-_]{20,}",
                 r"|",
-                // GitHub tokens
-                r"gh[psobur]_[a-zA-Z0-9]{36}",
+                // HuggingFace
+                r"hf_[a-zA-Z0-9]{30,}",
                 r"|",
-                // Linear
-                r"lin_api_[a-zA-Z0-9]{40}",
-                r"|",
-                // Slack
-                r"xox[pboa]-[a-zA-Z0-9\-]{10,}",
-                r"|",
-                // Google API
-                r"AIza[a-zA-Z0-9\-_]{35}",
-                r"|",
-                // GitLab
-                r"glpat-[a-zA-Z0-9\-_]{20}",
-                r"|",
-                // AWS Access Key
-                r"AKIA[A-Z0-9]{16}",
-                r"|",
-                // Airtable Personal Access Token
-                r"pat[a-zA-Z0-9]{14}\.[a-zA-Z0-9]{64}",
+                // JWT (Bearer tokens)
+                r"eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+",
             )).unwrap(),
         }
     }

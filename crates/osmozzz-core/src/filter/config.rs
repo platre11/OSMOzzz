@@ -6,8 +6,6 @@ pub struct PrivacyConfig {
     pub credit_card: bool,
     #[serde(default = "default_true")]
     pub iban: bool,
-    #[serde(default = "default_true")]
-    pub api_keys: bool,
     #[serde(default)]
     pub email: bool,
     #[serde(default)]
@@ -21,7 +19,6 @@ impl Default for PrivacyConfig {
         Self {
             credit_card: true,
             iban: true,
-            api_keys: true,
             email: false,
             phone: false,
         }
@@ -50,6 +47,6 @@ impl PrivacyConfig {
     }
 
     pub fn is_any_active(&self) -> bool {
-        self.credit_card || self.iban || self.api_keys || self.email || self.phone
+        self.credit_card || self.iban || self.email || self.phone
     }
 }

@@ -415,7 +415,7 @@ pub async fn get_config() -> impl IntoResponse {
             configured: gmail_cfg.is_some(),
             display:    gmail_cfg.map(|c| c.username),
         },
-        notion:   connector_status("notion.toml",   "token"),
+        notion:   connector_status("notion.toml",   ""),
         github:   connector_status("github.toml",   "repos"),
         linear:   connector_status("linear.toml",   ""),
         jira:     connector_status("jira.toml",     "base_url"),

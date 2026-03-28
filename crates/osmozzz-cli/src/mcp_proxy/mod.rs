@@ -14,8 +14,14 @@ pub mod supabase;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(100);
+
+/// Timeout pour les appels aux subprocessus MCP (ex: Supabase API).
+/// Au-delà, on retourne une erreur plutôt que de bloquer indéfiniment.
+const TOOL_CALL_TIMEOUT_SECS: u64 = 60;
 
 fn next_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
@@ -24,9 +30,9 @@ fn next_id() -> u64 {
 // ─── Subprocess MCP générique ─────────────────────────────────────────────────
 
 pub struct McpSubprocess {
-    stdin:  std::process::ChildStdin,
-    reader: BufReader<std::process::ChildStdout>,
-    _child: std::process::Child,
+    stdin:    std::process::ChildStdin,
+    receiver: mpsc::Receiver<Value>,   // thread dédié qui lit stdout sans bloquer
+    _child:   std::process::Child,
     pub tools: Vec<Value>,
     pub name:  String,
 }
@@ -110,11 +116,23 @@ impl McpSubprocess {
 
         let stdin  = child.stdin.take()?;
         let stdout = child.stdout.take()?;
-        let reader = BufReader::new(stdout);
+
+        // Thread dédié qui lit stdout du subprocess et envoie chaque ligne
+        // JSON parsée dans un channel — élimine le blocage indéfini du main thread.
+        let (tx, rx) = mpsc::channel::<Value>();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                    if tx.send(v).is_err() { break; }
+                }
+            }
+        });
 
         let mut sub = Self {
             stdin,
-            reader,
+            receiver: rx,
             _child: child,
             tools: vec![],
             name: name.to_string(),
@@ -146,21 +164,27 @@ impl McpSubprocess {
     }
 
     fn read_response(&mut self, expected_id: u64) -> Option<Value> {
-        for _ in 0..200 {
-            let mut line = String::new();
-            match self.reader.read_line(&mut line) {
-                Ok(0) | Err(_) => return None,
-                Ok(_) => {}
+        let timeout  = Duration::from_secs(TOOL_CALL_TIMEOUT_SECS);
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                eprintln!(
+                    "[OSMOzzz MCP] Timeout {} — pas de réponse après {}s",
+                    self.name, TOOL_CALL_TIMEOUT_SECS
+                );
+                return None;
             }
-            let line = line.trim();
-            if line.is_empty() { continue; }
-            if let Ok(v) = serde_json::from_str::<Value>(line) {
-                if v.get("id").and_then(|i| i.as_u64()) == Some(expected_id) {
-                    return Some(v);
+            match self.receiver.recv_timeout(remaining) {
+                Ok(v) => {
+                    if v.get("id").and_then(|i| i.as_u64()) == Some(expected_id) {
+                        return Some(v);
+                    }
+                    // notification ou message non-correspondant — continuer
                 }
+                Err(_) => return None, // timeout ou channel fermé
             }
         }
-        None
     }
 
     fn request(&mut self, method: &str, params: Value) -> Option<Value> {

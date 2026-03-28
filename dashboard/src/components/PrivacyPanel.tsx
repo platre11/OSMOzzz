@@ -153,12 +153,6 @@ const RULES: RuleMeta[] = [
     defaultOn: true,
   },
   {
-    key: 'api_keys',
-    label: 'Clés API',
-    example: 'sk-abc123...  →  [CLÉ API masquée]',
-    defaultOn: true,
-  },
-  {
     key: 'email',
     label: 'Adresses email',
     example: 'jean@exemple.com  →  [email masqué]',
