@@ -11,28 +11,43 @@ import BlacklistPanel from '../components/BlacklistPanel'
 
 const spin = keyframes`to { transform: rotate(360deg); }`
 
-const Layout = styled.div`display: flex; gap: 0; min-height: 0;`
+const Layout = styled.div`display: flex; flex-direction: column; gap: 0; min-height: 0;`
 
-const Sidebar = styled.nav`
-  width: 200px; flex-shrink: 0;
-  display: flex; flex-direction: column; gap: 2px;
-  padding-right: 16px;
+const TopTabBar = styled.div`
+  display: flex; align-items: center; gap: 2px;
+  border-bottom: 1px solid #e8eaed;
+  margin-bottom: 24px;
+  padding-bottom: 0;
 `
 
-const SideNavItem = styled.button<{ $active: boolean }>`
-  display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 9px 12px; border-radius: 8px;
-  border: none; cursor: pointer; text-align: left;
+const TopTabItem = styled.button<{ $active: boolean }>`
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 14px 10px; border: none; cursor: pointer; background: transparent;
   font-size: 13px; font-weight: ${({ $active }) => $active ? '600' : '500'};
+  color: ${({ $active }) => $active ? '#1a1d23' : '#6b7280'};
+  border-bottom: 2px solid ${({ $active }) => $active ? '#5b5ef4' : 'transparent'};
+  margin-bottom: -1px;
+  transition: color .15s, border-color .15s;
+  &:hover { color: #1a1d23; }
+`
+
+const SseStatusInline = styled.span`
+  margin-left: auto; display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #9ca3af; padding-bottom: 10px;
+`
+
+const Content = styled.div`min-width: 0;`
+
+const SideNavItem = styled.button<{ $active: boolean }>`
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px; border-radius: 7px;
+  border: none; cursor: pointer; text-align: left;
+  font-size: 12px; font-weight: ${({ $active }) => $active ? '600' : '500'};
   background: ${({ $active }) => $active ? '#ededff' : 'transparent'};
   color: ${({ $active }) => $active ? '#5b5ef4' : '#6b7280'};
   transition: all .15s;
-  &:hover { background: ${({ $active }) => $active ? '#ededff' : '#f3f4f6'}; color: ${({ $active }) => $active ? '#5b5ef4' : '#374151'}; }
+  &:hover { background: ${({ $active }) => $active ? '#ededff' : '#f3f4f6'}; }
 `
-
-const SideNavIcon = styled.span`width: 16px; height: 16px; display: flex; align-items: center; flex-shrink: 0;`
-
-const Content = styled.div`flex: 1; min-width: 0;`
 
 const ContentHeader = styled.div`
   display: flex; align-items: center; justify-content: space-between;
@@ -294,7 +309,6 @@ const LiveDot = styled.span<{ $active: boolean }>`
   margin-right: 6px;
 `
 
-const SseStatus = styled.p`font-size: 11px; color: #9ca3af; display: flex; align-items: center;`
 
 const ExecResult = styled.div<{ $ok: boolean }>`
   margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
@@ -667,26 +681,24 @@ export default function ActionsPage() {
   return (
     <Layout>
 
-      {/* ── Sidebar ── */}
-      <Sidebar>
-        <div style={{ marginBottom: 16 }}>
-          <SseStatus>
-            <LiveDot $active={sseConnected} />
-            {sseConnected ? 'Temps réel actif' : 'Connexion...'}
-          </SseStatus>
-        </div>
+      {/* ── Tab bar horizontale ── */}
+      <TopTabBar>
         {NAV_ITEMS.map(({ id, label, Icon }) => (
-          <SideNavItem
+          <TopTabItem
             key={id}
             $active={activeSection === id}
             onClick={() => setActiveSection(id)}
           >
-            <SideNavIcon><Icon size={15} /></SideNavIcon>
+            <Icon size={14} />
             {label}
             {id === 'flux' && pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
-          </SideNavItem>
+          </TopTabItem>
         ))}
-      </Sidebar>
+        <SseStatusInline>
+          <LiveDot $active={sseConnected} />
+          {sseConnected ? 'Temps réel actif' : 'Connexion...'}
+        </SseStatusInline>
+      </TopTabBar>
 
       {/* ── Contenu ── */}
       <Content>

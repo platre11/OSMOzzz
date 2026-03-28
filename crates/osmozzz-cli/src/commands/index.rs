@@ -2,10 +2,8 @@ use anyhow::{bail, Context, Result};
 use osmozzz_core::{Embedder, Harvester};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{
-    AirtableHarvester, ChromeHarvester, FileHarvester, GithubHarvester,
-    GitlabHarvester, GmailConfig, GmailHarvester, JiraHarvester,
-    LinearHarvester, NotionHarvester, ObsidianHarvester,
-    SlackHarvester, TerminalHarvester, TodoistHarvester, TrelloHarvester,
+    ChromeHarvester, FileHarvester, GmailConfig, GmailHarvester,
+    TerminalHarvester,
 };
 #[cfg(target_os = "macos")]
 use osmozzz_harvester::{CalendarHarvester, IMessageHarvester, NotesHarvester, SafariHarvester};
@@ -221,79 +219,9 @@ pub async fn run(args: IndexArgs, cfg: Config) -> Result<()> {
             index_documents(&vault, documents, "Terminal").await?;
         }
 
-        "notion" => {
-            println!("Indexation des pages Notion...");
-            let harvester = NotionHarvester::new();
-            let documents = harvester.harvest().await.context("Notion harvest failed")?;
-            index_documents(&vault, documents, "Notion").await?;
-        }
-
-        "github" => {
-            println!("Indexation des issues/PRs GitHub...");
-            let harvester = GithubHarvester::new();
-            let documents = harvester.harvest().await.context("GitHub harvest failed")?;
-            index_documents(&vault, documents, "GitHub").await?;
-        }
-
-        "linear" => {
-            println!("Indexation des issues Linear...");
-            let harvester = LinearHarvester::new();
-            let documents = harvester.harvest().await.context("Linear harvest failed")?;
-            index_documents(&vault, documents, "Linear").await?;
-        }
-
-        "jira" => {
-            println!("Indexation des issues Jira...");
-            let harvester = JiraHarvester::new();
-            let documents = harvester.harvest().await.context("Jira harvest failed")?;
-            index_documents(&vault, documents, "Jira").await?;
-        }
-
-        "slack" => {
-            println!("Indexation des messages Slack...");
-            let harvester = SlackHarvester::new();
-            let documents = harvester.harvest().await.context("Slack harvest failed")?;
-            index_documents(&vault, documents, "Slack").await?;
-        }
-
-        "trello" => {
-            println!("Indexation des cartes Trello...");
-            let harvester = TrelloHarvester::new();
-            let documents = harvester.harvest().await.context("Trello harvest failed")?;
-            index_documents(&vault, documents, "Trello").await?;
-        }
-
-        "todoist" => {
-            println!("Indexation des tâches Todoist...");
-            let harvester = TodoistHarvester::new();
-            let documents = harvester.harvest().await.context("Todoist harvest failed")?;
-            index_documents(&vault, documents, "Todoist").await?;
-        }
-
-        "gitlab" => {
-            println!("Indexation des issues/MRs GitLab...");
-            let harvester = GitlabHarvester::new();
-            let documents = harvester.harvest().await.context("GitLab harvest failed")?;
-            index_documents(&vault, documents, "GitLab").await?;
-        }
-
-        "airtable" => {
-            println!("Indexation des records Airtable...");
-            let harvester = AirtableHarvester::new();
-            let documents = harvester.harvest().await.context("Airtable harvest failed")?;
-            index_documents(&vault, documents, "Airtable").await?;
-        }
-
-        "obsidian" => {
-            println!("Indexation des notes Obsidian...");
-            let harvester = ObsidianHarvester::new();
-            let documents = harvester.harvest().await.context("Obsidian harvest failed")?;
-            index_documents(&vault, documents, "Obsidian").await?;
-        }
-
         other => {
             bail!(
-                "Unknown source '{}'. Supported: chrome, files, gmail, imessage, safari, notes, calendar, terminal, notion, github, linear, jira, slack, trello, todoist, gitlab, airtable, obsidian",
+                "Unknown source '{}'. Supported: chrome, files, gmail, imessage, safari, notes, calendar, terminal",
                 other
             );
         }

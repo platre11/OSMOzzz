@@ -13,11 +13,13 @@ CHANGED=$(find "$WORKSPACE/dashboard/src" -type f -newer "$DIST" 2>/dev/null | w
 if [ ! -f "$DIST" ] || [ "$CHANGED" -gt 0 ]; then
     echo "[build] Frontend modifié — npm run build..."
     cd "$WORKSPACE/dashboard" && npm run build
-    touch "$WORKSPACE/crates/osmozzz-api/src/server.rs"
     echo "[build] Frontend OK"
 else
     echo "[build] Frontend inchangé — skip"
 fi
+
+# Toujours forcer l'embed du dashboard dans le binaire Rust
+touch "$WORKSPACE/crates/osmozzz-api/src/server.rs"
 
 # ── 2. Rust : compilation incrementale (cache) ────────────────────────────────
 cd "$WORKSPACE"
@@ -35,4 +37,5 @@ if [ -f "$WORKSPACE/models/all-MiniLM-L6-v2.onnx" ]; then
     echo "[build] Modèles copiés dans ~/.osmozzz/models/"
 fi
 
-echo "[build] Done — relance: osmozzz daemon"
+# ── 5. Kill le daemon actif (l'utilisateur relance manuellement) ──────────────
+pkill -f "osmozzz daemon" 2>/dev/null && echo "[build] Daemon stoppé — relance: osmozzz daemon" || echo "[build] Done — relance: osmozzz daemon"

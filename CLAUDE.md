@@ -4,6 +4,43 @@ http://localhost:5173/
 http://localhost:3000/
 npx @anthropic-ai/claude-code
 
+---
+
+## ⚠️ RÈGLES ABSOLUES — BUILD & DAEMON
+
+### 1. Toujours utiliser `./build.sh`
+
+**Après CHAQUE modification de code (Rust OU dashboard), Claude DOIT exécuter `./build.sh`.**
+
+```bash
+./build.sh
+```
+
+Ce script fait dans l'ordre :
+1. `npm run build` si dashboard modifié
+2. `touch crates/osmozzz-api/src/server.rs` (force l'embed du dashboard — TOUJOURS)
+3. `cargo build --release -p osmozzz-cli`
+4. `cp target/release/osmozzz ~/.cargo/bin/osmozzz`
+5. `pkill -f "osmozzz daemon"` — kill le daemon actif
+
+**JAMAIS** utiliser `cargo build` seul — ça ne met PAS à jour `~/.cargo/bin/osmozzz`.
+
+### 2. Binaire de développement = `~/.cargo/bin/osmozzz`
+
+- `/usr/local/bin/osmozzz` = version .pkg pour les utilisateurs finaux — **NE JAMAIS MODIFIER**
+- `~/.cargo/bin/osmozzz` = binaire de développement — celui qu'on build
+- Si le PATH a `/usr/local/bin` avant `~/.cargo/bin`, le mauvais binaire tourne → dashboard figé sur l'ancienne version
+
+### 3. Après le build
+
+`./build.sh` kill automatiquement le daemon. L'utilisateur relance lui-même :
+```bash
+~/.cargo/bin/osmozzz daemon
+```
+Puis **Cmd+Shift+R** dans le navigateur sur `localhost:7878`.
+
+---
+
 ## Vision
 
 OSMOzzz est une source de données centrale, locale et privée, conçue pour collaborer avec tout client IA compatible MCP.

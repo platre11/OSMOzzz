@@ -161,34 +161,11 @@ pub async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
     let local_sources = ["email", "chrome", "file", "imessage", "safari", "notes", "terminal", "calendar"];
     #[cfg(not(target_os = "macos"))]
     let local_sources = ["email", "chrome", "file", "terminal"];
-    // Sources cloud : présentes seulement si le .toml de config existe
-    let cloud_sources = [
-        ("notion",   "notion.toml"),
-        ("github",   "github.toml"),
-        ("linear",   "linear.toml"),
-        ("jira",     "jira.toml"),
-        ("slack",    "slack.toml"),
-        ("trello",   "trello.toml"),
-        ("todoist",  "todoist.toml"),
-        ("gitlab",   "gitlab.toml"),
-        ("airtable", "airtable.toml"),
-        ("obsidian", "obsidian.toml"),
-    ];
-
     let mut sources = HashMap::new();
 
     for src in &local_sources {
         let count = state.vault.count_source(src).await.unwrap_or(0);
         sources.insert(src.to_string(), SourceStatus { count, last_sync: None, error: None });
-    }
-
-    if let Some(dir) = osmozzz_dir() {
-        for (src, toml_file) in &cloud_sources {
-            if dir.join(toml_file).exists() {
-                let count = state.vault.count_source(src).await.unwrap_or(0);
-                sources.insert(src.to_string(), SourceStatus { count, last_sync: None, error: None });
-            }
-        }
     }
 
     let total_vectors: usize = sources.values().map(|s| s.count).sum();
@@ -218,11 +195,9 @@ pub async fn get_search(
     if q.contains('+') {
         if let Ok(Some(results)) = state.vault.search_and_query(q, 20).await {
             #[cfg(target_os = "macos")]
-            let order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar",
-                         "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+            let order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar"];
             #[cfg(not(target_os = "macos"))]
-            let order = ["email", "chrome", "file", "terminal",
-                         "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+            let order = ["email", "chrome", "file", "terminal"];
             let mut by_source: std::collections::HashMap<String, Vec<SearchDoc>> = std::collections::HashMap::new();
             for r in &results {
                 by_source.entry(r.source.clone()).or_default().push(SearchDoc {
@@ -263,11 +238,9 @@ pub async fn get_search(
     }
 
     #[cfg(target_os = "macos")]
-    let source_order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar",
-                        "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+    let source_order = ["email", "imessage", "chrome", "file", "safari", "notes", "terminal", "calendar"];
     #[cfg(not(target_os = "macos"))]
-    let source_order = ["email", "chrome", "file", "terminal",
-                        "notion", "github", "linear", "jira", "slack", "trello", "todoist", "gitlab", "airtable", "obsidian"];
+    let source_order = ["email", "chrome", "file", "terminal"];
 
     let groups: Vec<SourceGroup> = source_order.iter()
         .filter(|src| params.source.as_deref().map_or(true, |f| f == **src))
@@ -1613,15 +1586,10 @@ pub async fn post_action_approve(
             }
             // Exécution en arrière-plan pour ne pas bloquer la réponse HTTP
             let queue = state.action_queue.clone();
-            let vault = state.vault.clone();
             let action_id = action.id.clone();
             let action_clone = action.clone();
             tokio::spawn(async move {
                 let result = crate::executor::execute(&action_clone).await;
-                // Re-sync immédiate de la source si l'exécution a réussi
-                if result.starts_with("ok:") {
-                    crate::executor::sync_source_after_action(&action_clone.tool, &vault).await;
-                }
                 queue.set_execution_result(&action_id, result);
             });
             ApiResponse::ok(action).into_response()
