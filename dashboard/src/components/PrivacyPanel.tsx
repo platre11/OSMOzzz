@@ -141,12 +141,6 @@ interface RuleMeta {
 
 const RULES: RuleMeta[] = [
   {
-    key: 'credit_card',
-    label: 'Numéros de carte bancaire',
-    example: '4111 1111 1111 1111  →  [CB masquée]',
-    defaultOn: true,
-  },
-  {
     key: 'iban',
     label: 'IBAN / RIB',
     example: 'FR76 3000 6000 0112 3456  →  [IBAN masqué]',

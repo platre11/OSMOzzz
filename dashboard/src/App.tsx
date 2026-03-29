@@ -70,11 +70,14 @@ const Layout = styled.div`
   margin-left: ${SIDEBAR_W}px;
   margin-top: 56px;
   padding: 36px 40px;
+  min-width: 0;
+  overflow-x: hidden;
 `
 
 const ContentInner = styled.div`
   max-width: 1200px;
   margin: 0 auto;
+  min-width: 0;
 `
 
 const NavBadge = styled.span`

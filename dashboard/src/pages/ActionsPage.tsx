@@ -162,12 +162,6 @@ const JournalCount = styled.span<{ $blocked: boolean }>`
   color: ${({ $blocked }) => $blocked ? '#dc2626' : '#6b7280'};
 `
 
-const JournalDataBtn = styled.button`
-  font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 5px;
-  border: 1px solid #e5e7eb; background: #f9fafb; color: #6b7280;
-  cursor: pointer; white-space: nowrap;
-  &:hover { background: #f3f4f6; color: #374151; }
-`
 
 const JournalData = styled.pre`
   margin: 8px 0 0; padding: 10px 14px; border-radius: 8px;
@@ -181,20 +175,6 @@ const JournalData = styled.pre`
 
 const ActionsBlock = styled.div`display: flex; flex-direction: column; gap: 12px;`
 
-const ActionsHeader = styled.div`
-  display: flex; align-items: center; justify-content: space-between;
-`
-
-const TabRow = styled.div`display: flex; gap: 6px;`
-
-const Tab = styled.button<{ $active?: boolean }>`
-  padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
-  border: 1px solid ${({ $active }) => $active ? '#5b5ef4' : '#e5e7eb'};
-  background: ${({ $active }) => $active ? '#5b5ef4' : '#fff'};
-  color: ${({ $active }) => $active ? '#fff' : '#6b7280'};
-  cursor: pointer; transition: all .15s;
-  &:hover { background: ${({ $active }) => $active ? '#4a4de3' : '#f3f4f6'}; }
-`
 
 const BadgeCount = styled.span`
   display: inline-flex; align-items: center; justify-content: center;
@@ -475,20 +455,19 @@ function JournalEntryRow({ entry }: {
   const toolLabel = entry.tool.replace(/^search_/, '').replace(/_/g, ' ')
   const displayData = entry.data ? formatJournalData(entry.data) : ''
 
+  const clickable = !!entry.data && !entry.blocked
+
   return (
     <div>
-      <JournalRow $blocked={entry.blocked}>
+      <JournalRow
+        $blocked={entry.blocked}
+        onClick={clickable ? () => setExpanded(v => !v) : undefined}
+        style={clickable ? { cursor: 'pointer' } : undefined}
+      >
         <JournalTime>{day} {time}</JournalTime>
         <JournalTool>{toolLabel}</JournalTool>
         <JournalQuery title={entry.query}>{entry.query || '—'}</JournalQuery>
-        <JournalCount $blocked={entry.blocked}>
-          {entry.blocked ? '⛔ bloqué' : `${entry.results} résultat${entry.results !== 1 ? 's' : ''}`}
-        </JournalCount>
-        {entry.data && !entry.blocked && (
-          <JournalDataBtn onClick={() => setExpanded(v => !v)}>
-            {expanded ? '▲ Masquer' : '▼ Voir'}
-          </JournalDataBtn>
-        )}
+        {entry.blocked && <JournalCount $blocked>{' ⛔'}</JournalCount>}
       </JournalRow>
       {expanded && entry.data && (
         <JournalData>{displayData}</JournalData>
@@ -559,7 +538,6 @@ function ActionCardItem({ action, onDecision }: {
 export default function ActionsPage() {
   type Section = 'flux' | 'sources' | 'privacy' | 'database'
   const [activeSection, setActiveSection] = useState<Section>('flux')
-  const [tab, setTab] = useState<'pending' | 'history' | 'journal'>('pending')
   const [sseConnected, setSseConnected] = useState(false)
   const queryClient = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
@@ -830,15 +808,13 @@ export default function ActionsPage() {
   const { data: all = [], isLoading: loadingAll } = useQuery({
     queryKey: ['actions-all'],
     queryFn:  api.getActionsAll,
-    enabled:  tab === 'history',
     refetchInterval: false,
   })
 
   const { data: auditEntries = [], isLoading: loadingAudit } = useQuery({
     queryKey: ['audit'],
     queryFn:  () => api.getAudit(200),
-    enabled:  tab === 'journal',
-    refetchInterval: tab === 'journal' ? 5_000 : false,
+    refetchInterval: 5_000,
   })
 
   function invalidate() {
@@ -886,42 +862,44 @@ export default function ActionsPage() {
             <ContentHeader>
               <PageTitle>Flux d'actions</PageTitle>
             </ContentHeader>
-            <ActionsHeader>
-              <TabRow>
-                <Tab $active={tab === 'pending'} onClick={() => setTab('pending')}>
+            <div style={{ display: 'flex', gap: 0, alignItems: 'flex-start', background: '#fff', border: '1px solid #e8eaed', borderRadius: 14, overflow: 'hidden' }}>
+
+              {/* Colonne En attente */}
+              <div style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRight: '1px solid #e8eaed' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
                   En attente
                   {pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
-                </Tab>
-                <Tab $active={tab === 'history'} onClick={() => setTab('history')}>Historique</Tab>
-                <Tab $active={tab === 'journal'} onClick={() => setTab('journal')}>Journal d'accès</Tab>
-              </TabRow>
-            </ActionsHeader>
-
-            {tab === 'pending' && (
-              <>
+                </div>
                 {loadingPending && <Loader />}
                 {!loadingPending && pending.length === 0 && (
                   <EmptyMsg>Aucune action en attente.<br />Claude soumettra ici ses demandes d'actions pour validation.</EmptyMsg>
                 )}
                 <CardList>{pending.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
-              </>
-            )}
-            {tab === 'history' && (
-              <>
+              </div>
+
+              {/* Colonne Historique */}
+              <div style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRight: '1px solid #e8eaed' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
+                  Historique
+                </div>
                 {loadingAll && <Loader />}
                 {!loadingAll && history.length === 0 && <EmptyMsg>Aucune action dans l'historique.</EmptyMsg>}
                 <CardList>{history.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
-              </>
-            )}
-            {tab === 'journal' && (
-              <>
+              </div>
+
+              {/* Colonne Journal d'accès */}
+              <div style={{ flex: 1, minWidth: 0, padding: '16px 20px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
+                  Journal d'accès
+                </div>
                 {loadingAudit && <Loader />}
                 {!loadingAudit && auditEntries.length === 0 && (
                   <EmptyMsg>Aucune activité enregistrée.<br />Le journal se remplit dès que Claude utilise un tool OSMOzzz.</EmptyMsg>
                 )}
                 <JournalList>{auditEntries.map((e, i) => <JournalEntryRow key={i} entry={e} />)}</JournalList>
-              </>
-            )}
+              </div>
+
+            </div>
           </ActionsBlock>
         )}
 
