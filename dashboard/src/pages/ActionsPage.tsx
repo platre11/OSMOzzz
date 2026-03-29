@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Zap, PlugZap, Shield, Ban } from 'lucide-react'
+import { Zap, PlugZap, Shield, Database, RefreshCw } from 'lucide-react'
 import styled, { keyframes } from 'styled-components'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api } from '../api'
-import type { ActionRequest, ActionEvent } from '../api'
+import type { ActionRequest, ActionEvent, DbSecurityConfig, ColumnRule } from '../api'
 import { PrivacyPanel } from '../components/PrivacyPanel'
-import BlacklistPanel from '../components/BlacklistPanel'
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -106,33 +105,6 @@ const SourceTd = styled.td<{ $center?: boolean }>`
   &:last-child { border-bottom: none; }
 `
 
-// ── Liste noire ──────────────────────────────────────────────────────────────
-
-const BlacklistCard = styled.div`
-  background: #fff; border: 1px solid #e8eaed; border-radius: 14px;
-  padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05);
-  display: flex; align-items: center; justify-content: space-between;
-`
-
-const BlacklistLeft = styled.div``
-
-const BlacklistTitle = styled.p`font-size: 14px; font-weight: 600; color: #1a1d23;`
-
-const BlacklistDesc = styled.p`font-size: 12px; color: #6b7280; margin-top: 3px;`
-
-const BlacklistCount = styled.span<{ $n: number }>`
-  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
-  background: ${({ $n }) => $n > 0 ? '#fee2e2' : '#f3f4f6'};
-  color: ${({ $n }) => $n > 0 ? '#991b1b' : '#6b7280'};
-  margin-right: 10px;
-`
-
-const ManageBtn = styled.button`
-  padding: 8px 16px; border-radius: 9px; font-size: 13px; font-weight: 500;
-  border: 1px solid #e5e7eb; background: #fff; color: #374151; cursor: pointer;
-  transition: all .15s;
-  &:hover { background: #f3f4f6; border-color: #d1d5db; }
-`
 
 // ── Alias Engine ─────────────────────────────────────────────────────────────
 
@@ -316,6 +288,94 @@ const ExecResult = styled.div<{ $ok: boolean }>`
   color: ${({ $ok }) => $ok ? '#065f46' : '#991b1b'};
 `
 
+// ── DB Security ──────────────────────────────────────────────────────────────
+
+const DbTableCard = styled.div`
+  background: #fff; border: 1px solid #e8eaed; border-radius: 14px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 12px;
+`
+
+const DbTableHeader = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid #f3f4f6;
+  background: #fafafa;
+`
+
+const DbTableName = styled.span`font-size: 13px; font-weight: 700; color: #1a1d23; font-family: 'SF Mono', monospace;`
+
+const DbColRow = styled.div`
+  display: flex; align-items: center; padding: 10px 18px;
+  border-bottom: 1px solid #f9fafb;
+  &:last-child { border-bottom: none; }
+`
+
+const DbColName = styled.span`font-size: 13px; font-weight: 500; color: #374151; flex: 1; font-family: 'SF Mono', monospace; font-size: 12px;`
+
+const DbColType = styled.span`font-size: 11px; color: #9ca3af; margin-right: 16px; min-width: 80px;`
+
+const RuleSelector = styled.div`display: flex; gap: 4px;`
+
+const RuleBtn = styled.button<{ $active: boolean; $variant: 'free' | 'tokenize' | 'block' }>`
+  padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  border: 1px solid ${({ $active, $variant }) =>
+    !$active ? '#e5e7eb' :
+    $variant === 'free'     ? '#10b981' :
+    $variant === 'tokenize' ? '#f59e0b' :
+    '#ef4444'};
+  background: ${({ $active, $variant }) =>
+    !$active ? '#fff' :
+    $variant === 'free'     ? '#d1fae5' :
+    $variant === 'tokenize' ? '#fef3c7' :
+    '#fee2e2'};
+  color: ${({ $active, $variant }) =>
+    !$active ? '#9ca3af' :
+    $variant === 'free'     ? '#065f46' :
+    $variant === 'tokenize' ? '#92400e' :
+    '#991b1b'};
+  cursor: pointer; transition: all .12s;
+  &:hover { opacity: .8; }
+`
+
+const DbToolbar = styled.div`display: flex; align-items: center; gap: 10px; margin-bottom: 20px;`
+
+const DbProjectBadge = styled.div`
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: #ededff; color: #5b5ef4; border: 1px solid #d8d8ff;
+`
+
+const DbDeleteBtn = styled.button`
+  padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+  border: 1px solid #fecaca; background: #fff5f5; color: #ef4444; cursor: pointer;
+  transition: all .15s;
+  &:hover { background: #fee2e2; }
+`
+
+const ProjectSelect = styled.select`
+  padding: 7px 12px; border: 1px solid #e8eaed; border-radius: 9px;
+  font-size: 13px; color: #1a1d23; background: #fff; outline: none; cursor: pointer;
+  &:focus { border-color: #5b5ef4; box-shadow: 0 0 0 3px rgba(91,94,244,.08); }
+  &:disabled { opacity: .5; cursor: not-allowed; }
+`
+
+const DbEmptyMsg = styled.p`
+  text-align: center; padding: 48px 24px; color: #9ca3af; font-size: 13px; line-height: 1.6;
+`
+
+const DbErrorMsg = styled.p`
+  padding: 12px 16px; border-radius: 9px; background: #fee2e2; color: #991b1b; font-size: 13px; margin-bottom: 12px;
+`
+
+const DbSavedMsg = styled.span`font-size: 12px; color: #10b981; font-weight: 600;`
+
+const LegendRow = styled.div`display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;`
+
+const LegendItem = styled.div`display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6b7280;`
+
+const LegendDot = styled.span<{ $color: string }>`
+  width: 8px; height: 8px; border-radius: 50%; background: ${({ $color }) => $color};
+`
+
 // ─── Composant entrée journal ─────────────────────────────────────────────────
 
 // Clés contenant du contenu textuel utile (toutes sources)
@@ -497,11 +557,10 @@ function ActionCardItem({ action, onDecision }: {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
-  type Section = 'flux' | 'sources' | 'privacy' | 'blacklist'
+  type Section = 'flux' | 'sources' | 'privacy' | 'database'
   const [activeSection, setActiveSection] = useState<Section>('flux')
   const [tab, setTab] = useState<'pending' | 'history' | 'journal'>('pending')
   const [sseConnected, setSseConnected] = useState(false)
-  const [showBlacklist, setShowBlacklist] = useState(false)
   const queryClient = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
 
@@ -619,12 +678,130 @@ export default function ActionsPage() {
     persistNow(nextAliases, nextTypes)
   }
 
-  // ── Blacklist count ──────────────────────────────────────────────────────
-  const { data: blacklistData } = useQuery({
-    queryKey: ['blacklist'],
-    queryFn:  api.getBlacklist,
+  // ── DB Security ──────────────────────────────────────────────────────────
+  type SupabaseProject = { id: string; name: string; region: string }
+  const [dbSecurity, setDbSecurity]   = useState<DbSecurityConfig>({ supabase: {} })
+  const [dbSchemaLoading, setDbSchemaLoading] = useState(false)
+  const [dbSchemaError, setDbSchemaError]     = useState<string | null>(null)
+  const [dbSchemaTables, setDbSchemaTables]   = useState<Array<{ table_name: string; columns: Array<{ column_name: string; data_type: string }> }>>([])
+  const [dbSaved, setDbSaved]                 = useState(false)
+  const [dbProjects, setDbProjects]           = useState<SupabaseProject[]>([])
+  const [dbProjectsLoading, setDbProjectsLoading] = useState(false)
+  const [dbActiveProject, setDbActiveProject] = useState<string>('')
+
+  const { data: dbSecurityData } = useQuery({
+    queryKey: ['db-security'],
+    queryFn:  api.getDbSecurity,
+    enabled:  activeSection === 'database',
   })
-  const bannedCount = blacklistData?.entries.length ?? 0
+
+  // Charge les projets + config sauvegardée à l'ouverture du tab
+  useEffect(() => {
+    if (activeSection !== 'database') return
+    setDbProjectsLoading(true)
+    Promise.all([api.getSupabaseProjects(), api.getDbSecurity()])
+      .then(([projects, security]) => {
+        setDbProjects(projects)
+        const saved = security.active_project_id ?? ''
+        const match = projects.find(p => p.id === saved)
+        setDbActiveProject(match ? match.id : (projects[0]?.id ?? ''))
+      })
+      .catch(() => {})
+      .finally(() => setDbProjectsLoading(false))
+  }, [activeSection])
+
+  useEffect(() => {
+    if (dbSecurityData) {
+      setDbSecurity(dbSecurityData)
+      if (dbSchemaTables.length === 0 && Object.keys(dbSecurityData.supabase).length > 0) {
+        const order = dbSecurityData.column_order ?? {}
+        const synthetic = Object.keys(dbSecurityData.supabase)
+          .sort((a, b) => a.localeCompare(b))
+          .map(table_name => {
+            const cols = dbSecurityData.supabase[table_name]
+            const colNames = order[table_name]
+              ? order[table_name].filter(c => c in cols)
+              : Object.keys(cols).sort()
+            return {
+              table_name,
+              columns: colNames.map((column_name, i) => ({ column_name, data_type: '', ordinal_position: i + 1 })),
+            }
+          })
+        setDbSchemaTables(synthetic)
+      }
+    }
+  }, [dbSecurityData])
+
+  async function importSchema(projectId?: string) {
+    setDbSchemaLoading(true); setDbSchemaError(null)
+    try {
+      if (projectId) await api.saveSupabaseProject(projectId)
+      // Tables sorted by name; columns arrive in ordinal_position order from Supabase
+      const tables = (await api.getSupabaseSchema()).sort((a, b) => a.table_name.localeCompare(b.table_name))
+      setDbSchemaTables(tables)
+      setDbSecurity(prev => {
+        // Nouveau projet → tables reparties de zéro (pas de merge avec l'ancien projet)
+        const next: DbSecurityConfig = {
+          active_project_id: projectId ?? prev.active_project_id,
+          supabase: {},
+          column_order: {},
+        }
+        for (const t of tables) {
+          next.supabase[t.table_name] = {}
+          next.column_order![t.table_name] = t.columns.map(c => c.column_name)
+          for (const c of t.columns) {
+            next.supabase[t.table_name][c.column_name] = 'free'
+          }
+        }
+        api.saveDbSecurity(next).catch(() => {})
+        return next
+      })
+    } catch (e: unknown) {
+      const projectName = dbProjects.find(p => p.id === (projectId ?? dbActiveProject))?.name ?? projectId ?? ''
+      const base = e instanceof Error ? e.message : 'Erreur inconnue'
+      setDbSchemaError(projectName ? `${projectName} — ${base}` : base)
+      throw e
+    } finally {
+      setDbSchemaLoading(false)
+    }
+  }
+
+  async function onProjectChange(projectId: string) {
+    const previous = dbActiveProject
+    setDbActiveProject(projectId)
+    // Sauvegarder le projet sélectionné immédiatement (même si l'import échoue)
+    api.saveDbSecurity({ ...dbSecurity, active_project_id: projectId }).catch(() => {})
+    try {
+      await importSchema(projectId)
+    } catch {
+      setDbActiveProject(previous)
+      api.saveDbSecurity({ ...dbSecurity, active_project_id: previous }).catch(() => {})
+    }
+  }
+
+  async function deleteSchema() {
+    setDbSchemaTables([])
+    const empty: DbSecurityConfig = { supabase: {} }
+    setDbSecurity(empty)
+    await api.saveDbSecurity(empty)
+  }
+
+  async function setColumnRule(table: string, column: string, rule: ColumnRule) {
+    const next: DbSecurityConfig = {
+      active_project_id: dbSecurity.active_project_id,
+      column_order: dbSecurity.column_order,
+      supabase: {
+        ...dbSecurity.supabase,
+        [table]: { ...dbSecurity.supabase[table], [column]: rule },
+      },
+    }
+    setDbSecurity(next)
+    try {
+      await api.saveDbSecurity(next)
+      setDbSaved(true)
+      setTimeout(() => setDbSaved(false), 1500)
+    } catch { /* ignore */ }
+  }
 
   // ── SSE pour mises à jour temps réel ────────────────────────────────────
   useEffect(() => {
@@ -672,10 +849,10 @@ export default function ActionsPage() {
   const history = all.filter(a => a.status !== 'pending')
 
   const NAV_ITEMS = [
-    { id: 'flux',      label: 'Flux d\'actions', Icon: Zap    },
-    { id: 'sources',   label: 'Sources',          Icon: PlugZap },
-    { id: 'privacy',   label: 'Confidentialité',  Icon: Shield  },
-    { id: 'blacklist', label: 'Liste noire',       Icon: Ban     },
+    { id: 'flux',      label: 'Flux d\'actions',   Icon: Zap      },
+    { id: 'sources',   label: 'Sources',            Icon: PlugZap  },
+    { id: 'privacy',   label: 'Confidentialité',    Icon: Shield   },
+    { id: 'database',  label: 'Bases de données',   Icon: Database },
   ] as const
 
   return (
@@ -890,23 +1067,92 @@ export default function ActionsPage() {
           </>
         )}
 
-        {/* 5. Liste noire */}
-        {activeSection === 'blacklist' && (
+        {/* 5. Bases de données */}
+        {activeSection === 'database' && (
           <>
             <ContentHeader>
-              <PageTitle>Liste noire</PageTitle>
+              <PageTitle>Sécurité des bases de données</PageTitle>
             </ContentHeader>
-            <BlacklistCard>
-              <BlacklistLeft>
-                <BlacklistTitle>Éléments bannis</BlacklistTitle>
-                <BlacklistDesc>Documents, expéditeurs ou domaines exclus des résultats envoyés à Claude.</BlacklistDesc>
-              </BlacklistLeft>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <BlacklistCount $n={bannedCount}>{bannedCount} banni{bannedCount !== 1 ? 's' : ''}</BlacklistCount>
-                <ManageBtn onClick={() => setShowBlacklist(true)}>Gérer</ManageBtn>
-              </div>
-            </BlacklistCard>
-            {showBlacklist && <BlacklistPanel source="all" onClose={() => setShowBlacklist(false)} />}
+
+            <DbToolbar>
+              {dbProjectsLoading ? (
+                <DbProjectBadge><RefreshCw size={12} style={{ animation: 'spin .7s linear infinite' }} /> Chargement…</DbProjectBadge>
+              ) : dbProjects.length > 0 ? (
+                <ProjectSelect
+                  value={dbActiveProject}
+                  onChange={e => onProjectChange(e.target.value)}
+                  disabled={dbSchemaLoading}
+                  style={{ width: 'auto', padding: '7px 12px', fontSize: 13 }}
+                >
+                  {dbProjects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </ProjectSelect>
+              ) : (
+                <DbProjectBadge style={{ color: '#9ca3af', background: '#f9fafb', borderColor: '#e5e7eb' }}>
+                  Aucun projet Supabase configuré
+                </DbProjectBadge>
+              )}
+
+              {dbSchemaLoading && <DbProjectBadge><RefreshCw size={12} style={{ animation: 'spin .7s linear infinite' }} /> Importation…</DbProjectBadge>}
+
+              {dbSchemaTables.length > 0 && !dbSchemaLoading && (
+                <DbDeleteBtn onClick={deleteSchema}>Supprimer la structure</DbDeleteBtn>
+              )}
+
+              {dbSaved && <DbSavedMsg>✓ Sauvegardé</DbSavedMsg>}
+            </DbToolbar>
+
+            {dbSchemaError && <DbErrorMsg>Erreur : {dbSchemaError}</DbErrorMsg>}
+
+            {dbSchemaTables.length > 0 && (
+              <LegendRow>
+                <LegendItem><LegendDot $color="#10b981" />Libre — valeur brute transmise à Claude</LegendItem>
+                <LegendItem><LegendDot $color="#f59e0b" />Tokenisé — remplacé par un token stable (tok_em_…)</LegendItem>
+                <LegendItem><LegendDot $color="#ef4444" />Bloqué — colonne visible pour Claude mais valeur masquée ([bloqué])</LegendItem>
+              </LegendRow>
+            )}
+
+            {dbSchemaTables.length === 0 && !dbSchemaLoading && dbProjects === null && (
+              <DbTableCard>
+                <DbEmptyMsg>
+                  Aucune structure importée.<br />
+                  Cliquez sur <strong>Importer la structure Supabase</strong> pour récupérer vos tables et configurer la sécurité colonne par colonne.
+                </DbEmptyMsg>
+              </DbTableCard>
+            )}
+
+            {dbSchemaTables.map(table => (
+              <DbTableCard key={table.table_name}>
+                <DbTableHeader>
+                  <DbTableName>{table.table_name}</DbTableName>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{table.columns.length} colonne{table.columns.length !== 1 ? 's' : ''}</span>
+                </DbTableHeader>
+                {table.columns.map(col => {
+                  const rule: ColumnRule = dbSecurity.supabase[table.table_name]?.[col.column_name] ?? 'free'
+                  return (
+                    <DbColRow key={col.column_name}>
+                      <DbColName>{col.column_name}</DbColName>
+                      <DbColType>{col.data_type}</DbColType>
+                      <RuleSelector>
+                        <RuleBtn
+                          $active={rule === 'free'} $variant="free"
+                          onClick={() => setColumnRule(table.table_name, col.column_name, 'free')}
+                        >Libre</RuleBtn>
+                        <RuleBtn
+                          $active={rule === 'tokenize'} $variant="tokenize"
+                          onClick={() => setColumnRule(table.table_name, col.column_name, 'tokenize')}
+                        >Tokenisé</RuleBtn>
+                        <RuleBtn
+                          $active={rule === 'block'} $variant="block"
+                          onClick={() => setColumnRule(table.table_name, col.column_name, 'block')}
+                        >Bloqué</RuleBtn>
+                      </RuleSelector>
+                    </DbColRow>
+                  )
+                })}
+              </DbTableCard>
+            ))}
           </>
         )}
 

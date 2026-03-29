@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import styled from 'styled-components'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { icons } from './lib/assets'
@@ -84,6 +84,28 @@ const NavBadge = styled.span`
   font-size: 10px; font-weight: 700; margin-left: auto;
 `
 
+const ScrollTopBtn = styled.button<{ $visible: boolean }>`
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #5b5ef4;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(91,94,244,.35);
+  z-index: 999;
+  opacity: ${({ $visible }) => $visible ? 1 : 0};
+  pointer-events: ${({ $visible }) => $visible ? 'auto' : 'none'};
+  transition: opacity .2s;
+  &:hover { background: #4a4dd4; }
+`
+
 const NavItem = styled.button<{ $active?: boolean }>`
   display: flex;
   align-items: center;
@@ -116,8 +138,35 @@ const PAGES: { id: Page; label: string; Icon: React.ElementType }[] = [
   { id: 'config',  label: 'Connecteurs', Icon: icons.Settings },
 ]
 
+const VALID_PAGES: Page[] = ['status', 'actions', 'network', 'config']
+
+function pageFromHash(): Page {
+  const hash = window.location.hash.slice(1) as Page
+  return VALID_PAGES.includes(hash) ? hash : 'status'
+}
+
 function AppInner() {
-  const [page, setPage] = useState<Page>('status')
+  const [page, setPage] = useState<Page>(pageFromHash)
+  const [showScrollTop, setShowScrollTop] = useState(false)
+
+  useEffect(() => {
+    window.location.hash = page
+    window.scrollTo(0, 0)
+  }, [page])
+
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY >= window.innerHeight)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // Sync si l'utilisateur navigue avec les boutons précédent/suivant du browser
+  useEffect(() => {
+    const onHashChange = () => setPage(pageFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
   const { data: pending = [] } = useQuery({
     queryKey: ['actions-pending'],
     queryFn: api.getActionsPending,
@@ -148,6 +197,9 @@ function AppInner() {
           {page === 'config'  && <ConfigPage />}
         </ContentInner>
       </Layout>
+      <ScrollTopBtn $visible={showScrollTop} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+        <icons.ChevronUp size={18} />
+      </ScrollTopBtn>
     </>
   )
 }

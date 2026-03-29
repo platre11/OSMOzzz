@@ -149,6 +149,25 @@ export interface PrivacyConfig {
   phone: boolean
 }
 
+export type ColumnRule = 'free' | 'tokenize' | 'block'
+
+export interface DbColumnSchema {
+  column_name: string
+  data_type: string
+  ordinal_position?: number
+}
+
+export interface DbTableSchema {
+  table_name: string
+  columns: DbColumnSchema[]
+}
+
+export interface DbSecurityConfig {
+  active_project_id?: string
+  supabase: Record<string, Record<string, ColumnRule>>
+  column_order?: Record<string, string[]>
+}
+
 export const api = {
   getStatus: async (): Promise<StatusData> => {
     const r = await axios.get(`${BASE}/status`)
@@ -424,5 +443,33 @@ export const api = {
     notion: boolean; github: boolean; linear: boolean; jira: boolean;
   }): Promise<void> => {
     await axios.post(`${BASE}/source-access`, access)
+  },
+
+  // ─── Sécurité base de données ─────────────────────────────────────────────
+
+  getSupabaseProjects: async (): Promise<Array<{ id: string; name: string; region: string }>> => {
+    const r = await axios.get(`${BASE}/db/supabase/projects`)
+    if (!r.data.ok) throw new Error(r.data.error ?? 'Erreur inconnue')
+    return Array.isArray(r.data.data) ? r.data.data : []
+  },
+
+  saveSupabaseProject: async (project_id: string): Promise<void> => {
+    const r = await axios.post(`${BASE}/db/supabase/project`, { project_id })
+    if (!r.data.ok) throw new Error(r.data.error ?? 'Erreur inconnue')
+  },
+
+  getSupabaseSchema: async (): Promise<DbTableSchema[]> => {
+    const r = await axios.get(`${BASE}/db/supabase/schema`)
+    if (!r.data.ok) throw new Error(r.data.error ?? 'Erreur inconnue')
+    return r.data.data ?? []
+  },
+
+  getDbSecurity: async (): Promise<DbSecurityConfig> => {
+    const r = await axios.get(`${BASE}/db/supabase/security`)
+    return r.data.data ?? { supabase: {} }
+  },
+
+  saveDbSecurity: async (config: DbSecurityConfig): Promise<void> => {
+    await axios.post(`${BASE}/db/supabase/security`, config)
   },
 }

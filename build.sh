@@ -28,6 +28,8 @@ cargo build --release -p osmozzz-cli
 
 # ── 3. Copie le binaire dans ~/.cargo/bin ─────────────────────────────────────
 cp "$WORKSPACE/target/release/osmozzz" ~/.cargo/bin/osmozzz
+# Re-signe le binaire (macOS 26 rejette les binaires avec flag linker-signed de cargo)
+codesign --force --sign - ~/.cargo/bin/osmozzz
 
 # ── 4. Copie les modèles dans ~/.osmozzz/models/ (fonctionne après reboot) ────
 mkdir -p ~/.osmozzz/models

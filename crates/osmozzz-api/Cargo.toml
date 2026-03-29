@@ -26,3 +26,6 @@ walkdir = { workspace = true }
 pdf-extract = { workspace = true }
 lettre = { workspace = true }
 reqwest = { workspace = true }
+rusqlite = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }

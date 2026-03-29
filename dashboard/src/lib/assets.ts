@@ -54,6 +54,7 @@ import {
   Sparkles,
   Zap,
   EyeOff,
+  ChevronUp,
 } from 'lucide-react'
 
 export const icons = {
@@ -104,4 +105,5 @@ export const icons = {
   Sparkles,
   Zap,
   EyeOff,
+  ChevronUp,
 } as const

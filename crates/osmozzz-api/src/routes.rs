@@ -658,6 +658,102 @@ pub async fn post_config_supabase(Json(body): Json<SupabaseConfigBody>) -> impl 
     }
 }
 
+// ─── DB Security routes ───────────────────────────────────────────────────────
+
+/// GET /api/db/supabase/projects — list projects for the configured access_token
+pub async fn get_db_supabase_projects() -> impl IntoResponse {
+    let config_path = dirs_next::home_dir().map(|h| h.join(".osmozzz/supabase.toml"));
+    let access_token = match config_path.and_then(|p| std::fs::read_to_string(p).ok()) {
+        Some(content) => {
+            let table: toml::Value = match content.parse() {
+                Ok(t) => t,
+                Err(_) => return ApiResponse::<String>::err("Impossible de lire supabase.toml".to_string()).into_response(),
+            };
+            table.get("access_token").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        }
+        None => return ApiResponse::<String>::err("supabase.toml non configuré".to_string()).into_response(),
+    };
+    if access_token.is_empty() {
+        return ApiResponse::<String>::err("access_token manquant dans supabase.toml".to_string()).into_response();
+    }
+    let client = reqwest::Client::new();
+    match client.get("https://api.supabase.com/v1/projects").bearer_auth(&access_token).send().await {
+        Ok(res) => {
+            let json: serde_json::Value = res.json().await.unwrap_or(serde_json::json!([]));
+            ApiResponse::ok(json).into_response()
+        }
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+/// POST /api/db/supabase/project — save project_id to supabase.toml
+pub async fn post_db_supabase_project(
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let project_id = match body.get("project_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return ApiResponse::<String>::err("project_id manquant".to_string()).into_response(),
+    };
+    let path = match dirs_next::home_dir() {
+        Some(h) => h.join(".osmozzz/supabase.toml"),
+        None => return ApiResponse::<String>::err("home dir introuvable".to_string()).into_response(),
+    };
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut table: toml::value::Table = current.parse::<toml::Value>().ok()
+        .and_then(|v| if let toml::Value::Table(t) = v { Some(t) } else { None })
+        .unwrap_or_default();
+    table.insert("project_id".to_string(), toml::Value::String(project_id));
+    let content = toml::to_string(&toml::Value::Table(table)).unwrap_or_default();
+    match std::fs::write(&path, content) {
+        Ok(_)  => ApiResponse::ok("project_id sauvegardé".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/db/supabase/schema — import tables+columns from Supabase information_schema
+pub async fn get_db_supabase_schema() -> impl IntoResponse {
+    let config_path = dirs_next::home_dir()
+        .map(|h| h.join(".osmozzz/supabase.toml"));
+
+    let (access_token, project_id) = match config_path.and_then(|p| std::fs::read_to_string(p).ok()) {
+        Some(content) => {
+            let table: toml::Value = match content.parse() {
+                Ok(t) => t,
+                Err(_) => return ApiResponse::<String>::err("Impossible de lire supabase.toml".to_string()).into_response(),
+            };
+            let token = table.get("access_token").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let pid   = table.get("project_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            (token, pid)
+        }
+        None => return ApiResponse::<String>::err("supabase.toml non configuré".to_string()).into_response(),
+    };
+
+    if access_token.is_empty() || project_id.is_empty() {
+        return ApiResponse::<String>::err("access_token et project_id requis".to_string()).into_response();
+    }
+
+    match crate::db::import_supabase_schema(&access_token, &project_id).await {
+        Ok(tables) => ApiResponse::ok(tables).into_response(),
+        Err(e)     => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/db/supabase/security — read db_security.toml
+pub async fn get_db_supabase_security() -> impl IntoResponse {
+    let config = crate::db::DbSecurityConfig::load();
+    ApiResponse::ok(config).into_response()
+}
+
+/// POST /api/db/supabase/security — save db_security.toml
+pub async fn post_db_supabase_security(
+    Json(body): Json<crate::db::DbSecurityConfig>,
+) -> impl IntoResponse {
+    match body.save() {
+        Ok(_)  => ApiResponse::ok("Configuration DB sauvegardée".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
 // ─── POST /api/ban ────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

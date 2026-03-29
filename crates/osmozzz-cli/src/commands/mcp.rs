@@ -620,7 +620,11 @@ fn apply_aliases(text: &str, aliases: &[(String, String)]) -> String {
     if aliases.is_empty() { return text.to_string(); }
     let mut result = text.to_string();
     for (real, alias) in aliases {
+        let before = result.clone();
         result = replace_icase(&result, real.as_str(), alias.as_str());
+        if result != before {
+            eprintln!("\x1b[32m[OSMOzzz|Alias] \"{}\" → \"{}\"  (alias)\x1b[0m", real, alias);
+        }
     }
     result
 }
@@ -696,6 +700,185 @@ fn scan_injection(text: &str) -> (String, bool) {
     } else {
         (text.to_string(), false)
     }
+}
+
+// ─── DB tokenisation ─────────────────────────────────────────────────────────
+
+/// Tokenise the JSON result of a supabase execute_sql call.
+/// Reads db_security.toml for column rules, replaces sensitive values with stable tokens.
+/// If config is absent or parsing fails, returns the text unchanged.
+/// Extrait le premier tableau JSON valide d'un texte (gère contenu avant/après).
+fn extract_json_array(text: &str) -> Option<String> {
+    let start = text.find('[')?;
+    let slice = &text[start..];
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    let mut end = None;
+    for (i, ch) in slice.char_indices() {
+        if escape { escape = false; continue; }
+        match ch {
+            '\\' if in_string => escape = true,
+            '"' => in_string = !in_string,
+            '[' if !in_string => depth += 1,
+            ']' if !in_string => {
+                depth -= 1;
+                if depth == 0 { end = Some(i + 1); break; }
+            }
+            _ => {}
+        }
+    }
+    end.map(|e| slice[..e].to_string())
+}
+
+fn tokenize_sql_result(connector: &str, text: &str) -> String {
+    use osmozzz_api::db::{DbSecurityConfig, TokenVault};
+    use osmozzz_api::db::security::ColumnRule;
+
+    let config = DbSecurityConfig::load();
+
+    // Debug fichier — lisible même depuis le subprocess MCP
+    let _ = std::fs::write("/tmp/osmozzz_db_debug.txt", format!(
+        "text_len={}\ntext_start={:?}\nsupabase_tables={}\ntable_names={:?}\n",
+        text.len(),
+        &text[..text.len().min(200)],
+        config.supabase.len(),
+        config.supabase.keys().collect::<Vec<_>>(),
+    ));
+
+    let vault = match TokenVault::open() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[OSMOzzz|DB] TokenVault indisponible: {e}");
+            return text.to_string();
+        }
+    };
+
+    // Le Supabase MCP encapsule parfois le résultat dans {"result":"..."}.
+    // On déballe ce wrapper avant d'extraire le tableau JSON.
+    // IMPORTANT : serde_json::from_str décode les échappements JSON (\n, \", etc.)
+    // donc `working` est la string *décodée* — pas un sous-string de `text`.
+    // On utilise `was_wrapped` pour savoir si on doit re-emballer à la fin.
+    let unwrapped: String;
+    let was_wrapped: bool;
+    let working = if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Some(serde_json::Value::String(s)) = map.get("result") {
+            unwrapped = s.clone();
+            was_wrapped = true;
+            &unwrapped as &str
+        } else {
+            was_wrapped = false;
+            text
+        }
+    } else {
+        was_wrapped = false;
+        text
+    };
+
+    // Extraire le tableau JSON (bracket-matching — gère tout contenu avant/après)
+    let json_str = match extract_json_array(working) {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::write("/tmp/osmozzz_db_debug.txt", format!(
+                "AUCUN_JSON\nworking_start={:?}\n", &working[..working.len().min(200)]
+            ));
+            return text.to_string();
+        }
+    };
+    let mut rows: Vec<serde_json::Value> = match serde_json::from_str(&json_str) {
+        Ok(serde_json::Value::Array(arr)) => arr,
+        _ => {
+            let _ = std::fs::write("/tmp/osmozzz_db_debug.txt", format!(
+                "PARSE_FAILED\njson_str={:?}\n", &json_str[..json_str.len().min(300)]
+            ));
+            return text.to_string();
+        }
+    };
+
+    let tables: Vec<String> = match connector {
+        "supabase" => config.supabase.keys().cloned().collect(),
+        _ => vec![],
+    };
+
+    if tables.is_empty() {
+        eprintln!("[OSMOzzz|DB] Aucune règle configurée pour {connector} — filtre non appliqué");
+        return text.to_string();
+    }
+
+    let mut any_change = false;
+
+    for row in &mut rows {
+        if let Some(obj) = row.as_object_mut() {
+            for col_name in obj.keys().cloned().collect::<Vec<_>>() {
+                let rule = tables.iter()
+                    .find_map(|table| {
+                        let r = config.rule(connector, table, &col_name);
+                        if *r != ColumnRule::Free { Some(r.clone()) } else { None }
+                    })
+                    .unwrap_or(ColumnRule::Free);
+
+                match rule {
+                    ColumnRule::Block => {
+                        let original = obj.get(&col_name)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("…")
+                            .chars().take(30).collect::<String>();
+                        eprintln!("\x1b[32m[OSMOzzz|DB] \"{original}\" → [bloqué]  ({col_name})\x1b[0m");
+                        obj.insert(col_name, serde_json::Value::String("[bloqué]".to_string()));
+                        any_change = true;
+                    }
+                    ColumnRule::Tokenize => {
+                        if let Some(val) = obj.get(&col_name).cloned() {
+                            let raw = match &val {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                serde_json::Value::Bool(b) => b.to_string(),
+                                _ => continue,
+                            };
+                            if raw.is_empty() { continue; }
+                            let col_type = infer_col_type(&col_name);
+                            match vault.get_or_create(&raw, col_type) {
+                                Ok(token) => {
+                                    let preview = raw.chars().take(20).collect::<String>();
+                                    eprintln!("\x1b[32m[OSMOzzz|DB] \"{preview}\" → {token}  ({col_name})\x1b[0m");
+                                    obj.insert(col_name, serde_json::Value::String(token));
+                                    any_change = true;
+                                }
+                                Err(e) => eprintln!("[OSMOzzz|DB] Erreur token {col_name}: {e}"),
+                            }
+                        }
+                    }
+                    ColumnRule::Free => {}
+                }
+            }
+        }
+    }
+
+    if any_change {
+        let new_json = serde_json::to_string(&rows).unwrap_or_else(|_| json_str.clone());
+        // Remplace le tableau JSON dans le texte décodé (working)
+        let new_working = working.replacen(&json_str, &new_json, 1);
+        if was_wrapped {
+            // Re-emballe dans {"result":"..."} avec les bons échappements JSON
+            serde_json::to_string(&serde_json::json!({ "result": new_working }))
+                .unwrap_or_else(|_| text.to_string())
+        } else {
+            new_working
+        }
+    } else {
+        text.to_string()
+    }
+}
+
+/// Infer the token type prefix from a column name
+fn infer_col_type(col_name: &str) -> &'static str {
+    let lower = col_name.to_lowercase();
+    if lower.contains("email") || lower.contains("mail")   { "email" }
+    else if lower.contains("name") || lower.contains("prenom") || lower.contains("nom") { "name" }
+    else if lower.contains("phone") || lower.contains("tel")  { "phone" }
+    else if lower.contains("address") || lower.contains("addr") { "address" }
+    else if lower == "id" || lower.ends_with("_id")          { "id" }
+    else                                                       { "data" }
 }
 
 // ─── Audit log ───────────────────────────────────────────────────────────────
@@ -1915,6 +2098,14 @@ pub async fn run(cfg: Config) -> Result<()> {
                         });
                         match result {
                             Ok(text) => {
+                                // 1. Tokenise/bloque les colonnes DB AVANT tout autre filtre
+                                //    (le JSON doit être propre — non altéré par les remplacements texte)
+                                let text = if proxy_name == "supabase" {
+                                    tokenize_sql_result(&proxy_name, &text)
+                                } else {
+                                    text
+                                };
+                                // 2. Filtre privacy + alias (après tokenisation)
                                 let text = sanitize_proxy_response(&text);
                                 let query = args.get("query")
                                     .or_else(|| args.get("q"))

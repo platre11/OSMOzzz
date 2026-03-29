@@ -5,6 +5,7 @@ import { api } from '../api'
 import type { RecentDoc, ContactItem, MessageItem, StatusData, SearchDoc, GroupedSearchResponse, BlacklistEntry } from '../api'
 import { icons } from '../lib/assets'
 import { highlightText, renderEmailContent } from '../lib/highlight'
+import BlacklistPanel from '../components/BlacklistPanel'
 
 const CLICKABLE_SOURCES = new Set(['file', 'imessage', 'notes', 'calendar', 'terminal', 'chrome', 'safari'])
 
@@ -131,6 +132,24 @@ const ClearDateBtn = styled.button`
 `
 
 const MenuSep = styled.div`height: 1px; background: #f3f4f6;`
+
+const BlacklistCard = styled.div`
+  background: #fff; border: 1px solid #e8eaed; border-radius: 12px;
+  padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+`
+const BlacklistCount = styled.span<{ $n: number }>`
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+  background: ${({ $n }) => $n > 0 ? '#fee2e2' : '#f3f4f6'};
+  color: ${({ $n }) => $n > 0 ? '#991b1b' : '#6b7280'};
+  margin-right: 10px;
+`
+const ManageBtn = styled.button`
+  padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  border: 1px solid #e5e7eb; background: #fff; color: #374151; cursor: pointer;
+  transition: all .15s;
+  &:hover { background: #f3f4f6; }
+`
 
 const BannisToggle = styled.button<{ $active: boolean }>`
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
@@ -687,6 +706,10 @@ export default function RecentPage() {
     return () => document.removeEventListener('mousedown', handle)
   }, [menuOpen])
 
+  const [showBlacklistPanel, setShowBlacklistPanel] = useState(false)
+  const { data: blacklistData } = useQuery({ queryKey: ['blacklist'], queryFn: api.getBlacklist })
+  const bannedCount = blacklistData?.entries.length ?? 0
+
   const { data: statusData } = useQuery<StatusData>({
     queryKey: ['status'], queryFn: api.getStatus, refetchInterval: false,
   })
@@ -734,6 +757,16 @@ export default function RecentPage() {
   return (
     <Page>
       <PageTitle>Documents récents</PageTitle>
+
+      {/* Carte liste noire */}
+      <BlacklistCard>
+        <span style={{ fontSize: 13, color: '#6b7280' }}>Éléments exclus des résultats Claude</span>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <BlacklistCount $n={bannedCount}>{bannedCount} banni{bannedCount !== 1 ? 's' : ''}</BlacklistCount>
+          <ManageBtn onClick={() => setShowBlacklistPanel(true)}>Gérer</ManageBtn>
+        </div>
+      </BlacklistCard>
+      {showBlacklistPanel && <BlacklistPanel source="all" onClose={() => setShowBlacklistPanel(false)} />}
 
       {/* Tabs */}
       <TabRow>
