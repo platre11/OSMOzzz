@@ -616,17 +616,20 @@ fn replace_icase(haystack: &str, needle: &str, replacement: &str) -> String {
 }
 
 /// Outbound : remplace les vrais noms par leurs alias avant envoi à Claude (insensible à la casse)
-fn apply_aliases(text: &str, aliases: &[(String, String)]) -> String {
-    if aliases.is_empty() { return text.to_string(); }
+/// Retourne le texte filtré + liste des alias appliqués (real, alias)
+fn apply_aliases(text: &str, aliases: &[(String, String)]) -> (String, Vec<(String, String)>) {
+    if aliases.is_empty() { return (text.to_string(), vec![]); }
     let mut result = text.to_string();
+    let mut applied = vec![];
     for (real, alias) in aliases {
         let before = result.clone();
         result = replace_icase(&result, real.as_str(), alias.as_str());
         if result != before {
             eprintln!("\x1b[32m[OSMOzzz|Alias] \"{}\" → \"{}\"  (alias)\x1b[0m", real, alias);
+            applied.push((real.clone(), alias.clone()));
         }
     }
-    result
+    (result, applied)
 }
 
 /// Inbound : décode les alias reçus de Claude en vrais noms pour la recherche
@@ -731,7 +734,7 @@ fn extract_json_array(text: &str) -> Option<String> {
     end.map(|e| slice[..e].to_string())
 }
 
-fn tokenize_sql_result(connector: &str, text: &str) -> String {
+fn tokenize_sql_result(connector: &str, text: &str) -> (String, Vec<serde_json::Value>) {
     use osmozzz_api::db::{DbSecurityConfig, TokenVault};
     use osmozzz_api::db::security::ColumnRule;
 
@@ -750,7 +753,7 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
         Ok(v) => v,
         Err(e) => {
             eprintln!("[OSMOzzz|DB] TokenVault indisponible: {e}");
-            return text.to_string();
+            return (text.to_string(), vec![]);
         }
     };
 
@@ -782,7 +785,7 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
             let _ = std::fs::write("/tmp/osmozzz_db_debug.txt", format!(
                 "AUCUN_JSON\nworking_start={:?}\n", &working[..working.len().min(200)]
             ));
-            return text.to_string();
+            return (text.to_string(), vec![]);
         }
     };
     let mut rows: Vec<serde_json::Value> = match serde_json::from_str(&json_str) {
@@ -791,7 +794,7 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
             let _ = std::fs::write("/tmp/osmozzz_db_debug.txt", format!(
                 "PARSE_FAILED\njson_str={:?}\n", &json_str[..json_str.len().min(300)]
             ));
-            return text.to_string();
+            return (text.to_string(), vec![]);
         }
     };
 
@@ -802,10 +805,11 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
 
     if tables.is_empty() {
         eprintln!("[OSMOzzz|DB] Aucune règle configurée pour {connector} — filtre non appliqué");
-        return text.to_string();
+        return (text.to_string(), vec![]);
     }
 
     let mut any_change = false;
+    let mut actions: Vec<serde_json::Value> = vec![];
 
     for row in &mut rows {
         if let Some(obj) = row.as_object_mut() {
@@ -822,8 +826,14 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
                         let original = obj.get(&col_name)
                             .and_then(|v| v.as_str())
                             .unwrap_or("…")
-                            .chars().take(30).collect::<String>();
+                            .chars().take(80).collect::<String>();
                         eprintln!("\x1b[32m[OSMOzzz|DB] \"{original}\" → [bloqué]  ({col_name})\x1b[0m");
+                        actions.push(serde_json::json!({
+                            "kind": "block",
+                            "field": col_name,
+                            "real_value": original,
+                            "replaced_by": "[bloqué]"
+                        }));
                         obj.insert(col_name, serde_json::Value::String("[bloqué]".to_string()));
                         any_change = true;
                     }
@@ -841,6 +851,12 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
                                 Ok(token) => {
                                     let preview = raw.chars().take(20).collect::<String>();
                                     eprintln!("\x1b[32m[OSMOzzz|DB] \"{preview}\" → {token}  ({col_name})\x1b[0m");
+                                    actions.push(serde_json::json!({
+                                        "kind": "tokenize",
+                                        "field": col_name,
+                                        "real_value": raw,
+                                        "replaced_by": token
+                                    }));
                                     obj.insert(col_name, serde_json::Value::String(token));
                                     any_change = true;
                                 }
@@ -858,15 +874,16 @@ fn tokenize_sql_result(connector: &str, text: &str) -> String {
         let new_json = serde_json::to_string(&rows).unwrap_or_else(|_| json_str.clone());
         // Remplace le tableau JSON dans le texte décodé (working)
         let new_working = working.replacen(&json_str, &new_json, 1);
-        if was_wrapped {
+        let result = if was_wrapped {
             // Re-emballe dans {"result":"..."} avec les bons échappements JSON
             serde_json::to_string(&serde_json::json!({ "result": new_working }))
                 .unwrap_or_else(|_| text.to_string())
         } else {
             new_working
-        }
+        };
+        (result, actions)
     } else {
-        text.to_string()
+        (text.to_string(), vec![])
     }
 }
 
@@ -899,7 +916,7 @@ fn sanitize_proxy_response(text: &str) -> String {
 
     // Applique les alias utilisateur (aliases.toml) — même logique que les sources indexées
     let aliases = load_aliases();
-    apply_aliases(&filtered, &aliases)
+    apply_aliases(&filtered, &aliases).0
 }
 
 /// Masque les tokens longs sans espaces qui ressemblent à des credentials.
@@ -1088,7 +1105,7 @@ fn send(response: &Response) {
                                     processed = filter.apply(&processed);
                                 }
                                 // 3. Alias engine : remplace vrais noms par alias
-                                processed = apply_aliases(&processed, &aliases);
+                                processed = apply_aliases(&processed, &aliases).0;
                                 item["text"] = serde_json::Value::String(processed);
                             }
                         }
@@ -2100,10 +2117,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                             Ok(text) => {
                                 // 1. Tokenise/bloque les colonnes DB AVANT tout autre filtre
                                 //    (le JSON doit être propre — non altéré par les remplacements texte)
-                                let text = if proxy_name == "supabase" {
+                                let (text, _db_actions) = if proxy_name == "supabase" {
                                     tokenize_sql_result(&proxy_name, &text)
                                 } else {
-                                    text
+                                    (text, vec![])
                                 };
                                 // 2. Filtre privacy + alias (après tokenisation)
                                 let text = sanitize_proxy_response(&text);

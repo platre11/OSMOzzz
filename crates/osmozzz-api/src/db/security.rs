@@ -18,16 +18,28 @@ impl Default for ColumnRule {
 /// Config for one table: column_name → rule
 pub type TableConfig = HashMap<String, ColumnRule>;
 
-/// Full config: connector_id → table_name → column_name → rule
+/// Config saved per project
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ProjectSecurityConfig {
+    #[serde(default)]
+    pub supabase: HashMap<String, TableConfig>,
+    #[serde(default)]
+    pub column_order: HashMap<String, Vec<String>>,
+}
+
+/// Full config — stores one config per project_id
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct DbSecurityConfig {
     #[serde(default)]
     pub active_project_id: Option<String>,
+    /// Current project's config (backward compat — mirrors projects[active_project_id])
     #[serde(default)]
     pub supabase: HashMap<String, TableConfig>,
-    /// Preserves column order per table: table_name → ordered list of column names
     #[serde(default)]
     pub column_order: HashMap<String, Vec<String>>,
+    /// Per-project storage: project_id → config
+    #[serde(default)]
+    pub projects: HashMap<String, ProjectSecurityConfig>,
 }
 
 impl DbSecurityConfig {
@@ -57,10 +69,21 @@ impl DbSecurityConfig {
     /// Get the rule for a specific column in a table (default: Free)
     pub fn rule(&self, connector: &str, table: &str, column: &str) -> &ColumnRule {
         match connector {
-            "supabase" => self.supabase
-                .get(table)
-                .and_then(|t| t.get(column))
-                .unwrap_or(&ColumnRule::Free),
+            "supabase" => {
+                // First try per-project config
+                if let Some(proj_id) = &self.active_project_id {
+                    if let Some(proj) = self.projects.get(proj_id) {
+                        if let Some(rule) = proj.supabase.get(table).and_then(|t| t.get(column)) {
+                            return rule;
+                        }
+                    }
+                }
+                // Fallback to flat supabase (backward compat with old TOML format)
+                self.supabase
+                    .get(table)
+                    .and_then(|t| t.get(column))
+                    .unwrap_or(&ColumnRule::Free)
+            }
             _ => &ColumnRule::Free,
         }
     }

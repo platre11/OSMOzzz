@@ -140,35 +140,68 @@ const AliasAddBtn = styled.button`
 
 // ── Journal ──────────────────────────────────────────────────────────────────
 
-const JournalList = styled.div`display: flex; flex-direction: column; gap: 6px;`
+const JournalList = styled.div`display: flex; flex-direction: column;`
 
 const JournalRow = styled.div<{ $blocked: boolean }>`
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px; border-radius: 10px; background: #fff;
-  border: 1px solid ${({ $blocked }) => $blocked ? '#fee2e2' : '#f3f4f6'};
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+  background: ${({ $blocked }) => $blocked ? '#fff8f8' : 'transparent'};
+  &:last-child { border-bottom: none; }
 `
 
-const JournalTime = styled.span`font-size: 11px; color: #9ca3af; white-space: nowrap; min-width: 80px;`
+const JournalMeta = styled.div`display: flex; align-items: center; gap: 8px;`
+
+const JournalTime = styled.span`font-size: 11px; color: #9ca3af; white-space: nowrap;`
 
 const JournalTool = styled.span`
-  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
-  padding: 2px 8px; border-radius: 5px; background: #ededff; color: #5b5ef4; white-space: nowrap;
+  font-size: 11px; font-weight: 600; color: #5b5ef4; white-space: nowrap;
 `
 
-const JournalQuery = styled.span`font-size: 13px; color: #374151; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`
+const JournalQuery = styled.span`
+  font-size: 12px; color: #374151; line-height: 1.5;
+  word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+`
 
 const JournalCount = styled.span<{ $blocked: boolean }>`
   font-size: 11px; font-weight: 600; white-space: nowrap;
   color: ${({ $blocked }) => $blocked ? '#dc2626' : '#6b7280'};
 `
 
-
 const JournalData = styled.pre`
-  margin: 8px 0 0; padding: 10px 14px; border-radius: 8px;
+  margin: 6px 0 0; padding: 10px 14px; border-radius: 8px;
   background: #f8fafc; border: 1px solid #e8eaed;
   font-size: 11px; color: #374151; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
   max-height: 300px; overflow-y: auto; font-family: 'SF Mono', monospace;
+`
+
+const SecurityBox = styled.div`
+  margin: 4px 0 0; padding: 8px 12px; border-radius: 7px;
+  background: #f8fafc; border: 1px solid #e8eaed;
+  display: flex; flex-direction: column; gap: 3px;
+`
+
+const SecurityLine = styled.div<{ $kind: 'block' | 'tokenize' | 'alias' }>`
+  font-size: 11px; font-family: 'SF Mono', monospace; line-height: 1.6;
+  color: ${({ $kind }) =>
+    $kind === 'block'    ? '#dc2626' :
+    $kind === 'alias'    ? '#059669' :
+    '#d97706'};
+`
+
+const SecurityBadge = styled.span<{ $kind: 'block' | 'tokenize' | 'alias' }>`
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-left: 4px;
+  background: ${({ $kind }) =>
+    $kind === 'block'    ? '#fee2e2' :
+    $kind === 'alias'    ? '#d1fae5' :
+    '#fef3c7'};
+  color: ${({ $kind }) =>
+    $kind === 'block'    ? '#dc2626' :
+    $kind === 'alias'    ? '#059669' :
+    '#d97706'};
 `
 
 // ── Actions (tabs + cards) ───────────────────────────────────────────────────
@@ -445,6 +478,17 @@ function formatJournalData(raw: string): string {
   }
 }
 
+type SecurityAction = { kind: 'block' | 'tokenize' | 'alias'; field: string; real_value: string; replaced_by: string }
+
+function parseSecurityActions(raw?: string): SecurityAction[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed?.security)) return parsed.security as SecurityAction[]
+  } catch { /* ignore */ }
+  return []
+}
+
 function JournalEntryRow({ entry }: {
   entry: { ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string }
 }) {
@@ -452,27 +496,36 @@ function JournalEntryRow({ entry }: {
   const date = new Date(entry.ts * 1000)
   const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   const day  = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
-  const toolLabel = entry.tool.replace(/^search_/, '').replace(/_/g, ' ')
-  const displayData = entry.data ? formatJournalData(entry.data) : ''
-
-  const clickable = !!entry.data && !entry.blocked
+  const secActions = parseSecurityActions(entry.data)
+  const displayData = entry.data && secActions.length === 0 ? formatJournalData(entry.data) : ''
+  const clickable = (!!entry.data || secActions.length > 0) && !entry.blocked
 
   return (
-    <div>
-      <JournalRow
-        $blocked={entry.blocked}
-        onClick={clickable ? () => setExpanded(v => !v) : undefined}
-        style={clickable ? { cursor: 'pointer' } : undefined}
-      >
+    <JournalRow
+      $blocked={entry.blocked}
+      onClick={clickable ? () => setExpanded(v => !v) : undefined}
+      style={clickable ? { cursor: 'pointer' } : undefined}
+    >
+      <JournalMeta>
         <JournalTime>{day} {time}</JournalTime>
-        <JournalTool>{toolLabel}</JournalTool>
-        <JournalQuery title={entry.query}>{entry.query || '—'}</JournalQuery>
-        {entry.blocked && <JournalCount $blocked>{' ⛔'}</JournalCount>}
-      </JournalRow>
-      {expanded && entry.data && (
-        <JournalData>{displayData}</JournalData>
+        <JournalTool>{entry.tool}</JournalTool>
+        {entry.blocked && <JournalCount $blocked>⛔</JournalCount>}
+        {secActions.some(a => a.kind === 'block')    && <SecurityBadge $kind="block">bloqué</SecurityBadge>}
+        {secActions.some(a => a.kind === 'tokenize') && <SecurityBadge $kind="tokenize">tokenisé</SecurityBadge>}
+        {secActions.some(a => a.kind === 'alias')    && <SecurityBadge $kind="alias">alias</SecurityBadge>}
+      </JournalMeta>
+      {entry.query && <JournalQuery>{entry.query}</JournalQuery>}
+      {expanded && secActions.length > 0 && (
+        <SecurityBox>
+          {secActions.map((a, i) => (
+            <SecurityLine key={i} $kind={a.kind}>
+              {a.field}: &quot;{a.real_value}&quot; → {a.replaced_by}
+            </SecurityLine>
+          ))}
+        </SecurityBox>
       )}
-    </div>
+      {expanded && secActions.length === 0 && entry.data && <JournalData>{displayData}</JournalData>}
+    </JournalRow>
   )
 }
 
@@ -714,22 +767,37 @@ export default function ActionsPage() {
     setDbSchemaLoading(true); setDbSchemaError(null)
     try {
       if (projectId) await api.saveSupabaseProject(projectId)
-      // Tables sorted by name; columns arrive in ordinal_position order from Supabase
       const tables = (await api.getSupabaseSchema()).sort((a, b) => a.table_name.localeCompare(b.table_name))
       setDbSchemaTables(tables)
       setDbSecurity(prev => {
-        // Nouveau projet → tables reparties de zéro (pas de merge avec l'ancien projet)
-        const next: DbSecurityConfig = {
-          active_project_id: projectId ?? prev.active_project_id,
-          supabase: {},
-          column_order: {},
-        }
-        for (const t of tables) {
-          next.supabase[t.table_name] = {}
-          next.column_order![t.table_name] = t.columns.map(c => c.column_name)
-          for (const c of t.columns) {
-            next.supabase[t.table_name][c.column_name] = 'free'
+        const targetId = projectId ?? prev.active_project_id ?? ''
+        // Sauvegarder la config du projet actuel avant de switcher
+        const updatedProjects = { ...(prev.projects ?? {}) }
+        if (prev.active_project_id && prev.active_project_id !== targetId) {
+          updatedProjects[prev.active_project_id] = {
+            supabase: prev.supabase,
+            column_order: prev.column_order,
           }
+        }
+        // Récupérer la config existante du projet cible (si déjà configuré)
+        const existingProj = updatedProjects[targetId]
+        const newSupabase: Record<string, Record<string, import('../api').ColumnRule>> = {}
+        const newColumnOrder: Record<string, string[]> = {}
+        for (const t of tables) {
+          newColumnOrder[t.table_name] = t.columns.map(c => c.column_name)
+          newSupabase[t.table_name] = {}
+          for (const c of t.columns) {
+            // Conserver la règle existante, sinon free
+            newSupabase[t.table_name][c.column_name] =
+              existingProj?.supabase?.[t.table_name]?.[c.column_name] ?? 'free'
+          }
+        }
+        updatedProjects[targetId] = { supabase: newSupabase, column_order: newColumnOrder }
+        const next: DbSecurityConfig = {
+          active_project_id: targetId,
+          supabase: newSupabase,
+          column_order: newColumnOrder,
+          projects: updatedProjects,
         }
         api.saveDbSecurity(next).catch(() => {})
         return next
@@ -759,18 +827,27 @@ export default function ActionsPage() {
 
   async function deleteSchema() {
     setDbSchemaTables([])
-    const empty: DbSecurityConfig = { supabase: {} }
+    const projId = dbSecurity.active_project_id
+    const newProjects = { ...(dbSecurity.projects ?? {}) }
+    if (projId) delete newProjects[projId]
+    const empty: DbSecurityConfig = { supabase: {}, active_project_id: projId, projects: newProjects }
     setDbSecurity(empty)
     await api.saveDbSecurity(empty)
   }
 
   async function setColumnRule(table: string, column: string, rule: ColumnRule) {
+    const newSupabase = {
+      ...dbSecurity.supabase,
+      [table]: { ...dbSecurity.supabase[table], [column]: rule },
+    }
+    const projId = dbSecurity.active_project_id
     const next: DbSecurityConfig = {
-      active_project_id: dbSecurity.active_project_id,
+      active_project_id: projId,
       column_order: dbSecurity.column_order,
-      supabase: {
-        ...dbSecurity.supabase,
-        [table]: { ...dbSecurity.supabase[table], [column]: rule },
+      supabase: newSupabase,
+      projects: {
+        ...(dbSecurity.projects ?? {}),
+        ...(projId ? { [projId]: { supabase: newSupabase, column_order: dbSecurity.column_order } } : {}),
       },
     }
     setDbSecurity(next)

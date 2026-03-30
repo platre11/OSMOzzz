@@ -162,10 +162,16 @@ export interface DbTableSchema {
   columns: DbColumnSchema[]
 }
 
+export interface ProjectSecurityConfig {
+  supabase: Record<string, Record<string, ColumnRule>>
+  column_order?: Record<string, string[]>
+}
+
 export interface DbSecurityConfig {
   active_project_id?: string
   supabase: Record<string, Record<string, ColumnRule>>
   column_order?: Record<string, string[]>
+  projects?: Record<string, ProjectSecurityConfig>
 }
 
 export const api = {
