@@ -192,7 +192,7 @@ export function PrivacyPanel() {
         <HeaderLeft>
           <div>
             <Title>Pare-feu de confidentialité</Title>
-            <Subtitle>Ce qui est activé sera masqué dans les réponses de Claude. Tes données locales restent intactes.</Subtitle>
+            <Subtitle>Ce qui est activé sera masqué avant envoi à ton client IA. Tes données locales restent intactes.</Subtitle>
           </div>
         </HeaderLeft>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

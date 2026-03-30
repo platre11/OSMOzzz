@@ -949,7 +949,7 @@ export default function ActionsPage() {
                 </div>
                 {loadingPending && <Loader />}
                 {!loadingPending && pending.length === 0 && (
-                  <EmptyMsg>Aucune action en attente.<br />Claude soumettra ici ses demandes d'actions pour validation.</EmptyMsg>
+                  <EmptyMsg>Aucune action en attente.<br />Ton client IA soumettra ici ses demandes d'actions pour validation.</EmptyMsg>
                 )}
                 <CardList>{pending.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
               </div>
@@ -971,7 +971,7 @@ export default function ActionsPage() {
                 </div>
                 {loadingAudit && <Loader />}
                 {!loadingAudit && auditEntries.length === 0 && (
-                  <EmptyMsg>Aucune activité enregistrée.<br />Le journal se remplit dès que Claude utilise un tool OSMOzzz.</EmptyMsg>
+                  <EmptyMsg>Aucune activité enregistrée.<br />Le journal se remplit dès que ton client IA utilise un tool OSMOzzz.</EmptyMsg>
                 )}
                 <JournalList>{auditEntries.map((e, i) => <JournalEntryRow key={i} entry={e} />)}</JournalList>
               </div>
@@ -989,14 +989,14 @@ export default function ActionsPage() {
             <PermSection>
               <PermHeader>
                 <PermTitle>Accès et validation par source</PermTitle>
-                <PermDesc>Contrôlez quelles sources sont accessibles à Claude et lesquelles nécessitent une validation manuelle avant exécution.</PermDesc>
+                <PermDesc>Contrôlez quelles sources sont accessibles à votre client IA et lesquelles nécessitent une validation manuelle avant exécution.</PermDesc>
               </PermHeader>
               <div style={{ padding: '8px 0' }}>
                 <SourceTable>
                   <thead>
                     <tr>
                       <SourceTh>Source</SourceTh>
-                      <SourceTh $center>Accès Claude</SourceTh>
+                      <SourceTh $center>Accès client IA</SourceTh>
                       <SourceTh $center>Validation manuelle</SourceTh>
                     </tr>
                   </thead>
@@ -1045,7 +1045,7 @@ export default function ActionsPage() {
               <PermSection>
                 <PermHeader>
                   <PermTitle>Alias d'identité</PermTitle>
-                  <PermDesc>Remplace les vrais noms par des alias avant envoi à Claude. Organisez vos alias par type.</PermDesc>
+                  <PermDesc>Remplace les vrais noms par des alias avant envoi à votre client IA. Organisez vos alias par type.</PermDesc>
                 </PermHeader>
                 <div style={{ display: 'flex', minHeight: 0 }}>
                   {/* Mini sidebar types */}
@@ -1162,9 +1162,9 @@ export default function ActionsPage() {
 
             {dbSchemaTables.length > 0 && (
               <LegendRow>
-                <LegendItem><LegendDot $color="#10b981" />Libre — valeur brute transmise à Claude</LegendItem>
+                <LegendItem><LegendDot $color="#10b981" />Libre — valeur brute transmise au client IA</LegendItem>
                 <LegendItem><LegendDot $color="#f59e0b" />Tokenisé — remplacé par un token stable (tok_em_…)</LegendItem>
-                <LegendItem><LegendDot $color="#ef4444" />Bloqué — colonne visible pour Claude mais valeur masquée ([bloqué])</LegendItem>
+                <LegendItem><LegendDot $color="#ef4444" />Bloqué — colonne visible mais valeur masquée ([bloqué])</LegendItem>
               </LegendRow>
             )}
 

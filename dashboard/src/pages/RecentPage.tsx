@@ -760,7 +760,7 @@ export default function RecentPage() {
 
       {/* Carte liste noire */}
       <BlacklistCard>
-        <span style={{ fontSize: 13, color: '#6b7280' }}>Éléments exclus des résultats Claude</span>
+        <span style={{ fontSize: 13, color: '#6b7280' }}>Éléments exclus des résultats MCP</span>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <BlacklistCount $n={bannedCount}>{bannedCount} banni{bannedCount !== 1 ? 's' : ''}</BlacklistCount>
           <ManageBtn onClick={() => setShowBlacklistPanel(true)}>Gérer</ManageBtn>

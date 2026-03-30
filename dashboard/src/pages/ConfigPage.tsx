@@ -445,7 +445,7 @@ function GithubForm({ status, onClose, onSaved }: ModalFormProps) {
           </FieldRow>
           <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
         </FieldGroup>
-        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> GitHub configuré ! Redémarre Claude Desktop.</SuccessBanner>}
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> GitHub configuré ! Redémarre ton client MCP.</SuccessBanner>}
         {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
         <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
           <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
@@ -638,7 +638,7 @@ function SupabaseForm({ status, onClose, onSaved }: ModalFormProps) {
           </FieldRow>
           <Input type="text" value={projectId} onChange={e => setProjectId(e.target.value)} placeholder="abcdefghijklmnop" />
         </FieldGroup>
-        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Supabase configuré ! Redémarre Claude Desktop.</SuccessBanner>}
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Supabase configuré ! Redémarre ton client MCP.</SuccessBanner>}
         {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
         <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
           <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
@@ -777,7 +777,7 @@ export default function ConfigPage() {
     <Page>
       <PageHeader>
         <PageTitle>Connecteurs</PageTitle>
-        <PageSubtitle>Connectez vos outils pour les rendre accessibles à Claude via MCP.</PageSubtitle>
+        <PageSubtitle>Connectez vos outils pour les rendre accessibles à votre client IA via MCP.</PageSubtitle>
       </PageHeader>
 
       {/* ── Connecteurs actifs ─────────────────────────────────────────────── */}
