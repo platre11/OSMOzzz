@@ -24,10 +24,10 @@ touch "$WORKSPACE/crates/osmozzz-api/src/server.rs"
 # ── 2. Rust : compilation incrementale (cache) ────────────────────────────────
 cd "$WORKSPACE"
 echo "[build] Compilation Rust..."
-cargo build --release -p osmozzz-cli
+cargo build -p osmozzz-cli
 
 # ── 3. Copie le binaire dans ~/.cargo/bin ─────────────────────────────────────
-cp "$WORKSPACE/target/release/osmozzz" ~/.cargo/bin/osmozzz
+cp "$WORKSPACE/target/debug/osmozzz" ~/.cargo/bin/osmozzz
 # Re-signe le binaire (macOS 26 rejette les binaires avec flag linker-signed de cargo)
 codesign --force --sign - ~/.cargo/bin/osmozzz
 
