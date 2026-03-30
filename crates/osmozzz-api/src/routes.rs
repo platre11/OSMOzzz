@@ -354,6 +354,8 @@ pub struct ConfigResponse {
     pub airtable: ConnectorStatus,
     pub obsidian:  ConnectorStatus,
     pub supabase:  ConnectorStatus,
+    pub sentry:     ConnectorStatus,
+    pub cloudflare: ConnectorStatus,
 }
 
 fn osmozzz_dir() -> Option<std::path::PathBuf> {
@@ -399,6 +401,8 @@ pub async fn get_config() -> impl IntoResponse {
         airtable: connector_status("airtable.toml", "bases"),
         obsidian: connector_status("obsidian.toml", "vault_path"),
         supabase: connector_status("supabase.toml", "project_id"),
+        sentry:     connector_status("sentry.toml",     ""),
+        cloudflare: connector_status("cloudflare.toml", "account_id"),
     })
 }
 
@@ -620,6 +624,46 @@ pub async fn post_config_airtable(Json(body): Json<AirtableConfigBody>) -> impl 
     );
     match write_config("airtable.toml", &content) {
         Ok(_)  => ApiResponse::ok("Airtable configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/cloudflare ─────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct CloudflareConfigBody {
+    pub api_token:  String,
+    pub account_id: String,
+}
+
+pub async fn post_config_cloudflare(Json(body): Json<CloudflareConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "api_token  = \"{}\"\naccount_id = \"{}\"\n",
+        esc(&body.api_token),
+        esc(&body.account_id),
+    );
+    match write_config("cloudflare.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Cloudflare configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/sentry ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SentryConfigBody {
+    pub token: String,
+    #[serde(default)]
+    pub host: String,
+}
+
+pub async fn post_config_sentry(Json(body): Json<SentryConfigBody>) -> impl IntoResponse {
+    let mut content = format!("token = \"{}\"\n", esc(&body.token));
+    if !body.host.is_empty() {
+        content.push_str(&format!("host = \"{}\"\n", esc(&body.host)));
+    }
+    match write_config("sentry.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Sentry configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
 }

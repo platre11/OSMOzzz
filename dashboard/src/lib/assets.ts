@@ -55,6 +55,9 @@ import {
   Zap,
   EyeOff,
   ChevronUp,
+  Plug2,
+  X,
+  Plus,
 } from 'lucide-react'
 
 export const icons = {
@@ -106,4 +109,7 @@ export const icons = {
   Zap,
   EyeOff,
   ChevronUp,
+  Plug2,
+  X,
+  Plus,
 } as const

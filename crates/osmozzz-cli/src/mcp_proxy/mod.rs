@@ -4,10 +4,13 @@
 /// Architecture :
 ///   osmozzz mcp (Rust) ──stdin/stdout──► Claude
 ///                       ──pipes──────► bunx @pkg/mcp-server (subprocess)
+pub mod cloudflare;
 pub mod github;
+pub mod gitlab;
 pub mod jira;
 pub mod linear;
 pub mod notion;
+pub mod sentry;
 pub mod slack;
 pub mod supabase;
 
@@ -95,6 +98,15 @@ impl McpSubprocess {
         package: &str,
         env_vars: &[(&str, &str)],
     ) -> Option<Self> {
+        Self::start_with_args(name, package, env_vars, &[])
+    }
+
+    pub fn start_with_args(
+        name: &str,
+        package: &str,
+        env_vars: &[(&str, &str)],
+        extra_args: &[&str],
+    ) -> Option<Self> {
         let bun = Self::ensure_bun()?;
 
         eprintln!("[OSMOzzz MCP] Démarrage du subprocess {name} ({package})...");
@@ -104,6 +116,10 @@ impl McpSubprocess {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null());
+
+        for arg in extra_args {
+            cmd.arg(arg);
+        }
 
         for (key, val) in env_vars {
             cmd.env(key, val);
@@ -258,6 +274,7 @@ pub struct LazyProxy {
     pub name:    String,
     package:     String,
     env_vars:    Vec<(String, String)>,
+    extra_args:  Vec<String>,
     subprocess:  Option<McpSubprocess>,
 }
 
@@ -267,6 +284,17 @@ impl LazyProxy {
             name:       name.to_string(),
             package:    package.to_string(),
             env_vars,
+            extra_args: vec![],
+            subprocess: None,
+        }
+    }
+
+    pub fn new_with_args(name: &str, package: &str, env_vars: Vec<(String, String)>, extra_args: Vec<String>) -> Self {
+        Self {
+            name:       name.to_string(),
+            package:    package.to_string(),
+            env_vars,
+            extra_args,
             subprocess: None,
         }
     }
@@ -276,7 +304,10 @@ impl LazyProxy {
             let env_refs: Vec<(&str, &str)> = self.env_vars.iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();
-            self.subprocess = McpSubprocess::start(&self.name, &self.package, &env_refs);
+            let arg_refs: Vec<&str> = self.extra_args.iter()
+                .map(|s| s.as_str())
+                .collect();
+            self.subprocess = McpSubprocess::start_with_args(&self.name, &self.package, &env_refs, &arg_refs);
         }
         self.subprocess.as_mut()
     }
@@ -302,12 +333,15 @@ impl LazyProxy {
 pub fn start_all_proxies() -> Vec<LazyProxy> {
     let mut proxies = Vec::new();
 
-    if let Some(p) = jira::lazy()     { proxies.push(p); }
-    if let Some(p) = github::lazy()   { proxies.push(p); }
-    if let Some(p) = notion::lazy()   { proxies.push(p); }
-    if let Some(p) = slack::lazy()    { proxies.push(p); }
-    if let Some(p) = linear::lazy()   { proxies.push(p); }
-    if let Some(p) = supabase::lazy() { proxies.push(p); }
+    if let Some(p) = jira::lazy()        { proxies.push(p); }
+    if let Some(p) = github::lazy()      { proxies.push(p); }
+    if let Some(p) = gitlab::lazy()      { proxies.push(p); }
+    if let Some(p) = notion::lazy()      { proxies.push(p); }
+    if let Some(p) = sentry::lazy()      { proxies.push(p); }
+    if let Some(p) = cloudflare::lazy()  { proxies.push(p); }
+    if let Some(p) = slack::lazy()       { proxies.push(p); }
+    if let Some(p) = linear::lazy()      { proxies.push(p); }
+    if let Some(p) = supabase::lazy()    { proxies.push(p); }
 
     proxies
 }

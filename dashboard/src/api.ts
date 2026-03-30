@@ -63,6 +63,8 @@ export interface ConfigData {
   airtable: ConnectorStatus
   obsidian: ConnectorStatus
   supabase: ConnectorStatus
+  sentry:     ConnectorStatus
+  cloudflare: ConnectorStatus
 }
 
 export interface ContactItem {
@@ -241,6 +243,14 @@ export const api = {
 
   saveSupabase: async (access_token: string, project_id?: string) => {
     await axios.post(`${BASE}/config/supabase`, { access_token, project_id })
+  },
+
+  saveSentry: async (token: string, host?: string) => {
+    await axios.post(`${BASE}/config/sentry`, { token, host: host ?? '' })
+  },
+
+  saveCloudflare: async (api_token: string, account_id: string) => {
+    await axios.post(`${BASE}/config/cloudflare`, { api_token, account_id })
   },
 
   open: async (url: string): Promise<void> => {

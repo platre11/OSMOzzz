@@ -52,6 +52,8 @@ pub async fn start_server(
         .route("/config/airtable",  post(routes::post_config_airtable))
         .route("/config/obsidian",  post(routes::post_config_obsidian))
         .route("/config/supabase",  post(routes::post_config_supabase))
+        .route("/config/sentry",      post(routes::post_config_sentry))
+        .route("/config/cloudflare",  post(routes::post_config_cloudflare))
         .route("/db/supabase/projects",  get(routes::get_db_supabase_projects))
         .route("/db/supabase/project",   post(routes::post_db_supabase_project))
         .route("/db/supabase/schema",    get(routes::get_db_supabase_schema))
