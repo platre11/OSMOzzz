@@ -6,13 +6,19 @@
 ///
 /// La couche sécurité (sanitize_proxy_response + audit_log) est appliquée
 /// CENTRALEMENT dans le dispatcher de mcp.rs, après le retour du connecteur.
+pub mod discord;
+pub mod figma;
 pub mod gcal;
 pub mod gitlab;
+pub mod hubspot;
+pub mod posthog;
+pub mod resend;
 pub mod stripe;
 pub mod jira;
 pub mod linear;
 pub mod railway;
 pub mod render;
+pub mod twilio;
 pub mod vercel;
 
 use serde_json::Value;
@@ -28,6 +34,12 @@ pub fn all_tools() -> Vec<Value> {
     tools.extend(render::tools());
     tools.extend(gcal::tools());
     tools.extend(stripe::tools());
+    tools.extend(hubspot::tools());
+    tools.extend(posthog::tools());
+    tools.extend(resend::tools());
+    tools.extend(discord::tools());
+    tools.extend(twilio::tools());
+    tools.extend(figma::tools());
     tools
 }
 
@@ -41,6 +53,12 @@ pub async fn handle(name: &str, args: &Value) -> Option<Result<String, String>> 
     if name.starts_with("railway_") { return Some(railway::handle(name, args).await); }
     if name.starts_with("render_")  { return Some(render::handle(name, args).await); }
     if name.starts_with("gcal_")    { return Some(gcal::handle(name, args).await); }
-    if name.starts_with("stripe_")  { return Some(stripe::handle(name, args).await); }
+    if name.starts_with("stripe_")   { return Some(stripe::handle(name, args).await); }
+    if name.starts_with("hubspot_")  { return Some(hubspot::handle(name, args).await); }
+    if name.starts_with("posthog_")  { return Some(posthog::handle(name, args).await); }
+    if name.starts_with("resend_")   { return Some(resend::handle(name, args).await); }
+    if name.starts_with("discord_")  { return Some(discord::handle(name, args).await); }
+    if name.starts_with("twilio_")   { return Some(twilio::handle(name, args).await); }
+    if name.starts_with("figma_")    { return Some(figma::handle(name, args).await); }
     None
 }

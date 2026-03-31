@@ -70,6 +70,12 @@ export interface ConfigData {
   render:  ConnectorStatus
   google:  ConnectorStatus
   stripe:  ConnectorStatus
+  hubspot: ConnectorStatus
+  posthog: ConnectorStatus
+  resend:  ConnectorStatus
+  discord: ConnectorStatus
+  twilio:  ConnectorStatus
+  figma:   ConnectorStatus
 }
 
 export interface ContactItem {
@@ -278,6 +284,30 @@ export const api = {
     await axios.post(`${BASE}/config/stripe`, { secret_key })
   },
 
+  saveHubspot: async (token: string) => {
+    await axios.post(`${BASE}/config/hubspot`, { token })
+  },
+
+  savePosthog: async (api_key: string, project_id: string, host?: string) => {
+    await axios.post(`${BASE}/config/posthog`, { api_key, project_id, host: host ?? '' })
+  },
+
+  saveResend: async (api_key: string) => {
+    await axios.post(`${BASE}/config/resend`, { api_key })
+  },
+
+  saveDiscord: async (bot_token: string, guild_id?: string) => {
+    await axios.post(`${BASE}/config/discord`, { bot_token, guild_id: guild_id ?? '' })
+  },
+
+  saveTwilio: async (account_sid: string, auth_token: string, from_number?: string) => {
+    await axios.post(`${BASE}/config/twilio`, { account_sid, auth_token, from_number: from_number ?? '' })
+  },
+
+  saveFigma: async (token: string, team_id?: string) => {
+    await axios.post(`${BASE}/config/figma`, { token, team_id: team_id ?? '' })
+  },
+
   open: async (url: string): Promise<void> => {
     await axios.get(`${BASE}/open`, { params: { url } })
   },
@@ -430,28 +460,20 @@ export const api = {
     return r.data.data
   },
 
-  getPermissions: async (): Promise<{ jira: boolean; github: boolean; linear: boolean; notion: boolean; email: boolean }> => {
+  getPermissions: async (): Promise<Record<string, boolean>> => {
     const r = await axios.get(`${BASE}/permissions`)
-    return r.data.data ?? { jira: false, github: false, linear: false, notion: false, email: false }
+    return r.data.data ?? {}
   },
 
-  savePermissions: async (perms: { jira: boolean; github: boolean; linear: boolean; notion: boolean; email: boolean }): Promise<void> => {
+  savePermissions: async (perms: Record<string, boolean>): Promise<void> => {
     await axios.post(`${BASE}/permissions`, perms)
   },
 
   // ─── Accès sources MCP ───────────────────────────────────────────────────────
 
-  getSourceAccess: async (): Promise<{
-    email: boolean; imessage: boolean; chrome: boolean; safari: boolean;
-    notes: boolean; calendar: boolean; terminal: boolean; file: boolean;
-    notion: boolean; github: boolean; linear: boolean; jira: boolean;
-  }> => {
+  getSourceAccess: async (): Promise<Record<string, boolean>> => {
     const r = await axios.get(`${BASE}/source-access`)
-    return r.data.data ?? {
-      email: true, imessage: true, chrome: true, safari: true,
-      notes: true, calendar: true, terminal: true, file: true,
-      notion: true, github: true, linear: true, jira: true,
-    }
+    return r.data.data ?? {}
   },
 
   getAudit: async (limit = 200): Promise<Array<{
@@ -478,11 +500,7 @@ export const api = {
     await axios.post(`${BASE}/aliases`, { aliases, types })
   },
 
-  saveSourceAccess: async (access: {
-    email: boolean; imessage: boolean; chrome: boolean; safari: boolean;
-    notes: boolean; calendar: boolean; terminal: boolean; file: boolean;
-    notion: boolean; github: boolean; linear: boolean; jira: boolean;
-  }): Promise<void> => {
+  saveSourceAccess: async (access: Record<string, boolean>): Promise<void> => {
     await axios.post(`${BASE}/source-access`, access)
   },
 

@@ -361,6 +361,12 @@ pub struct ConfigResponse {
     pub render:   ConnectorStatus,
     pub google:   ConnectorStatus,
     pub stripe:   ConnectorStatus,
+    pub hubspot:  ConnectorStatus,
+    pub posthog:  ConnectorStatus,
+    pub resend:   ConnectorStatus,
+    pub discord:  ConnectorStatus,
+    pub twilio:   ConnectorStatus,
+    pub figma:    ConnectorStatus,
 }
 
 fn osmozzz_dir() -> Option<std::path::PathBuf> {
@@ -413,6 +419,12 @@ pub async fn get_config() -> impl IntoResponse {
         render:   connector_status("render.toml",   ""),
         google:   connector_status("google.toml",   "username"),
         stripe:   connector_status("stripe.toml",   ""),
+        hubspot:  connector_status("hubspot.toml",  ""),
+        posthog:  connector_status("posthog.toml",  "project_id"),
+        resend:   connector_status("resend.toml",   ""),
+        discord:  connector_status("discord.toml",  "guild_id"),
+        twilio:   connector_status("twilio.toml",   "account_sid"),
+        figma:    connector_status("figma.toml",    "team_id"),
     })
 }
 
@@ -1834,42 +1846,29 @@ pub async fn post_permissions(Json(body): Json<McpPermissionsBody>) -> impl Into
 
 // ─── Accès aux sources MCP ───────────────────────────────────────────────────
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SourceAccess {
-    #[serde(default = "default_true")] pub email:    bool,
-    #[serde(default = "default_true")] pub imessage: bool,
-    #[serde(default = "default_true")] pub chrome:   bool,
-    #[serde(default = "default_true")] pub safari:   bool,
-    #[serde(default = "default_true")] pub notes:    bool,
-    #[serde(default = "default_true")] pub calendar: bool,
-    #[serde(default = "default_true")] pub terminal: bool,
-    #[serde(default = "default_true")] pub file:     bool,
-    #[serde(default = "default_true")] pub notion:   bool,
-    #[serde(default = "default_true")] pub github:   bool,
-    #[serde(default = "default_true")] pub linear:   bool,
-    #[serde(default = "default_true")] pub jira:     bool,
-}
-
-fn default_true() -> bool { true }
-
-impl Default for SourceAccess {
-    fn default() -> Self {
-        Self {
-            email: true, imessage: true, chrome: true, safari: true,
-            notes: true, calendar: true, terminal: true, file: true,
-            notion: true, github: true, linear: true, jira: true,
-        }
+fn default_source_access() -> std::collections::HashMap<String, bool> {
+    let mut m = std::collections::HashMap::new();
+    for key in &["email","imessage","chrome","safari","notes","calendar","terminal","file",
+                 "notion","github","linear","jira","slack","trello","todoist","gitlab",
+                 "airtable","obsidian","supabase","sentry","cloudflare","vercel","railway",
+                 "render","google","stripe","hubspot","posthog","resend","discord","twilio","figma"] {
+        m.insert(key.to_string(), true);
     }
+    m
 }
 
-fn source_access_path() -> Option<std::path::PathBuf> {
-    Some(dirs_next::home_dir()?.join(".osmozzz/source_access.toml"))
-}
-
-pub fn load_source_access() -> SourceAccess {
-    let path = match source_access_path() { Some(p) => p, None => return SourceAccess::default() };
-    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return SourceAccess::default() };
-    toml::from_str(&content).unwrap_or_default()
+pub fn load_source_access() -> std::collections::HashMap<String, bool> {
+    let path = match dirs_next::home_dir() { Some(d) => d.join(".osmozzz/source_access.toml"), None => return default_source_access() };
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return default_source_access() };
+    // Essaie d'abord le nouveau format HashMap, sinon parse l'ancien format struct
+    if let Ok(map) = toml::from_str::<std::collections::HashMap<String, bool>>(&content) {
+        // S'assure que toutes les clés par défaut sont présentes
+        let mut defaults = default_source_access();
+        defaults.extend(map);
+        defaults
+    } else {
+        default_source_access()
+    }
 }
 
 /// GET /api/source-access — accès aux sources par Claude via MCP
@@ -1878,14 +1877,14 @@ pub async fn get_source_access() -> impl IntoResponse {
 }
 
 /// POST /api/source-access — met à jour les accès sources
-pub async fn post_source_access(Json(body): Json<SourceAccess>) -> impl IntoResponse {
-    let content = format!(
-        "email = {}\nimessage = {}\nchrome = {}\nsafari = {}\nnotes = {}\ncalendar = {}\nterminal = {}\nfile = {}\nnotion = {}\ngithub = {}\nlinear = {}\njira = {}\n",
-        body.email, body.imessage, body.chrome, body.safari,
-        body.notes, body.calendar, body.terminal, body.file,
-        body.notion, body.github, body.linear, body.jira,
-    );
-    match write_config("source_access.toml", &content) {
+pub async fn post_source_access(Json(body): Json<std::collections::HashMap<String, bool>>) -> impl IntoResponse {
+    let mut lines = String::new();
+    let mut keys: Vec<&String> = body.keys().collect();
+    keys.sort();
+    for k in keys {
+        lines.push_str(&format!("{} = {}\n", k, body[k]));
+    }
+    match write_config("source_access.toml", &lines) {
         Ok(_)  => ApiResponse::ok("Accès sources sauvegardés".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
@@ -2005,6 +2004,114 @@ pub async fn post_config_stripe(Json(body): Json<StripeConfigBody>) -> impl Into
     let content = format!("secret_key = \"{}\"\n", esc(&body.secret_key));
     match write_config("stripe.toml", &content) {
         Ok(_)  => ApiResponse::ok("Stripe configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/hubspot ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct HubspotConfigBody { pub token: String }
+
+pub async fn post_config_hubspot(Json(body): Json<HubspotConfigBody>) -> impl IntoResponse {
+    let content = format!("token = \"{}\"\n", esc(&body.token));
+    match write_config("hubspot.toml", &content) {
+        Ok(_)  => ApiResponse::ok("HubSpot configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/posthog ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct PosthogConfigBody {
+    pub api_key: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub host: String,
+}
+
+pub async fn post_config_posthog(Json(body): Json<PosthogConfigBody>) -> impl IntoResponse {
+    let mut content = format!("api_key    = \"{}\"\nproject_id = \"{}\"\n", esc(&body.api_key), esc(&body.project_id));
+    if !body.host.is_empty() {
+        content.push_str(&format!("host = \"{}\"\n", esc(&body.host)));
+    }
+    match write_config("posthog.toml", &content) {
+        Ok(_)  => ApiResponse::ok("PostHog configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/resend ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ResendConfigBody { pub api_key: String }
+
+pub async fn post_config_resend(Json(body): Json<ResendConfigBody>) -> impl IntoResponse {
+    let content = format!("api_key = \"{}\"\n", esc(&body.api_key));
+    match write_config("resend.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Resend configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/discord ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct DiscordConfigBody {
+    pub bot_token: String,
+    #[serde(default)]
+    pub guild_id: String,
+}
+
+pub async fn post_config_discord(Json(body): Json<DiscordConfigBody>) -> impl IntoResponse {
+    let mut content = format!("bot_token = \"{}\"\n", esc(&body.bot_token));
+    if !body.guild_id.is_empty() {
+        content.push_str(&format!("guild_id = \"{}\"\n", esc(&body.guild_id)));
+    }
+    match write_config("discord.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Discord configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/twilio ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TwilioConfigBody {
+    pub account_sid: String,
+    pub auth_token: String,
+    #[serde(default)]
+    pub from_number: String,
+}
+
+pub async fn post_config_twilio(Json(body): Json<TwilioConfigBody>) -> impl IntoResponse {
+    let mut content = format!("account_sid = \"{}\"\nauth_token  = \"{}\"\n", esc(&body.account_sid), esc(&body.auth_token));
+    if !body.from_number.is_empty() {
+        content.push_str(&format!("from_number = \"{}\"\n", esc(&body.from_number)));
+    }
+    match write_config("twilio.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Twilio configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/figma ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct FigmaConfigBody {
+    pub token: String,
+    #[serde(default)]
+    pub team_id: String,
+}
+
+pub async fn post_config_figma(Json(body): Json<FigmaConfigBody>) -> impl IntoResponse {
+    let mut content = format!("token = \"{}\"\n", esc(&body.token));
+    if !body.team_id.is_empty() {
+        content.push_str(&format!("team_id = \"{}\"\n", esc(&body.team_id)));
+    }
+    match write_config("figma.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Figma configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
 }

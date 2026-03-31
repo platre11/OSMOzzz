@@ -227,24 +227,36 @@ const CardList = styled.div`display: flex; flex-direction: column; gap: 12px;`
 
 const ActionCard = styled.div<{ $status: string }>`
   background: #fff;
-  border: 1px solid ${({ $status }) =>
-    $status === 'pending'  ? '#fbbf24' :
-    $status === 'approved' ? '#10b981' :
-    $status === 'rejected' ? '#ef4444' :
-    '#e5e7eb'};
-  border-radius: 14px; padding: 20px 24px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  border: 1px solid #e5e7eb;
+  border-radius: 12px; padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04);
+  position: relative;
+  transition: box-shadow .15s;
+  &:hover { box-shadow: 0 2px 8px rgba(0,0,0,.07); }
 `
 
-const CardTop = styled.div`display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;`
+const CardTop = styled.div`
+  display: flex; align-items: center;
+  margin-bottom: 10px; gap: 8px; padding-right: 70px;
+`
 
-const ToolBadge = styled.span`
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-  padding: 3px 10px; border-radius: 6px; background: #ededff; color: #5b5ef4;
+const CardTopLeft = styled.div`display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;`
+
+const SourceBadge = styled.span`
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  padding: 3px 8px; border-radius: 5px; background: #ededff; color: #5b5ef4;
+  white-space: nowrap; flex-shrink: 0;
+`
+
+const ToolName = styled.span`
+  font-size: 13px; font-weight: 600; color: #1a1d23;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 `
 
 const StatusPill = styled.span<{ $status: string }>`
-  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 99px;
+  position: absolute; top: 12px; right: 14px;
+  font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+  white-space: nowrap;
   background: ${({ $status }) =>
     $status === 'pending'  ? '#fef3c7' :
     $status === 'approved' ? '#d1fae5' :
@@ -264,27 +276,55 @@ const StatusLabel: Record<string, string> = {
   expired:  'Expirée',
 }
 
+const ParamsGrid = styled.div`
+  background: #f8fafc; border: 1px solid #e8eaed; border-radius: 8px;
+  padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;
+`
+
+const ParamRow = styled.div`display: flex; gap: 8px; align-items: baseline; min-width: 0;`
+
+const ParamKey = styled.span`
+  font-size: 11px; font-weight: 600; color: #9ca3af; white-space: nowrap;
+  text-transform: lowercase; font-family: 'SF Mono', monospace; flex-shrink: 0;
+`
+
+const ParamVal = styled.span`
+  font-size: 12px; color: #374151; word-break: break-word; line-height: 1.5;
+`
+
 const PreviewBox = styled.pre`
-  background: #f8fafc; border: 1px solid #e8eaed; border-radius: 10px;
-  padding: 14px 16px; font-size: 12px; color: #374151; line-height: 1.6;
+  background: #f8fafc; border: 1px solid #e8eaed; border-radius: 8px;
+  padding: 10px 14px; font-size: 12px; color: #374151; line-height: 1.6;
   white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit;
+`
+
+const CardFooter = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 10px;
 `
 
 const CardDate = styled.span`font-size: 11px; color: #9ca3af;`
 
-const ActionBtns = styled.div`display: flex; gap: 10px; margin-top: 16px;`
+const TimerBadge = styled.span<{ $urgent: boolean }>`
+  font-size: 11px; font-weight: 600;
+  color: ${({ $urgent }) => $urgent ? '#dc2626' : '#9ca3af'};
+`
+
+const ActionBtns = styled.div`display: flex; gap: 8px; margin-top: 12px;`
 
 const ApproveBtn = styled.button`
-  flex: 1; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600;
+  flex: 1; padding: 9px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
   border: none; background: #10b981; color: #fff; cursor: pointer; transition: background .15s;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
   &:hover { background: #059669; }
   &:disabled { opacity: .5; cursor: not-allowed; }
 `
 
 const RejectBtn = styled.button`
-  flex: 1; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600;
-  border: 1px solid #fca5a5; background: #fef2f2; color: #dc2626; cursor: pointer; transition: all .15s;
-  &:hover { background: #fee2e2; }
+  padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  border: 1px solid #e5e7eb; background: #fff; color: #6b7280; cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; gap: 5px;
+  &:hover { border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
   &:disabled { opacity: .5; cursor: not-allowed; }
 `
 
@@ -536,38 +576,79 @@ function ActionCardItem({ action, onDecision }: {
   onDecision: () => void
 }) {
   const [loading, setLoading] = useState(false)
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
+
+  useEffect(() => {
+    if (action.status !== 'pending') return
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [action.status])
 
   async function approve() {
     setLoading(true)
     try { await api.approveAction(action.id) } finally { setLoading(false); onDecision() }
   }
-
   async function reject() {
     setLoading(true)
     try { await api.rejectAction(action.id) } finally { setLoading(false); onDecision() }
   }
 
-  const date = new Date(action.created_at * 1000).toLocaleString('fr-FR')
-  const expiresIn = Math.max(0, action.expires_at - Math.floor(Date.now() / 1000))
-  const toolLabel = action.tool.replace('act_', '').replace(/_/g, ' ')
+  // Parse source + tool name
+  const rawTool = action.tool
+  let source = ''
+  let toolDisplay = ''
+  if (rawTool.includes(':')) {
+    const [s, t] = rawTool.split(':', 2)
+    source = s.charAt(0).toUpperCase() + s.slice(1)
+    toolDisplay = t.replace(/_/g, ' ')
+  } else if (rawTool.startsWith('act_')) {
+    toolDisplay = rawTool.replace('act_', '').replace(/_/g, ' ')
+  } else {
+    const parts = rawTool.split('_')
+    source = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+    toolDisplay = parts.slice(1).join(' ')
+  }
+
+  // Parse params — show as key/value si JSON, sinon preview brute
+  const params = action.params as Record<string, unknown>
+  const paramEntries = Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null)
+
+  const date = new Date(action.created_at * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const dateDay = new Date(action.created_at * 1000).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
+  const expiresIn = Math.max(0, action.expires_at - now)
+  const urgent = expiresIn < 60
 
   return (
     <ActionCard $status={action.status}>
       <CardTop>
-        <ToolBadge>{toolLabel}</ToolBadge>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {action.status === 'pending' && expiresIn > 0 && (
-            <CardDate>expire dans {Math.ceil(expiresIn / 60)} min</CardDate>
-          )}
-          <StatusPill $status={action.status}>{StatusLabel[action.status] ?? action.status}</StatusPill>
-        </div>
+        <CardTopLeft>
+          {source && <SourceBadge>{source}</SourceBadge>}
+          <ToolName>{toolDisplay || rawTool}</ToolName>
+        </CardTopLeft>
+        <StatusPill $status={action.status}>{StatusLabel[action.status] ?? action.status}</StatusPill>
       </CardTop>
 
-      <PreviewBox>{action.preview}</PreviewBox>
+      {paramEntries.length > 0 ? (
+        <ParamsGrid>
+          {paramEntries.map(([k, v]) => (
+            <ParamRow key={k}>
+              <ParamKey>{k}</ParamKey>
+              <ParamVal>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</ParamVal>
+            </ParamRow>
+          ))}
+        </ParamsGrid>
+      ) : (
+        <PreviewBox>{action.preview}</PreviewBox>
+      )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
-        <CardDate>Demandée le {date}</CardDate>
-      </div>
+      <CardFooter>
+        <CardDate>{dateDay} à {date}</CardDate>
+        {action.status === 'pending' && expiresIn > 0 && (
+          <TimerBadge $urgent={urgent}>
+            {urgent ? `⚠ ${expiresIn}s` : `${Math.ceil(expiresIn / 60)} min`}
+          </TimerBadge>
+        )}
+      </CardFooter>
 
       {action.execution_result && (
         <ExecResult $ok={action.execution_result.startsWith('ok:')}>
@@ -578,8 +659,12 @@ function ActionCardItem({ action, onDecision }: {
 
       {action.status === 'pending' && (
         <ActionBtns>
-          <ApproveBtn onClick={approve} disabled={loading}>✓ Approuver</ApproveBtn>
-          <RejectBtn onClick={reject} disabled={loading}>✕ Rejeter</RejectBtn>
+          <ApproveBtn onClick={approve} disabled={loading}>
+            <span>✓</span> Approuver
+          </ApproveBtn>
+          <RejectBtn onClick={reject} disabled={loading}>
+            <span>✕</span> Rejeter
+          </RejectBtn>
         </ActionBtns>
       )}
     </ActionCard>
@@ -600,50 +685,32 @@ export default function ActionsPage() {
     queryKey: ['permissions'],
     queryFn:  api.getPermissions,
   })
-  const [permNotion, setPermNotion] = useState(false)
-  const [permGithub, setPermGithub] = useState(false)
-  const [permLinear, setPermLinear] = useState(false)
-  const [permJira,   setPermJira]   = useState(false)
-  const [permEmail,  setPermEmail]  = useState(false)
+  const [perms, setPerms] = useState<Record<string, boolean>>({})
+  useEffect(() => { if (permsData) setPerms(permsData) }, [permsData])
 
-  useEffect(() => {
-    if (permsData) {
-      setPermNotion(permsData.notion ?? false)
-      setPermGithub(permsData.github ?? false)
-      setPermLinear(permsData.linear ?? false)
-      setPermJira(permsData.jira ?? false)
-      setPermEmail(permsData.email ?? false)
-    }
-  }, [permsData])
-
-  function togglePerm(
-    key: 'notion' | 'github' | 'linear' | 'jira' | 'email',
-    current: boolean,
-    setter: (v: boolean) => void,
-  ) {
-    const next = !current
-    setter(next)
-    api.savePermissions({
-      notion: key === 'notion' ? next : permNotion,
-      github: key === 'github' ? next : permGithub,
-      linear: key === 'linear' ? next : permLinear,
-      jira:   key === 'jira'   ? next : permJira,
-      email:  key === 'email'  ? next : permEmail,
-    }).then(() => queryClient.invalidateQueries({ queryKey: ['permissions'] }))
+  function togglePerm(key: string) {
+    const next = { ...perms, [key]: !perms[key] }
+    setPerms(next)
+    api.savePermissions(next).then(() => queryClient.invalidateQueries({ queryKey: ['permissions'] }))
   }
 
   // ── Accès sources MCP ───────────────────────────────────────────────────
-  type SourceKey = 'email'|'imessage'|'chrome'|'safari'|'notes'|'calendar'|'terminal'|'file'|'notion'|'github'|'linear'|'jira'
   const { data: sourceData } = useQuery({ queryKey: ['source-access'], queryFn: api.getSourceAccess })
-  const defaultSources = { email:true,imessage:true,chrome:true,safari:true,notes:true,calendar:true,terminal:true,file:true,notion:true,github:true,linear:true,jira:true }
-  const [sources, setSources] = useState(defaultSources)
+  const [sources, setSources] = useState<Record<string, boolean>>({})
   useEffect(() => { if (sourceData) setSources(sourceData) }, [sourceData])
 
-  function toggleSource(key: SourceKey) {
+  function toggleSource(key: string) {
     const next = { ...sources, [key]: !sources[key] }
     setSources(next)
     api.saveSourceAccess(next).then(() => queryClient.invalidateQueries({ queryKey: ['source-access'] }))
   }
+
+  // ── Config cloud connectors ──────────────────────────────────────────────
+  const { data: configData } = useQuery({
+    queryKey: ['config'],
+    queryFn:  api.getConfig,
+    enabled:  activeSection === 'sources',
+  })
 
   // ── Alias Engine ────────────────────────────────────────────────────────
   type AliasEntry = { real: string; alias: string; alias_type?: string }
@@ -899,7 +966,9 @@ export default function ActionsPage() {
     queryClient.invalidateQueries({ queryKey: ['actions-all'] })
   }
 
+  const nowTs = Math.floor(Date.now() / 1000)
   const history = all.filter(a => a.status !== 'pending')
+  const visiblePending = pending.filter(a => a.expires_at > nowTs)
 
   const NAV_ITEMS = [
     { id: 'flux',      label: 'Flux d\'actions',   Icon: Zap      },
@@ -921,7 +990,7 @@ export default function ActionsPage() {
           >
             <Icon size={14} />
             {label}
-            {id === 'flux' && pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
+            {id === 'flux' && visiblePending.length > 0 && <BadgeCount>{visiblePending.length}</BadgeCount>}
           </TopTabItem>
         ))}
         <SseStatusInline>
@@ -945,13 +1014,13 @@ export default function ActionsPage() {
               <div style={{ flex: 1, minWidth: 0, padding: '16px 20px', borderRight: '1px solid #e8eaed' }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
                   En attente
-                  {pending.length > 0 && <BadgeCount>{pending.length}</BadgeCount>}
+                  {visiblePending.length > 0 && <BadgeCount>{visiblePending.length}</BadgeCount>}
                 </div>
                 {loadingPending && <Loader />}
-                {!loadingPending && pending.length === 0 && (
+                {!loadingPending && visiblePending.length === 0 && (
                   <EmptyMsg>Aucune action en attente.<br />Ton client IA soumettra ici ses demandes d'actions pour validation.</EmptyMsg>
                 )}
-                <CardList>{pending.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
+                <CardList>{visiblePending.map(a => <ActionCardItem key={a.id} action={a} onDecision={invalidate} />)}</CardList>
               </div>
 
               {/* Colonne Historique */}
@@ -981,58 +1050,90 @@ export default function ActionsPage() {
         )}
 
         {/* 2. Sources */}
-        {activeSection === 'sources' && (
-          <>
-            <ContentHeader>
-              <PageTitle>Contrôle des sources</PageTitle>
-            </ContentHeader>
-            <PermSection>
-              <PermHeader>
-                <PermTitle>Accès et validation par source</PermTitle>
-                <PermDesc>Contrôlez quelles sources sont accessibles à votre client IA et lesquelles nécessitent une validation manuelle avant exécution.</PermDesc>
-              </PermHeader>
-              <div style={{ padding: '8px 0' }}>
-                <SourceTable>
-                  <thead>
-                    <tr>
-                      <SourceTh>Source</SourceTh>
-                      <SourceTh $center>Accès client IA</SourceTh>
-                      <SourceTh $center>Validation manuelle</SourceTh>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {([
-                      { key: 'email',    label: 'Gmail',      hint: 'Emails IMAP indexés',       perm: 'email'  },
-                      { key: 'imessage', label: 'iMessage',   hint: 'SMS et iMessages',           perm: null     },
-                      { key: 'chrome',   label: 'Chrome',     hint: 'Historique de navigation',   perm: null     },
-                      { key: 'safari',   label: 'Safari',     hint: 'Historique de navigation',   perm: null     },
-                      { key: 'notes',    label: 'Notes',      hint: 'Apple Notes',                perm: null     },
-                      { key: 'calendar', label: 'Calendrier', hint: 'Apple Calendar',             perm: null     },
-                      { key: 'terminal', label: 'Terminal',   hint: 'Historique zsh',             perm: null     },
-                      { key: 'file',     label: 'Fichiers',   hint: 'Desktop & Documents',        perm: null     },
-                      { key: 'notion',   label: 'Notion',     hint: 'Pages indexées',             perm: 'notion' },
-                      { key: 'github',   label: 'GitHub',     hint: 'Issues & PRs indexées',      perm: 'github' },
-                      { key: 'linear',   label: 'Linear',     hint: 'Issues indexées',            perm: 'linear' },
-                      { key: 'jira',     label: 'Jira',       hint: 'Tickets indexés',            perm: 'jira'   },
-                    ] as { key: SourceKey; label: string; hint: string; perm: 'email'|'notion'|'github'|'linear'|'jira'|null }[]).map(({ key, label, hint, perm }) => (
-                      <tr key={key}>
-                        <SourceTd><PermLabel>{label}</PermLabel><PermHint>{hint}</PermHint></SourceTd>
-                        <SourceTd $center><Toggle $on={sources[key]} onClick={() => toggleSource(key)} /></SourceTd>
-                        <SourceTd $center>
-                          {perm === 'email'  && <Toggle $on={permEmail}  onClick={() => togglePerm('email',  permEmail,  setPermEmail)}  />}
-                          {perm === 'notion' && <Toggle $on={permNotion} onClick={() => togglePerm('notion', permNotion, setPermNotion)} />}
-                          {perm === 'github' && <Toggle $on={permGithub} onClick={() => togglePerm('github', permGithub, setPermGithub)} />}
-                          {perm === 'linear' && <Toggle $on={permLinear} onClick={() => togglePerm('linear', permLinear, setPermLinear)} />}
-                          {perm === 'jira'   && <Toggle $on={permJira}   onClick={() => togglePerm('jira',   permJira,   setPermJira)}   />}
-                        </SourceTd>
+        {activeSection === 'sources' && (() => {
+          // Sources locales — toujours présentes
+          const staticRows: { key: string; label: string; hint: string }[] = [
+            { key: 'email',    label: 'Gmail',      hint: 'Emails IMAP indexés'      },
+            { key: 'imessage', label: 'iMessage',   hint: 'SMS et iMessages'          },
+            { key: 'chrome',   label: 'Chrome',     hint: 'Historique de navigation'  },
+            { key: 'safari',   label: 'Safari',     hint: 'Historique de navigation'  },
+            { key: 'notes',    label: 'Notes',      hint: 'Apple Notes'               },
+            { key: 'calendar', label: 'Calendrier', hint: 'Apple Calendar'            },
+            { key: 'terminal', label: 'Terminal',   hint: 'Historique zsh'            },
+            { key: 'file',     label: 'Fichiers',   hint: 'Desktop & Documents'       },
+            { key: 'notion',   label: 'Notion',     hint: 'Pages indexées'            },
+            { key: 'github',   label: 'GitHub',     hint: 'Issues & PRs indexés'      },
+            { key: 'linear',   label: 'Linear',     hint: 'Issues indexées'           },
+            { key: 'jira',     label: 'Jira',       hint: 'Tickets indexés'           },
+          ]
+          // Cloud connectors — affichés seulement si configurés
+          const CLOUD_META: Record<string, { label: string; hint: string }> = {
+            slack:      { label: 'Slack',       hint: 'Messages indexés'            },
+            trello:     { label: 'Trello',      hint: 'Cartes indexées'             },
+            todoist:    { label: 'Todoist',     hint: 'Tâches indexées'             },
+            gitlab:     { label: 'GitLab',      hint: 'Issues & MRs indexées'       },
+            airtable:   { label: 'Airtable',    hint: 'Bases indexées'              },
+            obsidian:   { label: 'Obsidian',    hint: 'Vault local indexé'          },
+            supabase:   { label: 'Supabase',    hint: 'Base de données cloud'       },
+            sentry:     { label: 'Sentry',      hint: 'Erreurs & alertes'           },
+            cloudflare: { label: 'Cloudflare',  hint: 'DNS, Workers, Pages'         },
+            vercel:     { label: 'Vercel',      hint: 'Déploiements & projets'      },
+            railway:    { label: 'Railway',     hint: 'Services & déploiements'     },
+            render:     { label: 'Render',      hint: 'Services cloud'              },
+            google:     { label: 'Google',      hint: 'Workspace (Calendar, Drive)' },
+            stripe:     { label: 'Stripe',      hint: 'Paiements & clients'         },
+            hubspot:    { label: 'HubSpot',     hint: 'CRM & marketing'             },
+            posthog:    { label: 'PostHog',     hint: 'Analytics produit'           },
+            resend:     { label: 'Resend',      hint: 'Emails transactionnels'      },
+            discord:    { label: 'Discord',     hint: 'Serveur & messages'          },
+            twilio:     { label: 'Twilio',      hint: 'SMS & voix'                  },
+            figma:      { label: 'Figma',       hint: 'Fichiers & composants'       },
+          }
+          const staticKeys = new Set(staticRows.map(r => r.key))
+          const dynamicRows = configData
+            ? Object.entries(CLOUD_META)
+                .filter(([key]) => !staticKeys.has(key) && (configData as unknown as Record<string, { configured: boolean } | undefined>)[key]?.configured)
+                .map(([key, meta]) => ({ key, ...meta }))
+            : []
+          const allRows = [...staticRows, ...dynamicRows]
+          return (
+            <>
+              <ContentHeader>
+                <PageTitle>Contrôle des sources</PageTitle>
+              </ContentHeader>
+              <PermSection>
+                <PermHeader>
+                  <PermTitle>Accès et validation par source</PermTitle>
+                  <PermDesc>Contrôlez quelles sources sont accessibles à votre client IA et lesquelles nécessitent une validation manuelle avant exécution.</PermDesc>
+                </PermHeader>
+                <div style={{ padding: '8px 0' }}>
+                  <SourceTable>
+                    <thead>
+                      <tr>
+                        <SourceTh>Source</SourceTh>
+                        <SourceTh $center>Accès client IA</SourceTh>
+                        <SourceTh $center>Validation manuelle</SourceTh>
                       </tr>
-                    ))}
-                  </tbody>
-                </SourceTable>
-              </div>
-            </PermSection>
-          </>
-        )}
+                    </thead>
+                    <tbody>
+                      {allRows.map(({ key, label, hint }) => (
+                        <tr key={key}>
+                          <SourceTd><PermLabel>{label}</PermLabel><PermHint>{hint}</PermHint></SourceTd>
+                          <SourceTd $center>
+                            <Toggle $on={sources[key] !== false} onClick={() => toggleSource(key)} />
+                          </SourceTd>
+                          <SourceTd $center>
+                            <Toggle $on={!!perms[key]} onClick={() => togglePerm(key)} />
+                          </SourceTd>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </SourceTable>
+                </div>
+              </PermSection>
+            </>
+          )
+        })()}
 
         {/* 3. Confidentialité + Alias */}
         {activeSection === 'privacy' && (

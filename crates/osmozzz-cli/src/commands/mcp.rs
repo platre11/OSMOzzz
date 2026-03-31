@@ -62,6 +62,40 @@ impl Response {
 
 // ─── Définition des outils MCP ───────────────────────────────────────────────
 
+/// Retourne la clé source d'un tool natif (None = toujours disponible)
+fn tool_source(name: &str) -> Option<&'static str> {
+    if name.starts_with("search_emails") || name == "get_emails_by_date" || name == "read_email" { return Some("email"); }
+    if name == "search_messages" { return Some("imessage"); }
+    if name == "search_notes"    { return Some("notes"); }
+    if name == "search_calendar" || name == "get_upcoming_events" { return Some("calendar"); }
+    if name == "search_terminal" { return Some("terminal"); }
+    if name == "find_file" || name == "fetch_content" || name == "get_recent_files" || name == "list_directory" || name == "index_files" { return Some("file"); }
+    if name == "search_notion"   { return Some("notion"); }
+    if name == "search_github"   { return Some("github"); }
+    if name == "search_linear"   || name.starts_with("linear_")     { return Some("linear"); }
+    if name == "search_jira"     || name.starts_with("jira_")        { return Some("jira"); }
+    if name == "search_slack"    { return Some("slack"); }
+    if name == "search_trello"   { return Some("trello"); }
+    if name == "search_todoist"  { return Some("todoist"); }
+    if name == "search_gitlab"   || name.starts_with("gitlab_")      { return Some("gitlab"); }
+    if name == "search_airtable" { return Some("airtable"); }
+    if name == "search_obsidian" { return Some("obsidian"); }
+    if name.starts_with("hubspot_")    { return Some("hubspot"); }
+    if name.starts_with("posthog_")    { return Some("posthog"); }
+    if name.starts_with("resend_")     { return Some("resend"); }
+    if name.starts_with("discord_")    { return Some("discord"); }
+    if name.starts_with("twilio_")     { return Some("twilio"); }
+    if name.starts_with("figma_")      { return Some("figma"); }
+    if name.starts_with("stripe_")     { return Some("stripe"); }
+    if name.starts_with("vercel_")     { return Some("vercel"); }
+    if name.starts_with("railway_")    { return Some("railway"); }
+    if name.starts_with("render_")     { return Some("render"); }
+    if name.starts_with("gcal_")       { return Some("google"); }
+    if name.starts_with("sentry_")     { return Some("sentry"); }
+    if name.starts_with("cloudflare_") { return Some("cloudflare"); }
+    None // search_memory, get_status, osmozzz_resume_action — toujours disponibles
+}
+
 fn tools_list() -> Value {
     let mut list = json!([
         {
@@ -537,6 +571,24 @@ fn tools_list() -> Value {
         },
     ]);
     list.as_array_mut().unwrap().extend(connectors::all_tools());
+    // ── Tool de reprise post-approbation ──────────────────────────────────────
+    list.as_array_mut().unwrap().push(json!({
+        "name": "osmozzz_resume_action",
+        "description": "OSMOZZZ 🔄 — Reprend une action après approbation dans le dashboard OSMOzzz. \
+            Appelle ce tool avec l'action_id fourni lors d'une demande de validation manuelle. \
+            Retourne le résultat de l'action si elle a été approuvée, ou son statut si elle est \
+            encore en attente / refusée / expirée.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "L'ID de l'action à reprendre (fourni lors de la demande de validation)"
+                }
+            },
+            "required": ["action_id"]
+        }
+    }));
     list
 }
 
@@ -1255,12 +1307,15 @@ impl SourceAccess {
 }
 
 // ─── Permissions MCP ─────────────────────────────────────────────────────────
+// Utilise une HashMap dynamique : toute clé dans permissions.toml est supportée.
+// Compatible avec tous les connecteurs sans modification du code.
+// Format permissions.toml :
+//   notion   = true   # validation manuelle pour les tools notion__*
+//   hubspot  = true   # validation manuelle pour les tools hubspot_*
+//   discord  = false
 
 struct McpPermissions {
-    jira:   bool,
-    github: bool,
-    linear: bool,
-    notion: bool,
+    sources: std::collections::HashMap<String, bool>,
 }
 
 impl McpPermissions {
@@ -1277,47 +1332,37 @@ impl McpPermissions {
             Ok(t) => t,
             Err(_) => return Self::default(),
         };
-        Self {
-            jira:   table.get("jira").and_then(|v| v.as_bool()).unwrap_or(false),
-            github: table.get("github").and_then(|v| v.as_bool()).unwrap_or(false),
-            linear: table.get("linear").and_then(|v| v.as_bool()).unwrap_or(false),
-            notion: table.get("notion").and_then(|v| v.as_bool()).unwrap_or(false),
+        let mut sources = std::collections::HashMap::new();
+        if let Some(tbl) = table.as_table() {
+            for (k, v) in tbl {
+                if let Some(b) = v.as_bool() {
+                    sources.insert(k.clone(), b);
+                }
+            }
         }
+        Self { sources }
     }
 
     fn default() -> Self {
-        Self { jira: false, github: false, linear: false, notion: false }
+        Self { sources: std::collections::HashMap::new() }
     }
 
-    fn requires_auth(&self, proxy_name: &str) -> bool {
-        match proxy_name {
-            "jira"   => self.jira,
-            "github" => self.github,
-            "linear" => self.linear,
-            "notion" => self.notion,
-            _        => false,
-        }
+    /// Vérifie si la validation manuelle est requise pour un connecteur/proxy.
+    /// `name` peut être "notion", "hubspot", "discord", etc.
+    fn requires_auth(&self, name: &str) -> bool {
+        self.sources.get(name).copied().unwrap_or(false)
     }
 }
 
-/// Poll le statut d'une action jusqu'à approbation/rejet/expiration (max 5 min).
-/// Retourne true si approuvé, false sinon.
-async fn wait_for_approval(action_id: &str) -> bool {
-    let client = reqwest::Client::new();
+/// Récupère une action depuis le daemon et retourne ses données JSON.
+async fn fetch_action(action_id: &str) -> Option<serde_json::Value> {
     let url = format!("http://127.0.0.1:7878/api/actions/{}", action_id);
-    for _ in 0..150 { // 150 * 2s = 5 min
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let Ok(resp) = client.get(&url).send().await else { continue };
-        let Ok(body) = resp.json::<serde_json::Value>().await else { continue };
-        let status = body.get("data").and_then(|d| d.get("status")).and_then(|s| s.as_str()).unwrap_or("");
-        match status {
-            "approved" => return true,
-            "rejected" | "expired" => return false,
-            _ => continue,
-        }
-    }
-    false // timeout
+    let body = reqwest::Client::new()
+        .get(&url).send().await.ok()?
+        .json::<serde_json::Value>().await.ok()?;
+    body.get("data").cloned()
 }
+
 
 // ─── Envoi d'une réponse sur stdout (pur JSON) ────────────────────────────────
 
@@ -1391,6 +1436,29 @@ pub async fn run(cfg: Config) -> Result<()> {
     eprintln!("[OSMOzzz MCP] En attente de messages MCP sur stdin...");
     eprintln!("[OSMOzzz MCP] Conseil : lance 'osmozzz daemon' en parallèle pour l'indexation en temps réel.");
 
+    // ── Watcher source_access.toml → notifications/tools/list_changed ──────────
+    // Surveille le fichier toutes les 3s. Si modifié, envoie la notification MCP
+    // pour que Claude re-fetch tools/list sans redémarrage.
+    std::thread::spawn(|| {
+        use std::io::Write;
+        let path = match dirs_next::home_dir() {
+            Some(d) => d.join(".osmozzz/source_access.toml"),
+            None => return,
+        };
+        let mut last_mod = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let current = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+            if current != last_mod && current.is_some() {
+                last_mod = current;
+                let notif = serde_json::json!({"jsonrpc":"2.0","method":"notifications/tools/list_changed"});
+                println!("{}", notif);
+                let _ = std::io::stdout().flush();
+                eprintln!("[OSMOzzz MCP] source_access.toml modifié → notifications/tools/list_changed envoyé");
+            }
+        }
+    });
+
     let stdin = io::stdin();
     let mut initialized = false;
 
@@ -1445,12 +1513,22 @@ pub async fn run(cfg: Config) -> Result<()> {
 
             // ── Liste des outils ───────────────────────────────────────────
             "tools/list" => {
-                let mut all_tools = tools_list().as_array().cloned().unwrap_or_default();
-                // Expose tous les tools de chaque proxy sous "proxy__tool_name"
-                // (__  = séparateur, car MCP n'autorise que [a-zA-Z0-9_-])
-                // Claude les voit immédiatement — aucun round-trip list_tools nécessaire
+                let access = osmozzz_api::routes::load_source_access();
+                // Filtre les tools natifs selon source_access
+                let all_native = tools_list().as_array().cloned().unwrap_or_default();
+                let mut all_tools: Vec<Value> = all_native.into_iter().filter(|t| {
+                    let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    match tool_source(name) {
+                        Some(src) => *access.get(src).unwrap_or(&true),
+                        None => true, // search_memory, get_status, osmozzz_resume_action
+                    }
+                }).collect();
+                // Filtre les tools proxy selon source_access
                 for proxy in &mut proxies {
                     let proxy_name = proxy.name.clone();
+                    if !access.get(proxy_name.as_str()).unwrap_or(&true) {
+                        continue; // source bloquée → aucun tool de ce proxy
+                    }
                     for tool in proxy.list_tools() {
                         if let Some(tool_name) = tool.get("name").and_then(|v| v.as_str()) {
                             let desc = tool.get("description").and_then(|v| v.as_str()).unwrap_or("");
@@ -1463,6 +1541,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
                 }
+                eprintln!("[OSMOzzz MCP] tools/list → {} tools actifs", all_tools.len());
                 send(&Response::ok(id, json!({ "tools": all_tools })));
             }
 
@@ -2228,10 +2307,158 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
+                    // ── Résume une action après approbation dans le dashboard ────────────
+                    "osmozzz_resume_action" => {
+                        let action_id = match args["action_id"].as_str() {
+                            Some(a) => a.to_string(),
+                            None => { send(&Response::err(id, -32602, "Paramètre 'action_id' requis")); continue; }
+                        };
+
+                        // Poll toutes les 2s pendant 120s max — Claude n'a pas à attendre l'utilisateur
+                        enum PollResult {
+                            Done(serde_json::Value),
+                            NotFound,
+                            Timeout,
+                        }
+                        let poll_result = {
+                            let mut found: Option<serde_json::Value> = None;
+                            let mut not_found = false;
+                            for _ in 0..60u32 {
+                                match fetch_action(&action_id).await {
+                                    None => { not_found = true; break; }
+                                    Some(d) => {
+                                        let st = d["status"].as_str().unwrap_or("unknown");
+                                        if st != "pending" {
+                                            found = Some(d);
+                                            break;
+                                        }
+                                        // Encore pending → attente async (ne bloque pas le thread)
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                                    }
+                                }
+                            }
+                            if not_found { PollResult::NotFound }
+                            else if let Some(d) = found { PollResult::Done(d) }
+                            else { PollResult::Timeout }
+                        };
+                        let data = match poll_result {
+                            PollResult::NotFound => {
+                                send(&Response::err(id, -32603, "Action introuvable — vérifie que osmozzz daemon tourne"));
+                                continue;
+                            }
+                            PollResult::Timeout => {
+                                send(&Response::ok(id, json!({"content":[{"type":"text","text":
+                                    "⏱ Délai d'attente dépassé (120s). L'action est toujours en attente dans le dashboard OSMOzzz — approuve-la puis rappelle osmozzz_resume_action."
+                                }]})));
+                                continue;
+                            }
+                            PollResult::Done(d) => d,
+                        };
+
+                        let status = data["status"].as_str().unwrap_or("unknown");
+                        match status {
+                            "rejected" => {
+                                send(&Response::ok(id, json!({"content":[{"type":"text","text":
+                                    "❌ Action refusée dans le dashboard OSMOzzz."
+                                }]})));
+                            }
+                            "expired" => {
+                                send(&Response::ok(id, json!({"content":[{"type":"text","text":
+                                    "⏱ Action expirée (délai de 5 min dépassé). Relance l'action si nécessaire."
+                                }]})));
+                            }
+                            "approved" => {
+                                let tool  = data["tool"].as_str().unwrap_or("").to_string();
+                                let params = data["params"].clone();
+
+                                // Cas 1 : act_* → exécuté par l'executor du daemon, résultat stocké
+                                if let Some(result) = data["execution_result"].as_str() {
+                                    let secured = sanitize_proxy_response(result);
+                                    audit_log("osmozzz_resume_action", &action_id, 1, false, Some(&secured));
+                                    send(&Response::ok(id, json!({"content":[{"type":"text","text":secured}]})));
+                                    continue;
+                                }
+
+                                // Cas 2 : connecteur natif (hubspot_, discord_, etc.)
+                                if let Some(result) = connectors::handle(&tool, &params).await {
+                                    match result {
+                                        Ok(text) => {
+                                            let secured = sanitize_proxy_response(&text);
+                                            audit_log(&tool, &action_id, 1, false, Some(&secured));
+                                            send(&Response::ok(id, json!({"content":[{"type":"text","text":secured}]})));
+                                        }
+                                        Err(e) => {
+                                            audit_log(&tool, &action_id, 0, true, None);
+                                            send(&Response::err(id, -32603, &e));
+                                        }
+                                    }
+                                    continue;
+                                }
+
+                                // Cas 3 : proxy MCP subprocess (format "proxy_name:tool_action")
+                                if let Some(colon) = tool.find(':') {
+                                    let proxy_name_str = &tool[..colon];
+                                    let tool_action    = &tool[colon+1..];
+                                    if let Some(idx) = proxies.iter().position(|p| p.name == proxy_name_str) {
+                                        let result = tokio::task::block_in_place(|| {
+                                            proxies[idx].call_tool(tool_action, &params)
+                                        });
+                                        match result {
+                                            Ok(text) => {
+                                                let text = sanitize_proxy_response(&text);
+                                                audit_log(&tool, tool_action, 1, false, Some(&text));
+                                                send(&Response::ok(id, json!({"content":[{"type":"text","text":text}]})));
+                                            }
+                                            Err(e) => {
+                                                audit_log(&tool, tool_action, 0, true, None);
+                                                send(&Response::err(id, -32603, &e));
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                }
+
+                                send(&Response::err(id, -32603, &format!("Impossible d'exécuter l'action approuvée : tool inconnu '{}'", tool)));
+                            }
+                            _ => {
+                                send(&Response::ok(id, json!({"content":[{"type":"text","text":
+                                    format!("Statut inconnu : {status}")
+                                }]})));
+                            }
+                        }
+                    }
+
                     // ── Connecteurs natifs (Linear / Jira / …) ───────────────────────────
                     // Dispatché vers crate::connectors — sécurité appliquée ici.
 
-                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") => {
+                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") || tool_name.starts_with("hubspot_") || tool_name.starts_with("posthog_") || tool_name.starts_with("resend_") || tool_name.starts_with("discord_") || tool_name.starts_with("twilio_") || tool_name.starts_with("figma_") => {
+                        // Vérification validation manuelle (permissions.toml)
+                        let connector_base = tool_name.split('_').next().unwrap_or(tool_name);
+                        let perms = McpPermissions::load();
+                        if perms.requires_auth(connector_base) {
+                            let preview = format!("{} — {}", tool_name, serde_json::to_string(&args).unwrap_or_default());
+                            let mut action = osmozzz_core::ActionRequest::new(tool_name, args.clone(), preview.clone());
+                            action.mcp_proxy = Some(true);
+                            let action_id = action.id.clone();
+                            match submit_action(action).await {
+                                Ok(()) => {
+                                    send(&Response::ok(id, json!({
+                                        "content": [{"type": "text", "text": format!(
+                                            "⏳ Validation manuelle requise.\n\
+                                            Action ID : {action_id}\n\
+                                            Aperçu    : {preview}\n\n\
+                                            INSTRUCTION : appelle IMMÉDIATEMENT `osmozzz_resume_action` \
+                                            avec action_id=\"{action_id}\". \
+                                            L'outil attendra automatiquement l'approbation de l'utilisateur \
+                                            dans le dashboard (jusqu'à 120s) et te retournera le résultat."
+                                        )}]
+                                    })));
+                                }
+                                Err(_) => send(&Response::err(id, -32603, "Impossible de soumettre l'action au daemon")),
+                            }
+                            continue;
+                        }
+
                         let result = connectors::handle(tool_name, &args).await
                             .unwrap_or_else(|| Err(format!("Connecteur inconnu: {tool_name}")));
                         match result {
@@ -2275,30 +2502,30 @@ pub async fn run(cfg: Config) -> Result<()> {
                             let mut mcp_action = osmozzz_core::ActionRequest::new(
                                 format!("{}:{}", proxy_name, tool_action),
                                 args.clone(),
-                                preview,
+                                preview.clone(),
                             );
                             mcp_action.mcp_proxy = Some(true);
                             let action_id = mcp_action.id.clone();
 
-                            let submitted = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(submit_action(mcp_action))
-                            });
-
-                            if submitted.is_err() {
-                                send(&Response::err(id, -32603, "Impossible de soumettre l'action au daemon"));
-                                continue;
+                            match submit_action(mcp_action).await {
+                                Ok(()) => {
+                                    eprintln!("[OSMOzzz MCP] Validation requise pour {} — action ID: {}", tool_action, action_id);
+                                    // Retourne immédiatement — ne bloque plus.
+                                    // Claude doit appeler osmozzz_resume_action(action_id) après approbation.
+                                    send(&Response::ok(id, json!({
+                                        "content": [{"type": "text", "text": format!(
+                                            "⏳ Validation manuelle requise.\n\
+                                            Action ID : {action_id}\n\
+                                            Aperçu    : {preview}\n\n\
+                                            INSTRUCTIONS (dans cet ordre) :\n\
+                                            1. Informe l'utilisateur : \"⏳ J'attends ta validation dans le dashboard OSMOzzz (http://localhost:7878) — va dans l'onglet Actions et approuve l'action.\"\n\
+                                            2. Appelle IMMÉDIATEMENT `osmozzz_resume_action` avec action_id=\"{action_id}\" — l'outil se mettra en attente automatiquement jusqu'à ton approbation (120s max)."
+                                        )}]
+                                    })));
+                                }
+                                Err(_) => send(&Response::err(id, -32603, "Impossible de soumettre l'action au daemon")),
                             }
-
-                            eprintln!("[OSMOzzz MCP] Autorisation requise pour {} — action ID: {}", tool_action, action_id);
-
-                            let approved = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(wait_for_approval(&action_id))
-                            });
-
-                            if !approved {
-                                send(&Response::err(id, -32603, "Action refusée ou expirée dans le dashboard OSMOzzz"));
-                                continue;
-                            }
+                            continue; // skip l'exécution directe ci-dessous
                         }
 
                         let result = tokio::task::block_in_place(|| {

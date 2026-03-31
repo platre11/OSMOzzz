@@ -304,6 +304,7 @@ type ConnectorId =
   | 'gmail' | 'notion' | 'github' | 'linear' | 'jira'
   | 'supabase' | 'cloudflare' | 'sentry' | 'gitlab'
   | 'vercel' | 'railway' | 'render' | 'google' | 'stripe'
+  | 'hubspot' | 'posthog' | 'resend' | 'discord' | 'twilio' | 'figma'
 
 interface ConnectorDef {
   id: ConnectorId
@@ -326,6 +327,12 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'render',  name: 'Render',           desc: 'Services & déploiements' },
   { id: 'google',  name: 'Google Calendar',  desc: 'Agenda CalDAV' },
   { id: 'stripe',  name: 'Stripe',           desc: 'Paiements & abonnements' },
+  { id: 'hubspot', name: 'HubSpot',          desc: 'CRM & deals' },
+  { id: 'posthog', name: 'PostHog',          desc: 'Analytics & feature flags' },
+  { id: 'resend',  name: 'Resend',           desc: 'Envoi d\'emails' },
+  { id: 'discord', name: 'Discord',          desc: 'Serveurs & messages' },
+  { id: 'twilio',  name: 'Twilio',           desc: 'SMS & appels' },
+  { id: 'figma',   name: 'Figma',            desc: 'Design & composants' },
 ]
 
 // ─── Modal forms ──────────────────────────────────────────────────────────────
@@ -956,6 +963,258 @@ function StripeForm({ status, onClose, onSaved }: ModalFormProps) {
   )
 }
 
+function HubspotForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveHubspot(token),
+    onSuccess: () => { setOk(true); setToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>HubSpot</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Private App Token</FieldLabel>
+            <ExternalLink href="https://app.hubspot.com/private-apps" target="_blank" rel="noreferrer">Créer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> HubSpot configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function PosthogForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [apiKey, setApiKey] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [host, setHost] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.savePosthog(apiKey, projectId, host || undefined),
+    onSuccess: () => { setOk(true); setApiKey(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>PostHog</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Personal API Key</FieldLabel>
+            <ExternalLink href="https://app.posthog.com/settings/user-api-keys" target="_blank" rel="noreferrer">Créer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="phx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Project ID</FieldLabel>
+          <Input type="text" value={projectId} onChange={e => setProjectId(e.target.value)} placeholder="12345" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Host (optionnel)</FieldLabel>
+            <FieldHint>défaut: https://us.posthog.com</FieldHint>
+          </FieldRow>
+          <Input type="text" value={host} onChange={e => setHost(e.target.value)} placeholder="https://eu.posthog.com" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> PostHog configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!apiKey || !projectId || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function ResendForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [key, setKey] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveResend(key),
+    onSuccess: () => { setOk(true); setKey(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Resend</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>API Key</FieldLabel>
+            <ExternalLink href="https://resend.com/api-keys" target="_blank" rel="noreferrer">Créer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Resend configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!key || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function DiscordForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [guildId, setGuildId] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveDiscord(token, guildId || undefined),
+    onSuccess: () => { setOk(true); setToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Discord</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Bot Token</FieldLabel>
+            <ExternalLink href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Créer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="MTxxxxxxxxxx.Gyyyyy.zzzzz" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Server ID (optionnel)</FieldLabel>
+            <FieldHint>clic droit sur le serveur → Copier l'ID</FieldHint>
+          </FieldRow>
+          <Input type="text" value={guildId} onChange={e => setGuildId(e.target.value)} placeholder="123456789012345678" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Discord configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function TwilioForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [sid, setSid] = useState('')
+  const [authToken, setAuthToken] = useState('')
+  const [from, setFrom] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveTwilio(sid, authToken, from || undefined),
+    onSuccess: () => { setOk(true); setAuthToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Twilio</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Account SID</FieldLabel>
+            <ExternalLink href="https://console.twilio.com" target="_blank" rel="noreferrer">Console ↗</ExternalLink>
+          </FieldRow>
+          <Input type="text" value={sid} onChange={e => setSid(e.target.value)} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Auth Token</FieldLabel>
+          <Input type="password" value={authToken} onChange={e => setAuthToken(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Numéro expéditeur (optionnel)</FieldLabel>
+            <FieldHint>ex: +33612345678</FieldHint>
+          </FieldRow>
+          <Input type="text" value={from} onChange={e => setFrom(e.target.value)} placeholder="+1234567890" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Twilio configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!sid || !authToken || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function FigmaForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveFigma(token, teamId || undefined),
+    onSuccess: () => { setOk(true); setToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Figma</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Personal Access Token</FieldLabel>
+            <ExternalLink href="https://www.figma.com/settings" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="figd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Team ID (optionnel)</FieldLabel>
+            <FieldHint>URL figma.com/files/team/{'{'}team_id{'}'}</FieldHint>
+          </FieldRow>
+          <Input type="text" value={teamId} onChange={e => setTeamId(e.target.value)} placeholder="123456789" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Figma configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
 const FORM_MAP: Record<ConnectorId, React.ComponentType<ModalFormProps>> = {
   gmail:      GmailForm,
   notion:     NotionForm,
@@ -971,6 +1230,12 @@ const FORM_MAP: Record<ConnectorId, React.ComponentType<ModalFormProps>> = {
   render:  RenderForm,
   google:  GoogleCalendarForm,
   stripe:  StripeForm,
+  hubspot: HubspotForm,
+  posthog: PosthogForm,
+  resend:  ResendForm,
+  discord: DiscordForm,
+  twilio:  TwilioForm,
+  figma:   FigmaForm,
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
