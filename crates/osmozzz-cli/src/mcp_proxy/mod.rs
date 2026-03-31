@@ -6,9 +6,6 @@
 ///                       ──pipes──────► bunx @pkg/mcp-server (subprocess)
 pub mod cloudflare;
 pub mod github;
-pub mod gitlab;
-pub mod jira;
-pub mod linear;
 pub mod notion;
 pub mod sentry;
 pub mod slack;
@@ -333,14 +330,11 @@ impl LazyProxy {
 pub fn start_all_proxies() -> Vec<LazyProxy> {
     let mut proxies = Vec::new();
 
-    if let Some(p) = jira::lazy()        { proxies.push(p); }
     if let Some(p) = github::lazy()      { proxies.push(p); }
-    if let Some(p) = gitlab::lazy()      { proxies.push(p); }
     if let Some(p) = notion::lazy()      { proxies.push(p); }
     if let Some(p) = sentry::lazy()      { proxies.push(p); }
     if let Some(p) = cloudflare::lazy()  { proxies.push(p); }
     if let Some(p) = slack::lazy()       { proxies.push(p); }
-    if let Some(p) = linear::lazy()      { proxies.push(p); }
     if let Some(p) = supabase::lazy()    { proxies.push(p); }
 
     proxies

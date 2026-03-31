@@ -10,12 +10,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use chrono::{NaiveDate, Utc};
 use osmozzz_core::{Embedder, Harvester, OsmozzError};
 use osmozzz_embedder::Vault;
 use osmozzz_harvester::{
     start_watcher, ArcHarvester, ContactsHarvester,
-    GmailConfig, GmailHarvester,
     TerminalHarvester, WatchEvent,
 };
 #[cfg(target_os = "macos")]
@@ -28,7 +26,6 @@ use osmozzz_p2p::{P2pNode, node::{P2pEvent, DEFAULT_P2P_PORT}};
 use crate::config::Config;
 
 const DASHBOARD_PORT: u16 = 7878;
-const GMAIL_SYNC_INTERVAL_SECS: u64 = 15 * 60;  // 15 minutes
 const IMESSAGE_SYNC_INTERVAL_SECS: u64 = 60;    // 1 minute
 const SAFARI_SYNC_INTERVAL_SECS: u64 = 60;      // 1 minute
 const NOTES_SYNC_INTERVAL_SECS: u64 = 60;       // 1 minute
@@ -191,21 +188,6 @@ pub async fn run(cfg: Config) -> Result<()> {
     for p in &watch_paths {
         eprintln!("[OSMOzzz Daemon]   → {}", p.display());
     }
-    // Gmail auto-sync — premier tick retardé d'un intervalle pour éviter la double sync
-    let gmail_vault = Arc::clone(&vault);
-    tokio::spawn(async move {
-        let start = tokio::time::Instant::now()
-            + tokio::time::Duration::from_secs(GMAIL_SYNC_INTERVAL_SECS);
-        let mut interval = tokio::time::interval_at(
-            start,
-            tokio::time::Duration::from_secs(GMAIL_SYNC_INTERVAL_SECS),
-        );
-        loop {
-            interval.tick().await;
-            sync_gmail(&gmail_vault).await;
-        }
-    });
-
     // iMessage auto-sync (macOS uniquement)
     #[cfg(target_os = "macos")]
     {
@@ -317,16 +299,11 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz Daemon] En écoute... (Ctrl+C pour arrêter)");
     eprintln!("[OSMOzzz Daemon] Syncs automatiques :");
-    eprintln!("[OSMOzzz Daemon]   Gmail    : toutes les {} min", GMAIL_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   iMessage : toutes les {} min", IMESSAGE_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Safari   : toutes les {} min", SAFARI_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Notes    : toutes les {} min", NOTES_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Terminal : toutes les {} min", TERMINAL_SYNC_INTERVAL_SECS / 60);
     eprintln!("[OSMOzzz Daemon]   Calendar : toutes les {} min", CALENDAR_SYNC_INTERVAL_SECS / 60);
-
-    // Syncs initiales échelonnées (évite le pic mémoire au démarrage)
-    // Les intervalles tokio gèrent les syncs suivantes automatiquement
-    sync_gmail(&vault).await;
 
     let mut rx = start_watcher(watch_paths);
 
@@ -369,83 +346,6 @@ pub async fn run(cfg: Config) -> Result<()> {
     }
 
     Ok(())
-}
-
-// ─── Checkpoint ──────────────────────────────────────────────────────────────
-
-fn checkpoint_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".osmozzz/gmail_sync_checkpoint")
-}
-
-fn read_checkpoint() -> Option<NaiveDate> {
-    let content = std::fs::read_to_string(checkpoint_path()).ok()?;
-    NaiveDate::parse_from_str(content.trim(), "%Y-%m-%d").ok()
-}
-
-fn write_checkpoint(date: NaiveDate) {
-    let _ = std::fs::write(checkpoint_path(), date.format("%Y-%m-%d").to_string());
-}
-
-// ─── Sync Gmail ──────────────────────────────────────────────────────────────
-
-async fn sync_gmail(vault: &Arc<Vault>) {
-    let config = match GmailConfig::load() {
-        Some(c) => c,
-        None => return, // Gmail non configuré, on ignore silencieusement
-    };
-
-    // Lecture du checkpoint pour l'indexation incrémentale
-    let since = read_checkpoint();
-
-    match since {
-        Some(d) => eprintln!("[OSMOzzz Daemon] Gmail sync incrémentale depuis {}...", d),
-        None    => eprintln!("[OSMOzzz Daemon] Gmail sync initiale (premier démarrage, jusqu'à 5000 emails)..."),
-    }
-
-    let mut harvester = GmailHarvester::new(config);
-    if let Some(since_date) = since {
-        harvester = harvester.with_since(since_date);
-    }
-
-    let docs = match harvester.harvest().await {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("[OSMOzzz Daemon] Gmail sync erreur: {}", e);
-            return;
-        }
-    };
-
-    // Checkpoint = hier : garantit qu'on ne rate jamais les emails arrivés entre deux syncs.
-    // La déduplication par checksum (vault.exists) évite les doublons.
-    let today = Utc::now().date_naive();
-    let checkpoint_date = today.pred_opt().unwrap_or(today);
-
-    if docs.is_empty() {
-        eprintln!("[OSMOzzz Daemon] Gmail sync: aucun nouvel email.");
-        write_checkpoint(checkpoint_date);
-        return;
-    }
-
-    let mut indexed = 0;
-    for doc in &docs {
-        if let Ok(true) = vault.exists(&doc.checksum).await { continue; }
-        match vault.upsert(doc).await {
-            Ok(_) => indexed += 1,
-            Err(e) => eprintln!("[OSMOzzz Daemon] Gmail upsert erreur: {}", e),
-        }
-    }
-
-    if indexed > 0 {
-        eprintln!("[OSMOzzz Daemon] Gmail sync: {} nouveaux emails indexés.", indexed);
-        // Compact après chaque sync pour maintenir les performances
-        if let Err(e) = vault.compact().await {
-            eprintln!("[OSMOzzz Daemon] Compact erreur: {}", e);
-        }
-    }
-
-    write_checkpoint(checkpoint_date);
 }
 
 // ─── Sync générique pour toutes les sources locales ──────────────────────────

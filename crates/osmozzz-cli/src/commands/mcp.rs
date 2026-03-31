@@ -15,10 +15,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::Config;
+use crate::connectors;
 use crate::mcp_proxy;
 use crate::proof;
 use shellexpand;
 use reqwest;
+use imap;
+use native_tls;
 
 // ─── Types JSON-RPC ──────────────────────────────────────────────────────────
 
@@ -60,7 +63,7 @@ impl Response {
 // ─── Définition des outils MCP ───────────────────────────────────────────────
 
 fn tools_list() -> Value {
-    json!([
+    let mut list = json!([
         {
             "name": "search_memory",
             "description": "OUTIL PRINCIPAL — recherche sémantique (par concept/sens) dans TOUTE la mémoire indexée : Chrome, Safari, Gmail, fichiers, iMessages, Notes, Calendar, Terminal. QUAND L'UTILISER : questions vagues ou conceptuelles ('mes dépenses du mois', 'projet avec Thomas', 'site que j'ai visité'). POUR UN SITE WEB VISITÉ : utilise search_memory avec un mot du nom du site — l'historique Chrome/Safari est ici. LIMITES : pour les noms propres exacts, enchaîne avec le tool dédié (search_emails, search_messages, etc.).",
@@ -83,58 +86,81 @@ fn tools_list() -> Value {
             }
         },
         {
-            "name": "search_emails",
-            "description": "EMAILS UNIQUEMENT — recherche par mot-clé exact dans tous les emails indexés (expéditeur, objet, corps). QUAND L'UTILISER : l'utilisateur parle d'un email, d'un expéditeur, d'une facture, d'un abonnement. Scanne TOUS les emails sans limite de date. Retourne liste compacte (objet + expéditeur + ID). TOUJOURS enchaîner avec read_email(id) pour lire le contenu complet. NE PAS utiliser search_memory pour chercher des emails — ce tool est plus précis.",
+            "name": "gmail_search",
+            "description": "GMAIL — recherche en temps réel via IMAP par mot-clé dans objet et corps. Retourne liste compacte (objet + expéditeur + UID). Enchaîner avec gmail_read(uid) pour le contenu complet.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "keyword": {
-                        "type": "string",
-                        "description": "Mot-clé exact à chercher (ex: 'revolut', 'facture', 'abonnement', 'railway')"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Nombre d'emails à retourner (défaut: 20, max: 100)",
-                        "default": 20,
-                        "minimum": 1,
-                        "maximum": 100
-                    }
+                    "keyword": { "type": "string", "description": "Mot-clé à chercher (ex: 'facture', 'revolut', 'railway')" },
+                    "limit": { "type": "integer", "description": "Nombre max d'emails (défaut: 20, max: 50)", "default": 20, "minimum": 1, "maximum": 50 }
                 },
                 "required": ["keyword"]
             }
         },
         {
-            "name": "get_emails_by_date",
-            "description": "EMAILS PAR DATE — QUAND L'UTILISER : l'utilisateur mentionne une période ('emails d'aujourd'hui', 'emails de janvier', 'emails de cette semaine', 'mes derniers emails'). Sans paramètre → 50 emails les plus récents. Avec query → filtre par période en langage naturel. Retourne liste compacte. TOUJOURS enchaîner avec read_email(id) pour le contenu complet.",
+            "name": "gmail_recent",
+            "description": "GMAIL — N emails les plus récents de la boîte de réception. QUAND L'UTILISER : 'mes derniers emails', 'qu'est-ce que j'ai reçu'. Retourne liste compacte. Enchaîner avec gmail_read(uid) pour le contenu.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Période optionnelle : 'aujourd'hui', 'hier', 'cette semaine', 'janvier', 'le 15 février', 'ce mois'. Vide = emails les plus récents."
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Nombre d'emails (défaut: 50, max: 200)",
-                        "default": 50,
-                        "minimum": 1,
-                        "maximum": 200
-                    }
+                    "limit": { "type": "integer", "description": "Nombre d'emails (défaut: 10, max: 50)", "default": 10, "minimum": 1, "maximum": 50 }
                 }
             }
         },
         {
-            "name": "read_email",
-            "description": "LIT UN EMAIL COMPLET — QUAND L'UTILISER : après search_emails ou get_emails_by_date pour lire le contenu intégral d'un email. Accepte l'ID court (ex: '20260214005158.abc@railway.app') ou l'URL complète (gmail://message/...).",
+            "name": "gmail_read",
+            "description": "GMAIL — lit le contenu complet d'un email par son UID. QUAND L'UTILISER : après gmail_search, gmail_recent ou gmail_by_sender pour lire le contenu intégral.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "ID de l'email obtenu depuis search_emails ou get_emails_by_date"
-                    }
+                    "uid": { "type": "string", "description": "UID de l'email obtenu depuis gmail_search ou gmail_recent" }
                 },
-                "required": ["id"]
+                "required": ["uid"]
+            }
+        },
+        {
+            "name": "gmail_by_sender",
+            "description": "GMAIL — cherche les emails d'un expéditeur spécifique (nom, prénom, domaine ou adresse). Retourne liste compacte.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sender": { "type": "string", "description": "Nom, prénom ou adresse de l'expéditeur (ex: 'revolut', 'thomas@example.com')" },
+                    "limit": { "type": "integer", "description": "Nombre max (défaut: 20, max: 50)", "default": 20, "minimum": 1, "maximum": 50 }
+                },
+                "required": ["sender"]
+            }
+        },
+        {
+            "name": "gmail_send",
+            "description": "GMAIL — envoie un email via Gmail SMTP. Requiert gmail.toml configuré (~/.osmozzz/gmail.toml).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to": { "type": "string", "description": "Adresse email du destinataire" },
+                    "subject": { "type": "string", "description": "Objet de l'email" },
+                    "body": { "type": "string", "description": "Corps de l'email en texte brut" }
+                },
+                "required": ["to", "subject", "body"]
+            }
+        },
+        {
+            "name": "gmail_reply",
+            "description": "GMAIL — répond à un email existant. Utilise l'UID obtenu depuis gmail_search ou gmail_recent.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "uid": { "type": "string", "description": "UID de l'email auquel répondre" },
+                    "body": { "type": "string", "description": "Corps de la réponse" }
+                },
+                "required": ["uid", "body"]
+            }
+        },
+        {
+            "name": "gmail_stats",
+            "description": "GMAIL — statistiques de la boîte de réception : total emails, non lus. Utile pour un aperçu rapide.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
             }
         },
         {
@@ -375,28 +401,6 @@ fn tools_list() -> Value {
             }
         },
         {
-            "name": "act_send_email",
-            "description": "ACTION — Envoie un email via Gmail. L'action est soumise au dashboard OSMOzzz pour validation humaine AVANT envoi. NE PAS utiliser sans accord explicite de l'utilisateur. L'email ne sera PAS envoyé immédiatement — l'utilisateur doit valider dans le dashboard. Retourne un ID de suivi.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "to": {
-                        "type": "string",
-                        "description": "Adresse email du destinataire (ex: contact@example.com)"
-                    },
-                    "subject": {
-                        "type": "string",
-                        "description": "Objet de l'email"
-                    },
-                    "body": {
-                        "type": "string",
-                        "description": "Corps de l'email en texte brut"
-                    }
-                },
-                "required": ["to", "subject", "body"]
-            }
-        },
-        {
             "name": "act_create_todoist_task",
             "description": "ACTION — Crée une tâche dans Todoist. Soumis au dashboard OSMOzzz pour validation humaine AVANT création. NE PAS utiliser sans accord explicite de l'utilisateur.",
             "inputSchema": {
@@ -530,8 +534,10 @@ fn tools_list() -> Value {
                 },
                 "required": ["command"]
             }
-        }
-    ])
+        },
+    ]);
+    list.as_array_mut().unwrap().extend(connectors::all_tools());
+    list
 }
 
 // ─── Soumission d'une action au daemon via HTTP ───────────────────────────────
@@ -646,10 +652,6 @@ fn reverse_aliases(text: &str) -> String {
     result
 }
 
-/// Helper : extrait un argument de Claude et décode ses alias éventuels
-fn decode_arg(args: &serde_json::Value, key: &str) -> Option<String> {
-    args[key].as_str().map(|s| reverse_aliases(s))
-}
 
 // ─── Scanner anti-injection ──────────────────────────────────────────────────
 
@@ -898,6 +900,7 @@ fn infer_col_type(col_name: &str) -> &'static str {
     else                                                       { "data" }
 }
 
+
 // ─── Audit log ───────────────────────────────────────────────────────────────
 
 /// Filtre de sécurité appliqué SYSTÉMATIQUEMENT sur toutes les réponses proxy MCP.
@@ -939,6 +942,248 @@ fn mask_long_tokens(text: &str) -> String {
         }
     }
     result
+}
+
+// ─── Gmail IMAP helpers (sync, appelés via spawn_blocking) ───────────────────
+
+struct GmailCreds { username: String, password: String }
+
+fn gmail_load_creds() -> Result<GmailCreds, String> {
+    let path = dirs_next::home_dir()
+        .ok_or("Impossible de trouver le dossier home")?
+        .join(".osmozzz/gmail.toml");
+    let content = std::fs::read_to_string(&path)
+        .map_err(|_| "gmail.toml introuvable — configure Gmail dans le dashboard OSMOzzz".to_string())?;
+    let t: toml::Value = content.parse()
+        .map_err(|e: toml::de::Error| format!("Erreur parsing gmail.toml : {e}"))?;
+    let username = t.get("username").and_then(|v| v.as_str())
+        .ok_or("Champ 'username' manquant dans gmail.toml")?.to_string();
+    let password = t.get("app_password").and_then(|v| v.as_str())
+        .ok_or("Champ 'app_password' manquant dans gmail.toml")?.to_string();
+    Ok(GmailCreds { username, password })
+}
+
+fn gmail_imap_connect(creds: &GmailCreds) -> Result<imap::Session<native_tls::TlsStream<std::net::TcpStream>>, String> {
+    let tls = native_tls::TlsConnector::new()
+        .map_err(|e| format!("TLS init échoué : {e}"))?;
+    let client = imap::connect(("imap.gmail.com", 993), "imap.gmail.com", &tls)
+        .map_err(|e| format!("Connexion IMAP échouée : {e}"))?;
+    let session = client.login(&creds.username, &creds.password)
+        .map_err(|(e, _)| format!("Authentification IMAP échouée : {e}"))?;
+    Ok(session)
+}
+
+fn fmt_envelope(uid: u32, msg: &imap::types::Fetch) -> String {
+    let env = match msg.envelope() { Some(e) => e, None => return format!("UID:{uid}\n") };
+    let subject = env.subject.as_deref()
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .unwrap_or("(sans objet)");
+    let from = env.from.as_deref()
+        .and_then(|addrs| addrs.first())
+        .map(|a| {
+            let name = a.name.as_deref().and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+            let mbox = a.mailbox.as_deref().and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+            let host = a.host.as_deref().and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+            if name.is_empty() { format!("{mbox}@{host}") } else { format!("{name} <{mbox}@{host}>") }
+        })
+        .unwrap_or_else(|| "(inconnu)".to_string());
+    let date = env.date.as_deref()
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .unwrap_or("?");
+    format!("UID:{uid}  De:{from}\nObjet:{subject}\nDate:{date}\n")
+}
+
+fn gmail_imap_search(keyword: &str, limit: usize) -> Result<String, String> {
+    let creds = gmail_load_creds()?;
+    let mut session = gmail_imap_connect(&creds)?;
+    session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+    let query = format!("OR SUBJECT \"{}\" BODY \"{}\"", keyword, keyword);
+    let uids = session.uid_search(&query).map_err(|e| format!("Erreur SEARCH : {e}"))?;
+    if uids.is_empty() {
+        let _ = session.logout();
+        return Ok(format!("Aucun email trouvé contenant \"{}\".", keyword));
+    }
+    let mut uids_vec: Vec<u32> = uids.into_iter().collect();
+    uids_vec.sort_unstable_by(|a, b| b.cmp(a));
+    uids_vec.truncate(limit);
+    let uid_set = uids_vec.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    let messages = session.uid_fetch(&uid_set, "ENVELOPE")
+        .map_err(|e| format!("Erreur FETCH : {e}"))?;
+    let mut out = format!("📬 {} email(s) trouvé(s) pour \"{}\" :\n\n", messages.len(), keyword);
+    for msg in messages.iter() {
+        out.push_str(&fmt_envelope(msg.uid.unwrap_or(0), msg));
+        out.push('\n');
+    }
+    out.push_str("─────\nUtilise gmail_read(uid) pour lire le contenu complet.");
+    let _ = session.logout();
+    Ok(out)
+}
+
+fn gmail_imap_recent(limit: usize) -> Result<String, String> {
+    let creds = gmail_load_creds()?;
+    let mut session = gmail_imap_connect(&creds)?;
+    let mailbox = session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+    let total = mailbox.exists;
+    if total == 0 {
+        let _ = session.logout();
+        return Ok("Boîte de réception vide.".to_string());
+    }
+    let start = total.saturating_sub(limit as u32 - 1).max(1);
+    let range = format!("{}:*", start);
+    let messages = session.fetch(&range, "UID ENVELOPE")
+        .map_err(|e| format!("Erreur FETCH : {e}"))?;
+    let mut out = format!("📬 {} dernier(s) email(s) :\n\n", messages.len());
+    let mut msgs: Vec<_> = messages.iter().collect();
+    msgs.sort_by(|a, b| b.message.cmp(&a.message));
+    for msg in msgs {
+        out.push_str(&fmt_envelope(msg.uid.unwrap_or(msg.message), msg));
+        out.push('\n');
+    }
+    out.push_str("─────\nUtilise gmail_read(uid) pour lire le contenu complet.");
+    let _ = session.logout();
+    Ok(out)
+}
+
+fn gmail_imap_read(uid: &str) -> Result<String, String> {
+    let creds = gmail_load_creds()?;
+    let mut session = gmail_imap_connect(&creds)?;
+    session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+    let messages = session.uid_fetch(uid, "ENVELOPE BODY[]")
+        .map_err(|e| format!("Erreur FETCH : {e}"))?;
+    let msg = messages.iter().next().ok_or("Email introuvable.")?;
+    let mut out = String::new();
+    out.push_str(&fmt_envelope(msg.uid.unwrap_or(0), msg));
+    out.push_str("─────────────────────────────────────\n");
+    if let Some(body) = msg.body() {
+        let body_str = std::str::from_utf8(body).unwrap_or("(corps non lisible)");
+        // Extract plain text from MIME if possible
+        let text = extract_plain_text(body_str);
+        out.push_str(&text);
+    }
+    let _ = session.logout();
+    Ok(out)
+}
+
+fn gmail_imap_by_sender(sender: &str, limit: usize) -> Result<String, String> {
+    let creds = gmail_load_creds()?;
+    let mut session = gmail_imap_connect(&creds)?;
+    session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+    let query = format!("FROM \"{}\"", sender);
+    let uids = session.uid_search(&query).map_err(|e| format!("Erreur SEARCH : {e}"))?;
+    if uids.is_empty() {
+        let _ = session.logout();
+        return Ok(format!("Aucun email trouvé de \"{}\".", sender));
+    }
+    let mut uids_vec: Vec<u32> = uids.into_iter().collect();
+    uids_vec.sort_unstable_by(|a, b| b.cmp(a));
+    uids_vec.truncate(limit);
+    let uid_set = uids_vec.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    let messages = session.uid_fetch(&uid_set, "ENVELOPE")
+        .map_err(|e| format!("Erreur FETCH : {e}"))?;
+    let mut out = format!("📬 {} email(s) de \"{}\" :\n\n", messages.len(), sender);
+    for msg in messages.iter() {
+        out.push_str(&fmt_envelope(msg.uid.unwrap_or(0), msg));
+        out.push('\n');
+    }
+    out.push_str("─────\nUtilise gmail_read(uid) pour lire le contenu complet.");
+    let _ = session.logout();
+    Ok(out)
+}
+
+fn gmail_imap_stats() -> Result<String, String> {
+    let creds = gmail_load_creds()?;
+    let mut session = gmail_imap_connect(&creds)?;
+    let mailbox = session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+    let total = mailbox.exists;
+    let unseen_ids = session.search("UNSEEN").map_err(|e| format!("Erreur SEARCH UNSEEN : {e}"))?;
+    let unseen = unseen_ids.len();
+    let _ = session.logout();
+    Ok(format!("📊 Gmail — Boîte de réception\nTotal : {} emails\nNon lus : {}\nCompte : {}", total, unseen, creds.username))
+}
+
+fn gmail_imap_fetch_headers(uid: &str) -> Result<(String, String, String), String> {
+    let creds = gmail_load_creds()?;
+    let mut session = gmail_imap_connect(&creds)?;
+    session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+    let messages = session.uid_fetch(uid, "ENVELOPE")
+        .map_err(|e| format!("Erreur FETCH : {e}"))?;
+    let msg = messages.iter().next().ok_or("Email introuvable.")?;
+    let env = msg.envelope().ok_or("Envelope manquante.")?;
+    let from = env.from.as_deref()
+        .and_then(|addrs| addrs.first())
+        .map(|a| {
+            let mbox = a.mailbox.as_deref().and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+            let host = a.host.as_deref().and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+            format!("{mbox}@{host}")
+        })
+        .unwrap_or_default();
+    let subject = env.subject.as_deref()
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .unwrap_or("(sans objet)").to_string();
+    let message_id = env.message_id.as_deref()
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .unwrap_or("").to_string();
+    let _ = session.logout();
+    Ok((from, subject, message_id))
+}
+
+/// Extrait le texte plain d'un message MIME brut (heuristique simple)
+fn extract_plain_text(raw: &str) -> String {
+    // Cherche une section text/plain dans un message MIME multipart
+    let lower = raw.to_lowercase();
+    if let Some(pos) = lower.find("content-type: text/plain") {
+        // Avance jusqu'à la ligne vide (fin des headers de cette partie)
+        if let Some(body_start) = raw[pos..].find("\r\n\r\n").or_else(|| raw[pos..].find("\n\n")) {
+            let body = &raw[pos + body_start..];
+            // Coupe à la prochaine boundary si multipart
+            let end = body.find("\n--").unwrap_or(body.len().min(5000));
+            return body[..end].trim().to_string();
+        }
+    }
+    // Fallback : retourne les 3000 premiers chars
+    raw.chars().take(3000).collect()
+}
+
+// ─── Gmail SMTP (lettre) ──────────────────────────────────────────────────────
+
+async fn gmail_smtp_send(to: &str, subject: &str, body: &str) -> Result<(), String> {
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, transport::smtp::authentication::Credentials};
+
+    let creds = gmail_load_creds().map_err(|e| e)?;
+    let email = Message::builder()
+        .from(creds.username.parse().map_err(|e: lettre::address::AddressError| e.to_string())?)
+        .to(to.parse().map_err(|e: lettre::address::AddressError| e.to_string())?)
+        .subject(subject)
+        .body(body.to_string())
+        .map_err(|e| e.to_string())?;
+    let smtp_creds = Credentials::new(creds.username.clone(), creds.password.clone());
+    let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay("smtp.gmail.com")
+        .map_err(|e| e.to_string())?
+        .credentials(smtp_creds)
+        .build();
+    mailer.send(email).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn gmail_smtp_reply(to: &str, subject: &str, body: &str, in_reply_to: &str) -> Result<(), String> {
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, transport::smtp::authentication::Credentials};
+
+    let creds = gmail_load_creds().map_err(|e| e)?;
+    let mut builder = Message::builder()
+        .from(creds.username.parse().map_err(|e: lettre::address::AddressError| e.to_string())?)
+        .to(to.parse().map_err(|e: lettre::address::AddressError| e.to_string())?)
+        .subject(subject);
+    if !in_reply_to.is_empty() {
+        builder = builder.in_reply_to(in_reply_to.to_string());
+    }
+    let email = builder.body(body.to_string()).map_err(|e| e.to_string())?;
+    let smtp_creds = Credentials::new(creds.username.clone(), creds.password.clone());
+    let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay("smtp.gmail.com")
+        .map_err(|e| e.to_string())?
+        .credentials(smtp_creds)
+        .build();
+    mailer.send(email).await.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn audit_log(tool: &str, query: &str, results: usize, blocked: bool, data: Option<&str>) {
@@ -1016,7 +1261,6 @@ struct McpPermissions {
     github: bool,
     linear: bool,
     notion: bool,
-    email:  bool,
 }
 
 impl McpPermissions {
@@ -1038,12 +1282,11 @@ impl McpPermissions {
             github: table.get("github").and_then(|v| v.as_bool()).unwrap_or(false),
             linear: table.get("linear").and_then(|v| v.as_bool()).unwrap_or(false),
             notion: table.get("notion").and_then(|v| v.as_bool()).unwrap_or(false),
-            email:  table.get("email").and_then(|v| v.as_bool()).unwrap_or(false),
         }
     }
 
     fn default() -> Self {
-        Self { jira: false, github: false, linear: false, notion: false, email: false }
+        Self { jira: false, github: false, linear: false, notion: false }
     }
 
     fn requires_auth(&self, proxy_name: &str) -> bool {
@@ -1361,187 +1604,150 @@ pub async fn run(cfg: Config) -> Result<()> {
                         })));
                     }
 
-                    "search_emails" => {
+                    "gmail_search" => {
                         let keyword = match args["keyword"].as_str() {
                             Some(k) => k.to_string(),
-                            None => {
-                                send(&Response::err(id, -32602, "Missing required param: keyword"));
-                                continue;
-                            }
+                            None => { send(&Response::err(id, -32602, "Missing param: keyword")); continue; }
                         };
                         let limit = args["limit"].as_u64().unwrap_or(20) as usize;
-                        let limit = limit.clamp(1, 100);
-
-                        eprintln!("[OSMOzzz MCP] search_emails: \"{}\" (limit={})", keyword, limit);
-                        if !SourceAccess::load().is_allowed("email") {
-                            audit_log("search_emails", &keyword, 0, true, None);
-                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
-                            continue;
-                        }
-                        if McpPermissions::load().email {
-                            let preview = format!("🔍 Recherche emails : \"{}\" ({} résultats max)", keyword, limit);
-                            let action = osmozzz_core::ActionRequest::new(
-                                "search_emails".to_string(),
-                                serde_json::from_value(json!({"keyword": &keyword, "limit": limit})).unwrap_or_default(),
-                                preview,
-                            );
-                            let action_id = action.id.clone();
-                            if submit_action(action).await.is_err() {
-                                send(&Response::err(id, -32603, "Impossible de soumettre la demande"));
-                                continue;
+                        let limit = limit.clamp(1, 50);
+                        eprintln!("[OSMOzzz MCP] gmail_search: \"{}\" (limit={})", keyword, limit);
+                        let result = tokio::task::spawn_blocking(move || gmail_imap_search(&keyword, limit)).await;
+                        match result {
+                            Ok(Ok(text)) => {
+                                let secured = sanitize_proxy_response(&text);
+                                audit_log("gmail_search", args["keyword"].as_str().unwrap_or(""), 1, false, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
                             }
-                            if !wait_for_approval(&action_id).await {
-                                audit_log("search_emails", &keyword, 0, true, None);
-                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Accès emails refusé dans le dashboard OSMOzzz."}] })));
-                                continue;
-                            }
-                        }
-                        match vault.search_emails_by_keyword(&keyword, limit).await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucun email trouvé contenant \"{}\".\n\nConseil : essaie un mot-clé plus court ou plus général.", keyword)
-                                } else {
-                                    format_email_list_kw(&results, Some(&keyword))
-                                };
-                                audit_log("search_emails", &keyword, results.len(), false, Some(&msg));
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": msg}]
-                                })));
-                            }
+                            Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
                             Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                         }
                     }
 
-                    "get_emails_by_date" => {
-                        let query = args["query"].as_str().unwrap_or("").to_string();
-                        let limit = args["limit"].as_u64().unwrap_or(50) as usize;
-                        let limit = limit.clamp(1, 200);
+                    "gmail_recent" => {
+                        let limit = args["limit"].as_u64().unwrap_or(10) as usize;
+                        let limit = limit.clamp(1, 50);
+                        eprintln!("[OSMOzzz MCP] gmail_recent: limit={}", limit);
+                        let result = tokio::task::spawn_blocking(move || gmail_imap_recent(limit)).await;
+                        match result {
+                            Ok(Ok(text)) => {
+                                let secured = sanitize_proxy_response(&text);
+                                audit_log("gmail_recent", "recent", 1, false, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
+                            }
+                            Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
 
-                        eprintln!("[OSMOzzz MCP] get_emails_by_date: \"{}\" (limit={})", query, limit);
-                        if !SourceAccess::load().is_allowed("email") {
-                            audit_log("get_emails_by_date", &query, 0, true, None);
-                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
-                            continue;
+                    "gmail_read" => {
+                        let uid = match args["uid"].as_str() {
+                            Some(u) => u.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: uid")); continue; }
+                        };
+                        eprintln!("[OSMOzzz MCP] gmail_read: uid={}", uid);
+                        let uid_clone = uid.clone();
+                        let result = tokio::task::spawn_blocking(move || gmail_imap_read(&uid_clone)).await;
+                        match result {
+                            Ok(Ok(text)) => {
+                                let secured = sanitize_proxy_response(&text);
+                                audit_log("gmail_read", &uid, 1, false, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
+                            }
+                            Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                         }
-                        if McpPermissions::load().email {
-                            let label = if query.is_empty() { "emails récents".to_string() } else { format!("emails du {}", query) };
-                            let preview = format!("🔍 Accès {} ({} max)", label, limit);
-                            let action = osmozzz_core::ActionRequest::new(
-                                "get_emails_by_date".to_string(),
-                                serde_json::from_value(json!({"query": &query, "limit": limit})).unwrap_or_default(),
-                                preview,
-                            );
-                            let action_id = action.id.clone();
-                            if submit_action(action).await.is_err() {
-                                send(&Response::err(id, -32603, "Impossible de soumettre la demande"));
-                                continue;
+                    }
+
+                    "gmail_by_sender" => {
+                        let sender = match args["sender"].as_str() {
+                            Some(s) => s.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: sender")); continue; }
+                        };
+                        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                        let limit = limit.clamp(1, 50);
+                        eprintln!("[OSMOzzz MCP] gmail_by_sender: \"{}\" (limit={})", sender, limit);
+                        let result = tokio::task::spawn_blocking(move || gmail_imap_by_sender(&sender, limit)).await;
+                        match result {
+                            Ok(Ok(text)) => {
+                                let secured = sanitize_proxy_response(&text);
+                                audit_log("gmail_by_sender", args["sender"].as_str().unwrap_or(""), 1, false, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
                             }
-                            if !wait_for_approval(&action_id).await {
-                                audit_log("get_emails_by_date", &query, 0, true, None);
-                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Accès emails refusé dans le dashboard OSMOzzz."}] })));
-                                continue;
-                            }
+                            Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                         }
-                        if query.is_empty() {
-                            // Pas de query → emails récents
-                            match vault.recent_emails_full(limit).await {
-                                Ok(results) => {
-                                    send(&Response::ok(id, json!({
-                                        "content": [{"type": "text", "text": format_email_list(&results)}]
-                                    })));
-                                }
-                                Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                    }
+
+                    "gmail_send" => {
+                        let to = match args["to"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: to")); continue; }
+                        };
+                        let subject = match args["subject"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: subject")); continue; }
+                        };
+                        let body = match args["body"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: body")); continue; }
+                        };
+                        eprintln!("[OSMOzzz MCP] gmail_send: to={}, subject={}", to, subject);
+                        let result = gmail_smtp_send(&to, &subject, &body).await;
+                        match result {
+                            Ok(_) => {
+                                audit_log("gmail_send", &to, 1, false, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Email envoyé à {}", to)}] })));
                             }
-                        } else {
-                            match parse_date_range(&query) {
-                                Some((from_ts, to_ts)) => {
-                                    match vault.get_emails_by_date(from_ts, to_ts, limit).await {
-                                        Ok(results) if !results.is_empty() => {
-                                            send(&Response::ok(id, json!({
-                                                "content": [{"type": "text", "text": format_email_list(&results)}]
-                                            })));
-                                        }
-                                        Ok(_) => {
-                                            send(&Response::ok(id, json!({
-                                                "content": [{"type": "text", "text": format!("Aucun email trouvé pour : \"{}\".", query)}]
-                                            })));
-                                        }
-                                        Err(e) => send(&Response::err(id, -32603, &e.to_string())),
-                                    }
-                                }
-                                None => {
-                                    // Date non reconnue → fallback récents
-                                    eprintln!("[OSMOzzz MCP] Date non reconnue, fallback récents");
-                                    match vault.recent_emails_full(limit).await {
-                                        Ok(results) => {
-                                            send(&Response::ok(id, json!({
-                                                "content": [{"type": "text", "text": format_email_list(&results)}]
-                                            })));
-                                        }
-                                        Err(e) => send(&Response::err(id, -32603, &e.to_string())),
-                                    }
-                                }
+                            Err(e) => {
+                                audit_log("gmail_send", &to, 0, true, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("❌ Erreur envoi : {}", e)}] })));
                             }
                         }
                     }
 
-                    "read_email" => {
-                        let raw_id = match args["id"].as_str() {
-                            Some(i) => i.to_string(),
-                            None => {
-                                send(&Response::err(id, -32602, "Missing required param: id"));
-                                continue;
-                            }
+                    "gmail_reply" => {
+                        let uid = match args["uid"].as_str() {
+                            Some(u) => u.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: uid")); continue; }
                         };
-                        // Décode '[at]' → '@' (encodé dans format_email_list pour éviter le filtre confidentialité)
-                        let raw_id = raw_id.replace("[at]", "@");
-                        let url = if raw_id.starts_with("gmail://") {
-                            raw_id.clone()
-                        } else {
-                            format!("gmail://message/{}", raw_id)
+                        let body = match args["body"].as_str() {
+                            Some(v) => v.to_string(),
+                            None => { send(&Response::err(id, -32602, "Missing param: body")); continue; }
                         };
-                        eprintln!("[OSMOzzz MCP] read_email: {}", url);
-                        if !SourceAccess::load().is_allowed("email") {
-                            audit_log("read_email", &raw_id, 0, true, None);
-                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'email' désactivée dans Actions MCP."}] })));
-                            continue;
-                        }
-                        if McpPermissions::load().email {
-                            let preview = format!("📧 Lecture email : {}", raw_id.trim_start_matches("gmail://message/"));
-                            let action = osmozzz_core::ActionRequest::new(
-                                "read_email".to_string(),
-                                serde_json::from_value(json!({"id": &raw_id})).unwrap_or_default(),
-                                preview,
-                            );
-                            let action_id = action.id.clone();
-                            if submit_action(action).await.is_err() {
-                                send(&Response::err(id, -32603, "Impossible de soumettre la demande"));
-                                continue;
-                            }
-                            if !wait_for_approval(&action_id).await {
-                                audit_log("read_email", &raw_id, 0, true, None);
-                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Lecture email refusée dans le dashboard OSMOzzz."}] })));
-                                continue;
-                            }
-                        }
-                        match vault.get_full_content_by_url(&url).await {
-                            Ok(Some((title, content))) => {
-                                let mut out = String::new();
-                                if let Some(t) = &title {
-                                    out.push_str(&format!("Objet : {}\n", t));
+                        eprintln!("[OSMOzzz MCP] gmail_reply: uid={}", uid);
+                        // Fetch the original email headers first
+                        let uid_clone = uid.clone();
+                        let headers = tokio::task::spawn_blocking(move || gmail_imap_fetch_headers(&uid_clone)).await;
+                        match headers {
+                            Ok(Ok((from, subject, message_id))) => {
+                                let reply_subject = if subject.starts_with("Re:") { subject.clone() } else { format!("Re: {}", subject) };
+                                let result = gmail_smtp_reply(&from, &reply_subject, &body, &message_id).await;
+                                match result {
+                                    Ok(_) => {
+                                        audit_log("gmail_reply", &uid, 1, false, None);
+                                        send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Réponse envoyée à {}", from)}] })));
+                                    }
+                                    Err(e) => {
+                                        audit_log("gmail_reply", &uid, 0, true, None);
+                                        send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("❌ Erreur envoi : {}", e)}] })));
+                                    }
                                 }
-                                out.push_str(&format!("ID    : {}\n", raw_id.trim_start_matches("gmail://message/")));
-                                out.push_str("\n─────────────────────────────────────\n");
-                                out.push_str(&content);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": out}]
-                                })));
                             }
-                            Ok(None) => {
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": format!("Email introuvable : {}", url)}]
-                                })));
+                            Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur lecture email : {}", e)}] }))),
+                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        }
+                    }
+
+                    "gmail_stats" => {
+                        eprintln!("[OSMOzzz MCP] gmail_stats");
+                        let result = tokio::task::spawn_blocking(|| gmail_imap_stats()).await;
+                        match result {
+                            Ok(Ok(text)) => {
+                                audit_log("gmail_stats", "stats", 1, false, None);
+                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": text}] })));
                             }
+                            Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
                             Err(e) => send(&Response::err(id, -32603, &e.to_string())),
                         }
                     }
@@ -1792,41 +1998,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                     }
 
                     // ── Actions orchestrateur ─────────────────────────────
-                    "act_send_email" => {
-                        let to = match args["to"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: to")); continue; }
-                        };
-                        let subject = match args["subject"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: subject")); continue; }
-                        };
-                        let body = match args["body"].as_str() {
-                            Some(v) => v.to_string(),
-                            None => { send(&Response::err(id, -32602, "Missing param: body")); continue; }
-                        };
-                        let preview = format!("Envoyer un email à {}\nObjet : {}\n\n{}", to, subject, &body[..body.len().min(200)]);
-                        let action = osmozzz_core::ActionRequest::new(
-                            "act_send_email",
-                            serde_json::json!({ "to": to, "subject": subject, "body": body }),
-                            preview,
-                        );
-                        let action_id = action.id.clone();
-                        match submit_action(action).await {
-                            Ok(()) => send(&Response::ok(id, json!({
-                                "content": [{"type": "text", "text": format!(
-                                    "✅ Action soumise pour validation (ID: {}).\n\nOuvre le dashboard OSMOzzz (http://localhost:7878) pour approuver ou rejeter l'envoi.",
-                                    action_id
-                                )}]
-                            }))),
-                            Err(e) => send(&Response::ok(id, json!({
-                                "content": [{"type": "text", "text": format!(
-                                    "⚠️ Impossible de soumettre l'action : {}.\nAssure-toi que le daemon OSMOzzz tourne (osmozzz daemon).", e
-                                )}]
-                            }))),
-                        }
-                    }
-
                     "act_create_todoist_task" => {
                         let content = match args["content"].as_str() {
                             Some(v) => v.to_string(),
@@ -2057,6 +2228,26 @@ pub async fn run(cfg: Config) -> Result<()> {
                         }
                     }
 
+                    // ── Connecteurs natifs (Linear / Jira / …) ───────────────────────────
+                    // Dispatché vers crate::connectors — sécurité appliquée ici.
+
+                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") => {
+                        let result = connectors::handle(tool_name, &args).await
+                            .unwrap_or_else(|| Err(format!("Connecteur inconnu: {tool_name}")));
+                        match result {
+                            Ok(text) => {
+                                let secured = sanitize_proxy_response(&text);
+                                let query = args.get("query").or_else(|| args.get("q")).or_else(|| args.get("jql")).or_else(|| args.get("keyword")).and_then(|v| v.as_str()).unwrap_or(tool_name);
+                                audit_log(tool_name, query, 1, false, Some(&secured));
+                                send(&Response::ok(id, json!({"content":[{"type":"text","text":secured}]})));
+                            }
+                            Err(e) => {
+                                audit_log(tool_name, tool_name, 0, true, None);
+                                send(&Response::err(id, -32603, &e));
+                            }
+                        }
+                    }
+
                     other => {
                         // Format "proxy_name__tool_name" (ex: "supabase__execute_sql")
                         let (proxy_name_str, tool_action) = match other.find("__") {
@@ -2163,178 +2354,7 @@ pub async fn run(cfg: Config) -> Result<()> {
     Ok(())
 }
 
-// ─── Date range parser ────────────────────────────────────────────────────────
 
-/// Parse a natural language date query into a (from_ts, to_ts) Unix timestamp range.
-fn parse_date_range(query: &str) -> Option<(i64, i64)> {
-    use chrono::{Datelike, Duration, NaiveDate, Utc};
-
-    let q = query.to_lowercase();
-    let now = Utc::now();
-    let today = now.date_naive();
-
-    let day_range = |date: NaiveDate| -> Option<(i64, i64)> {
-        let from = date.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
-        let to   = date.and_hms_opt(23, 59, 59)?.and_utc().timestamp();
-        Some((from, to))
-    };
-
-    // aujourd'hui
-    if q.contains("aujourd") {
-        return day_range(today);
-    }
-    // hier
-    if q.contains("hier") {
-        return day_range(today - Duration::days(1));
-    }
-    // cette semaine / semaine
-    if q.contains("cette semaine") || q.contains("semaine") {
-        let from = (now - Duration::days(7)).timestamp();
-        return Some((from, now.timestamp()));
-    }
-    // ce mois
-    if q.contains("ce mois") || q.contains("mois-ci") {
-        let from = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)?
-            .and_hms_opt(0, 0, 0)?.and_utc().timestamp();
-        return Some((from, now.timestamp()));
-    }
-
-    // Noms de mois français
-    let months: &[(&str, u32)] = &[
-        ("janvier", 1), ("février", 2), ("fevrier", 2), ("mars", 3),
-        ("avril", 4), ("mai", 5), ("juin", 6), ("juillet", 7),
-        ("août", 8), ("aout", 8), ("septembre", 9), ("octobre", 10),
-        ("novembre", 11), ("décembre", 12), ("decembre", 12),
-    ];
-
-    for (month_name, month_num) in months {
-        if let Some(idx) = q.find(month_name) {
-            let year = today.year();
-            let before = q[..idx].trim_end();
-            // Cherche un nombre (le jour) juste avant le nom du mois
-            let day_opt = before.split_whitespace().last()
-                .and_then(|w| {
-                    let digits: String = w.chars().filter(|c| c.is_ascii_digit()).collect();
-                    digits.parse::<u32>().ok()
-                })
-                .filter(|&d| d >= 1 && d <= 31);
-
-            if let Some(day) = day_opt {
-                // Jour précis : "01 février"
-                if let Some(date) = NaiveDate::from_ymd_opt(year, *month_num, day) {
-                    return day_range(date);
-                }
-            } else {
-                // Mois entier : "janvier"
-                let from_date = NaiveDate::from_ymd_opt(year, *month_num, 1)?;
-                let to_date = if *month_num == 12 {
-                    NaiveDate::from_ymd_opt(year + 1, 1, 1)?
-                } else {
-                    NaiveDate::from_ymd_opt(year, *month_num + 1, 1)?
-                };
-                let from = from_date.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
-                let to   = to_date.and_hms_opt(0, 0, 0)?.and_utc().timestamp() - 1;
-                return Some((from, to));
-            }
-        }
-    }
-
-    // "le X" sans mois → mois courant
-    if let Some(idx) = q.find("le ") {
-        let rest = q[idx + 3..].trim_start();
-        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(day) = digits.parse::<u32>() {
-            if day >= 1 && day <= 31 {
-                if let Some(date) = NaiveDate::from_ymd_opt(today.year(), today.month(), day) {
-                    return day_range(date);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-// ─── Formatters email ─────────────────────────────────────────────────────────
-
-/// Extrait expéditeur et date depuis les premières lignes du contenu stocké.
-fn extract_email_meta(content: &str) -> (String, String) {
-    let mut from = String::new();
-    let mut date = String::new();
-    for line in content.lines().take(10) {
-        if line.starts_with("De :") && from.is_empty() {
-            from = line.trim_start_matches("De :").trim().to_string();
-        } else if line.starts_with("Date :") && date.is_empty() {
-            date = line.trim_start_matches("Date :").trim().to_string();
-        }
-        if !from.is_empty() && !date.is_empty() { break; }
-    }
-    (from, date)
-}
-
-/// Liste compacte d'emails : objet + expéditeur + date + ID.
-/// Claude appelle ensuite read_email(id) pour le contenu complet.
-fn format_email_list(results: &[(Option<String>, String, String)]) -> String {
-    format_email_list_kw(results, None)
-}
-
-fn format_email_list_kw(results: &[(Option<String>, String, String)], keyword: Option<&str>) -> String {
-    if results.is_empty() {
-        return "Aucun email trouvé.".to_string();
-    }
-    let mut out = format!("{} email(s) trouvé(s) :\n\n", results.len());
-    for (i, (title, url, content)) in results.iter().enumerate() {
-        let (from, date) = extract_email_meta(content);
-        let subject = title.as_deref().unwrap_or("(sans objet)");
-        let msg_id = url.trim_start_matches("gmail://message/");
-        let msg_id_display = msg_id.replace('@', "[at]");
-        out.push_str(&format!(
-            "{}. 📧 {}\n   De   : {}\n   Date : {}\n   ID   : {}\n",
-            i + 1, subject, from, date, msg_id_display
-        ));
-        // Snippet : extrait ~80 chars autour du keyword dans le corps
-        if let Some(kw) = keyword {
-            if let Some(snippet) = extract_snippet(content, kw) {
-                out.push_str(&format!("   ↳ \"…{}…\"\n", snippet));
-            }
-        }
-        out.push('\n');
-    }
-    out.push_str("→ Pour lire un email : read_email(id=\"...\")");
-    out
-}
-
-/// Trouve le keyword dans le texte (insensible à la casse) et retourne ~80 chars autour.
-fn extract_snippet(text: &str, keyword: &str) -> Option<String> {
-    if keyword.is_empty() { return None; }
-    let lower_text = text.to_lowercase();
-    let lower_kw   = keyword.to_lowercase();
-    let pos = lower_text.find(&lower_kw as &str)?;
-    // Recule de 40 chars (en respectant les frontières UTF-8)
-    let start = {
-        let target = pos.saturating_sub(40);
-        let mut s = pos;
-        while s > target && !text.is_char_boundary(s) { s -= 1; }
-        while s > target { s -= 1; if text.is_char_boundary(s) { break; } }
-        s
-    };
-    // Avance de 80 chars après le début du match
-    let end = {
-        let target = (pos + keyword.len() + 40).min(text.len());
-        let mut e = target;
-        while e < text.len() && !text.is_char_boundary(e) { e += 1; }
-        e
-    };
-    let snippet = text[start..end]
-        .replace('\n', " ")
-        .replace('\r', "")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let mut b = 80usize.min(snippet.len());
-    while b > 0 && !snippet.is_char_boundary(b) { b -= 1; }
-    Some(snippet[..b].to_string())
-}
 
 // ─── Formatter générique pour les nouvelles sources ──────────────────────────
 

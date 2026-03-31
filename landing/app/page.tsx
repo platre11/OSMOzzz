@@ -441,6 +441,9 @@ export default function HomePage() {
                 <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
                 <LangBtn $active={lang === 'fr'} onClick={() => setLang('fr')}>FR</LangBtn>
               </LangSwitcher>
+              <BtnGhost href="/docs">
+                Docs
+              </BtnGhost>
               <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
                 <GithubIcon />
                 {t('navGithub')}

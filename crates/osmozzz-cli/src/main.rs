@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod config;
+mod connectors;
 mod mcp_proxy;
 mod proof;
 

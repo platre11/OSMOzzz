@@ -30,3 +30,8 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 toml = { workspace = true }
+urlencoding = "2"
+lettre = { workspace = true }
+imap = { workspace = true }
+native-tls = { workspace = true }
+mailparse = { workspace = true }
