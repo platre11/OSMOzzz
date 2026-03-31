@@ -2231,7 +2231,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                     // ── Connecteurs natifs (Linear / Jira / …) ───────────────────────────
                     // Dispatché vers crate::connectors — sécurité appliquée ici.
 
-                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") => {
+                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") => {
                         let result = connectors::handle(tool_name, &args).await
                             .unwrap_or_else(|| Err(format!("Connecteur inconnu: {tool_name}")));
                         match result {

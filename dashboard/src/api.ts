@@ -65,6 +65,11 @@ export interface ConfigData {
   supabase: ConnectorStatus
   sentry:     ConnectorStatus
   cloudflare: ConnectorStatus
+  vercel:  ConnectorStatus
+  railway: ConnectorStatus
+  render:  ConnectorStatus
+  google:  ConnectorStatus
+  stripe:  ConnectorStatus
 }
 
 export interface ContactItem {
@@ -251,6 +256,26 @@ export const api = {
 
   saveCloudflare: async (api_token: string, account_id: string) => {
     await axios.post(`${BASE}/config/cloudflare`, { api_token, account_id })
+  },
+
+  saveVercel: async (token: string, team_id?: string) => {
+    await axios.post(`${BASE}/config/vercel`, { token, team_id: team_id ?? '' })
+  },
+
+  saveRailway: async (token: string) => {
+    await axios.post(`${BASE}/config/railway`, { token })
+  },
+
+  saveRender: async (token: string) => {
+    await axios.post(`${BASE}/config/render`, { token })
+  },
+
+  saveGoogle: async (username: string, app_password: string) => {
+    await axios.post(`${BASE}/config/google`, { username, app_password })
+  },
+
+  saveStripe: async (secret_key: string) => {
+    await axios.post(`${BASE}/config/stripe`, { secret_key })
   },
 
   open: async (url: string): Promise<void> => {

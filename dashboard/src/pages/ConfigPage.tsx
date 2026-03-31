@@ -303,6 +303,7 @@ const ErrorBanner = styled.div`
 type ConnectorId =
   | 'gmail' | 'notion' | 'github' | 'linear' | 'jira'
   | 'supabase' | 'cloudflare' | 'sentry' | 'gitlab'
+  | 'vercel' | 'railway' | 'render' | 'google' | 'stripe'
 
 interface ConnectorDef {
   id: ConnectorId
@@ -320,6 +321,11 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'supabase',   name: 'Supabase',   desc: 'SQL & Edge Functions' },
   { id: 'sentry',     name: 'Sentry',     desc: 'Erreurs & alertes' },
   { id: 'cloudflare', name: 'Cloudflare', desc: 'Workers & DNS' },
+  { id: 'vercel',  name: 'Vercel',           desc: 'Déploiements & domaines' },
+  { id: 'railway', name: 'Railway',          desc: 'Services & logs' },
+  { id: 'render',  name: 'Render',           desc: 'Services & déploiements' },
+  { id: 'google',  name: 'Google Calendar',  desc: 'Agenda CalDAV' },
+  { id: 'stripe',  name: 'Stripe',           desc: 'Paiements & abonnements' },
 ]
 
 // ─── Modal forms ──────────────────────────────────────────────────────────────
@@ -742,6 +748,214 @@ function CloudflareForm({ status, onClose, onSaved }: ModalFormProps) {
   )
 }
 
+function VercelForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveVercel(token, teamId || undefined),
+    onSuccess: () => {
+      setOk(true); setToken('')
+      qc.invalidateQueries({ queryKey: ['config'] })
+      setTimeout(() => { setOk(false); onSaved() }, 2500)
+    },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Vercel</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Token API</FieldLabel>
+            <ExternalLink href="https://vercel.com/account/tokens" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="xxxxxx..." />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Team ID <span style={{ color: '#9ca3af', fontWeight: 400 }}>(optionnel)</span></FieldLabel>
+          <Input type="text" value={teamId} onChange={e => setTeamId(e.target.value)} placeholder="team_xxx" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Vercel configuré ! Redémarre le daemon.</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function RailwayForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveRailway(token),
+    onSuccess: () => {
+      setOk(true); setToken('')
+      qc.invalidateQueries({ queryKey: ['config'] })
+      setTimeout(() => { setOk(false); onSaved() }, 2500)
+    },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Railway</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Token API</FieldLabel>
+            <ExternalLink href="https://railway.app/account/tokens" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="xxxxxx..." />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Railway configuré ! Redémarre le daemon.</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function RenderForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveRender(token),
+    onSuccess: () => {
+      setOk(true); setToken('')
+      qc.invalidateQueries({ queryKey: ['config'] })
+      setTimeout(() => { setOk(false); onSaved() }, 2500)
+    },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Render</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>API Key</FieldLabel>
+            <ExternalLink href="https://dashboard.render.com/u/settings#api-keys" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="rnd_xxxxxx..." />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Render configuré ! Redémarre le daemon.</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function GoogleCalendarForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [user, setUser] = useState('')
+  const [pass, setPass] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveGoogle(user, pass),
+    onSuccess: () => {
+      setOk(true); setPass('')
+      qc.invalidateQueries({ queryKey: ['config'] })
+      setTimeout(() => { setOk(false); onSaved() }, 2500)
+    },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Google Calendar</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>
+            {status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}
+          </ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldLabel>Adresse Gmail</FieldLabel>
+          <Input type="email" value={user} onChange={e => setUser(e.target.value)} placeholder="ton@gmail.com" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Mot de passe d'application</FieldLabel>
+            <ExternalLink href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="xxxx xxxx xxxx xxxx" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Google Calendar configuré ! Redémarre le daemon.</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!user || !pass || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function StripeForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [key, setKey] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveStripe(key),
+    onSuccess: () => {
+      setOk(true); setKey('')
+      qc.invalidateQueries({ queryKey: ['config'] })
+      setTimeout(() => { setOk(false); onSaved() }, 2500)
+    },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Stripe</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Secret Key</FieldLabel>
+            <ExternalLink href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="sk_live_xxx ou sk_test_xxx" />
+          <FieldHint>Utilise sk_test_xxx pour les tests, sk_live_xxx en production.</FieldHint>
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Stripe configuré ! Redémarre le daemon.</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!key || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
 const FORM_MAP: Record<ConnectorId, React.ComponentType<ModalFormProps>> = {
   gmail:      GmailForm,
   notion:     NotionForm,
@@ -752,6 +966,11 @@ const FORM_MAP: Record<ConnectorId, React.ComponentType<ModalFormProps>> = {
   supabase:   SupabaseForm,
   sentry:     SentryForm,
   cloudflare: CloudflareForm,
+  vercel:  VercelForm,
+  railway: RailwayForm,
+  render:  RenderForm,
+  google:  GoogleCalendarForm,
+  stripe:  StripeForm,
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────

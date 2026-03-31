@@ -356,6 +356,11 @@ pub struct ConfigResponse {
     pub supabase:  ConnectorStatus,
     pub sentry:     ConnectorStatus,
     pub cloudflare: ConnectorStatus,
+    pub vercel:   ConnectorStatus,
+    pub railway:  ConnectorStatus,
+    pub render:   ConnectorStatus,
+    pub google:   ConnectorStatus,
+    pub stripe:   ConnectorStatus,
 }
 
 fn osmozzz_dir() -> Option<std::path::PathBuf> {
@@ -403,6 +408,11 @@ pub async fn get_config() -> impl IntoResponse {
         supabase: connector_status("supabase.toml", "project_id"),
         sentry:     connector_status("sentry.toml",     ""),
         cloudflare: connector_status("cloudflare.toml", "account_id"),
+        vercel:   connector_status("vercel.toml",   ""),
+        railway:  connector_status("railway.toml",  ""),
+        render:   connector_status("render.toml",   ""),
+        google:   connector_status("google.toml",   "username"),
+        stripe:   connector_status("stripe.toml",   ""),
     })
 }
 
@@ -1912,6 +1922,91 @@ pub async fn get_audit(
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect();
     ApiResponse::ok(entries).into_response()
+}
+
+// ─── POST /api/config/vercel ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct VercelConfigBody {
+    pub token: String,
+    #[serde(default)]
+    pub team_id: String,
+}
+
+pub async fn post_config_vercel(Json(body): Json<VercelConfigBody>) -> impl IntoResponse {
+    let mut content = format!("token = \"{}\"\n", esc(&body.token));
+    if !body.team_id.is_empty() {
+        content.push_str(&format!("team_id = \"{}\"\n", esc(&body.team_id)));
+    }
+    match write_config("vercel.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Vercel configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/railway ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct RailwayConfigBody {
+    pub token: String,
+}
+
+pub async fn post_config_railway(Json(body): Json<RailwayConfigBody>) -> impl IntoResponse {
+    let content = format!("token = \"{}\"\n", esc(&body.token));
+    match write_config("railway.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Railway configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/render ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct RenderConfigBody {
+    pub token: String,
+}
+
+pub async fn post_config_render(Json(body): Json<RenderConfigBody>) -> impl IntoResponse {
+    let content = format!("token = \"{}\"\n", esc(&body.token));
+    match write_config("render.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Render configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/google (Google Calendar CalDAV) ────────────────────────
+
+#[derive(Deserialize)]
+pub struct GoogleConfigBody {
+    pub username:     String,
+    pub app_password: String,
+}
+
+pub async fn post_config_google(Json(body): Json<GoogleConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "username     = \"{}\"\napp_password = \"{}\"\n",
+        esc(&body.username),
+        esc(&body.app_password),
+    );
+    match write_config("google.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Google Calendar configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/stripe ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct StripeConfigBody {
+    pub secret_key: String,
+}
+
+pub async fn post_config_stripe(Json(body): Json<StripeConfigBody>) -> impl IntoResponse {
+    let content = format!("secret_key = \"{}\"\n", esc(&body.secret_key));
+    match write_config("stripe.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Stripe configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
