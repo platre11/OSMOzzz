@@ -3,22 +3,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PrivacyConfig {
     #[serde(default)]
-    pub credit_card: bool,
-    #[serde(default = "default_true")]
-    pub iban: bool,
-    #[serde(default)]
     pub email: bool,
     #[serde(default)]
     pub phone: bool,
 }
 
-fn default_true() -> bool { true }
-
 impl Default for PrivacyConfig {
     fn default() -> Self {
         Self {
-            credit_card: false,
-            iban: true,
             email: false,
             phone: false,
         }
@@ -47,6 +39,6 @@ impl PrivacyConfig {
     }
 
     pub fn is_any_active(&self) -> bool {
-        self.credit_card || self.iban || self.email || self.phone
+        self.email || self.phone
     }
 }

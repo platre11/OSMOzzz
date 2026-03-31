@@ -141,12 +141,6 @@ interface RuleMeta {
 
 const RULES: RuleMeta[] = [
   {
-    key: 'iban',
-    label: 'IBAN / RIB',
-    example: 'FR76 3000 6000 0112 3456  →  [IBAN masqué]',
-    defaultOn: true,
-  },
-  {
     key: 'email',
     label: 'Adresses email',
     example: 'jean@exemple.com  →  [email masqué]',

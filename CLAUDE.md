@@ -228,8 +228,6 @@ mcp_proxy      : Option<serde_json::Value>
 **PrivacyConfig** (TOML à `~/.osmozzz/privacy.toml`) :
 
 ```toml
-credit_card = true   # masque les numéros CB
-iban        = true   # masque les IBAN
 api_keys    = true   # masque les clés API/tokens
 email       = false  # masque les adresses email
 phone       = false  # masque les numéros de téléphone
@@ -392,8 +390,6 @@ OSMOzzz expose quatre mécanismes de contrôle des données envoyées au client 
 Masque automatiquement des patterns sensibles **dans tous les résultats** avant envoi au client IA.
 
 ```toml
-credit_card = true   # masque les numéros CB
-iban        = true   # masque les IBAN
 api_keys    = true   # masque les clés API/tokens
 email       = false  # masque les adresses email
 phone       = false  # masque les numéros de téléphone
@@ -875,7 +871,7 @@ osmozzz daemon
 
 ```
 config.toml          ← config CLI/daemon (optionnel)
-privacy.toml         ← filtres confidentialité (credit_card, iban, api_keys...)
+privacy.toml         ← filtres confidentialité (api_keys, email, phone)
 blacklist.toml       ← documents bannis par URL/source/identifiant
 aliases.toml         ← pseudonymisation (vrai nom → alias vu par le client IA)
 audit.jsonl          ← journal d'accès MCP (tool, query, results, blocked) append-only
@@ -956,7 +952,7 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 - Compact LanceDB
 - Système d'actions avec workflow approbation (ActionQueue + Executor)
 - 16 types d'actions exécutables (email, Slack, Notion, Linear, Todoist, GitHub, Trello, GitLab, iMessage, Calendar, Notes, Fichiers, Shell)
-- Filtre de confidentialité (credit_card, iban, api_keys, email, phone)
+- Filtre de confidentialité (api_keys, email, phone)
 - FSEvents watcher (Desktop + Documents)
 - P2P mesh iroh (QUIC + relay + Ed25519 + permissions granulaires + audit)
 - Proof of Context (HMAC-SHA256 `osmozzz verify`)

@@ -1388,7 +1388,7 @@ fn send(response: &Response) {
                                     audit_log("⚠️ INJECTION", &processed[..processed.len().min(200)], 0, true, None);
                                 }
                                 processed = scanned;
-                                // 2. Filtre confidentialité (credit card, IBAN, etc.)
+                                // 2. Filtre confidentialité (email, téléphone)
                                 if filter_active {
                                     processed = filter.apply(&processed);
                                 }
