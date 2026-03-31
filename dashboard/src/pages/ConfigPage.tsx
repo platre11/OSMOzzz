@@ -305,6 +305,7 @@ type ConnectorId =
   | 'supabase' | 'cloudflare' | 'sentry' | 'gitlab'
   | 'vercel' | 'railway' | 'render' | 'google' | 'stripe'
   | 'hubspot' | 'posthog' | 'resend' | 'discord' | 'twilio' | 'figma'
+  | 'reddit' | 'calendly'
 
 interface ConnectorDef {
   id: ConnectorId
@@ -330,9 +331,11 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'hubspot', name: 'HubSpot',          desc: 'CRM & deals' },
   { id: 'posthog', name: 'PostHog',          desc: 'Analytics & feature flags' },
   { id: 'resend',  name: 'Resend',           desc: 'Envoi d\'emails' },
-  { id: 'discord', name: 'Discord',          desc: 'Serveurs & messages' },
-  { id: 'twilio',  name: 'Twilio',           desc: 'SMS & appels' },
-  { id: 'figma',   name: 'Figma',            desc: 'Design & composants' },
+  { id: 'discord',  name: 'Discord',  desc: 'Serveurs & messages' },
+  { id: 'twilio',   name: 'Twilio',   desc: 'SMS & appels' },
+  { id: 'figma',    name: 'Figma',    desc: 'Design & composants' },
+  { id: 'reddit',   name: 'Reddit',   desc: 'Posts, commentaires & subreddits' },
+  { id: 'calendly', name: 'Calendly', desc: 'Rendez-vous & planning' },
 ]
 
 // ─── Modal forms ──────────────────────────────────────────────────────────────
@@ -1233,9 +1236,98 @@ const FORM_MAP: Record<ConnectorId, React.ComponentType<ModalFormProps>> = {
   hubspot: HubspotForm,
   posthog: PosthogForm,
   resend:  ResendForm,
-  discord: DiscordForm,
-  twilio:  TwilioForm,
-  figma:   FigmaForm,
+  discord:  DiscordForm,
+  twilio:   TwilioForm,
+  figma:    FigmaForm,
+  reddit:   RedditForm,
+  calendly: CalendlyForm,
+}
+
+function RedditForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [clientId,     setClientId]     = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [username,     setUsername]     = useState('')
+  const [password,     setPassword]     = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveReddit(clientId, clientSecret, username, password),
+    onSuccess: () => { setOk(true); setPassword(''); setClientSecret(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Reddit</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Client ID</FieldLabel>
+            <ExternalLink href="https://www.reddit.com/prefs/apps" target="_blank" rel="noreferrer">Créer une app ↗</ExternalLink>
+          </FieldRow>
+          <Input type="text" value={clientId} onChange={e => setClientId(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxx" />
+          <FieldHint>Type d'app : <strong>script</strong> — redirect URI : http://localhost</FieldHint>
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Client Secret</FieldLabel>
+          <Input type="password" value={clientSecret} onChange={e => setClientSecret(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Nom d'utilisateur Reddit</FieldLabel>
+          <Input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="ton_pseudo_reddit" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Mot de passe Reddit</FieldLabel>
+          <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Reddit configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!clientId || !clientSecret || !username || !password || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function CalendlyForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveCalendly(token),
+    onSuccess: () => { setOk(true); setToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Calendly</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Personal Access Token</FieldLabel>
+            <ExternalLink href="https://calendly.com/integrations/api_webhooks" target="_blank" rel="noreferrer">Générer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+          <FieldHint>Intégrations → API & Webhooks → Personal Access Tokens</FieldHint>
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Calendly configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────

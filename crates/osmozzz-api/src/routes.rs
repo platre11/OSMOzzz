@@ -367,6 +367,8 @@ pub struct ConfigResponse {
     pub discord:  ConnectorStatus,
     pub twilio:   ConnectorStatus,
     pub figma:    ConnectorStatus,
+    pub reddit:   ConnectorStatus,
+    pub calendly: ConnectorStatus,
 }
 
 fn osmozzz_dir() -> Option<std::path::PathBuf> {
@@ -425,6 +427,8 @@ pub async fn get_config() -> impl IntoResponse {
         discord:  connector_status("discord.toml",  "guild_id"),
         twilio:   connector_status("twilio.toml",   "account_sid"),
         figma:    connector_status("figma.toml",    "team_id"),
+        reddit:   connector_status("reddit.toml",   "username"),
+        calendly: connector_status("calendly.toml", ""),
     })
 }
 
@@ -2112,6 +2116,45 @@ pub async fn post_config_figma(Json(body): Json<FigmaConfigBody>) -> impl IntoRe
     }
     match write_config("figma.toml", &content) {
         Ok(_)  => ApiResponse::ok("Figma configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/reddit ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct RedditConfigBody {
+    pub client_id:     String,
+    pub client_secret: String,
+    pub username:      String,
+    pub password:      String,
+}
+
+pub async fn post_config_reddit(Json(body): Json<RedditConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "client_id     = \"{}\"\nclient_secret = \"{}\"\nusername      = \"{}\"\npassword      = \"{}\"\n",
+        esc(&body.client_id),
+        esc(&body.client_secret),
+        esc(&body.username),
+        esc(&body.password),
+    );
+    match write_config("reddit.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Reddit configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/calendly ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct CalendlyConfigBody {
+    pub token: String,
+}
+
+pub async fn post_config_calendly(Json(body): Json<CalendlyConfigBody>) -> impl IntoResponse {
+    let content = format!("token = \"{}\"\n", esc(&body.token));
+    match write_config("calendly.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Calendly configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
 }

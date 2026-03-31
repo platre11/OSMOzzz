@@ -140,29 +140,108 @@ const AliasAddBtn = styled.button`
 
 // ── Journal ──────────────────────────────────────────────────────────────────
 
+// Couleurs de marque par connecteur
+const CONNECTOR_COLORS: Record<string, string> = {
+  github:     '#24292e',
+  gitlab:     '#e24329',
+  linear:     '#5e6ad2',
+  jira:       '#0052cc',
+  sentry:     '#362d59',
+  vercel:     '#000000',
+  railway:    '#c10000',
+  render:     '#46e3b7',
+  stripe:     '#635bff',
+  hubspot:    '#ff7a59',
+  discord:    '#5865f2',
+  figma:      '#f24e1e',
+  notion:     '#000000',
+  slack:      '#4a154b',
+  supabase:   '#3ecf8e',
+  cloudflare: '#f38020',
+  reddit:     '#ff4500',
+  calendly:   '#006bff',
+  posthog:    '#f54e00',
+  resend:     '#000000',
+  twilio:     '#f22f46',
+  google:     '#4285f4',
+  gcal:       '#4285f4',
+  gmail:      '#ea4335',
+  search:     '#6b7280',
+  find:       '#6b7280',
+  fetch:      '#6b7280',
+  get:        '#6b7280',
+  list:       '#6b7280',
+  index:      '#6b7280',
+  osmozzz:    '#5b5ef4',
+  act:        '#f59e0b',
+}
+
+function connectorColor(tool: string): string {
+  // Format MCP proxy : "github:list_commits"
+  if (tool.includes(':')) {
+    const prefix = tool.split(':')[0].toLowerCase()
+    return CONNECTOR_COLORS[prefix] ?? '#5b5ef4'
+  }
+  // Format natif : "linear_list_issues", "vercel_list_deployments"
+  const prefix = tool.split('_')[0].toLowerCase()
+  return CONNECTOR_COLORS[prefix] ?? '#5b5ef4'
+}
+
+function parseToolDisplay(tool: string): { connector: string; action: string } {
+  if (tool.includes(':')) {
+    const [connector, ...rest] = tool.split(':')
+    return { connector, action: rest.join(':').replace(/_/g, ' ') }
+  }
+  const parts = tool.split('_')
+  const connector = parts[0]
+  const action = parts.slice(1).join(' ')
+  return { connector, action: action || connector }
+}
+
 const JournalList = styled.div`display: flex; flex-direction: column;`
 
-const JournalRow = styled.div<{ $blocked: boolean }>`
-  display: flex; flex-direction: column; gap: 1px;
-  padding: 6px 0;
+const JournalRow = styled.div<{ $blocked: boolean; $color: string }>`
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 10px 8px 14px;
   border-bottom: 1px solid #f3f4f6;
-  background: ${({ $blocked }) => $blocked ? '#fff8f8' : 'transparent'};
+  border-left: 3px solid ${({ $blocked, $color }) => $blocked ? '#dc2626' : $color};
+  background: ${({ $blocked }) => $blocked ? '#fff5f5' : 'transparent'};
+  transition: background 0.1s;
+  &:hover { background: ${({ $blocked }) => $blocked ? '#fff0f0' : '#fafafa'}; }
   &:last-child { border-bottom: none; }
 `
 
-const JournalMeta = styled.div`display: flex; align-items: center; gap: 8px;`
+const JournalMeta = styled.div`display: flex; align-items: center; gap: 6px; flex-wrap: wrap;`
 
-const JournalTime = styled.span`font-size: 11px; color: #9ca3af; white-space: nowrap;`
+const JournalTime = styled.span`font-size: 11px; color: #b0b7c3; white-space: nowrap; font-variant-numeric: tabular-nums;`
 
-const JournalTool = styled.span`
-  font-size: 11px; font-weight: 600; color: #5b5ef4; white-space: nowrap;
+const JournalConnector = styled.span<{ $color: string }>`
+  font-size: 11px; font-weight: 700;
+  color: ${({ $color }) => $color};
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+`
+
+const JournalAction = styled.span`
+  font-size: 11px; font-weight: 400; color: #9ca3af; white-space: nowrap;
+`
+
+const JournalResultsBadge = styled.span<{ $blocked: boolean }>`
+  font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 10px;
+  background: ${({ $blocked }) => $blocked ? '#fee2e2' : '#f0f0ff'};
+  color: ${({ $blocked }) => $blocked ? '#dc2626' : '#6366f1'};
+  white-space: nowrap;
+  margin-left: auto;
 `
 
 const JournalQuery = styled.span`
-  font-size: 12px; color: #374151; line-height: 1.5;
+  font-size: 12px; color: #4b5563; line-height: 1.5;
   word-break: break-word;
+  padding: 2px 6px; border-radius: 4px;
+  background: #f9fafb;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
+  font-style: italic;
 `
 
 const JournalCount = styled.span<{ $blocked: boolean }>`

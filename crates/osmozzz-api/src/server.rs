@@ -65,6 +65,8 @@ pub async fn start_server(
         .route("/config/discord",   post(routes::post_config_discord))
         .route("/config/twilio",    post(routes::post_config_twilio))
         .route("/config/figma",     post(routes::post_config_figma))
+        .route("/config/reddit",    post(routes::post_config_reddit))
+        .route("/config/calendly",  post(routes::post_config_calendly))
         .route("/db/supabase/projects",  get(routes::get_db_supabase_projects))
         .route("/db/supabase/project",   post(routes::post_db_supabase_project))
         .route("/db/supabase/schema",    get(routes::get_db_supabase_schema))

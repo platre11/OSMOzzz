@@ -93,6 +93,8 @@ fn tool_source(name: &str) -> Option<&'static str> {
     if name.starts_with("gcal_")       { return Some("google"); }
     if name.starts_with("sentry_")     { return Some("sentry"); }
     if name.starts_with("cloudflare_") { return Some("cloudflare"); }
+    if name.starts_with("reddit_")     { return Some("reddit"); }
+    if name.starts_with("calendly_")   { return Some("calendly"); }
     None // search_memory, get_status, osmozzz_resume_action — toujours disponibles
 }
 
@@ -2431,7 +2433,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                     // ── Connecteurs natifs (Linear / Jira / …) ───────────────────────────
                     // Dispatché vers crate::connectors — sécurité appliquée ici.
 
-                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") || tool_name.starts_with("hubspot_") || tool_name.starts_with("posthog_") || tool_name.starts_with("resend_") || tool_name.starts_with("discord_") || tool_name.starts_with("twilio_") || tool_name.starts_with("figma_") => {
+                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") || tool_name.starts_with("hubspot_") || tool_name.starts_with("posthog_") || tool_name.starts_with("resend_") || tool_name.starts_with("discord_") || tool_name.starts_with("twilio_") || tool_name.starts_with("figma_") || tool_name.starts_with("reddit_") || tool_name.starts_with("calendly_") => {
                         // Vérification validation manuelle (permissions.toml)
                         let connector_base = tool_name.split('_').next().unwrap_or(tool_name);
                         let perms = McpPermissions::load();

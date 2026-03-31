@@ -73,9 +73,11 @@ export interface ConfigData {
   hubspot: ConnectorStatus
   posthog: ConnectorStatus
   resend:  ConnectorStatus
-  discord: ConnectorStatus
-  twilio:  ConnectorStatus
-  figma:   ConnectorStatus
+  discord:  ConnectorStatus
+  twilio:   ConnectorStatus
+  figma:    ConnectorStatus
+  reddit:   ConnectorStatus
+  calendly: ConnectorStatus
 }
 
 export interface ContactItem {
@@ -304,6 +306,14 @@ export const api = {
 
   saveFigma: async (token: string, team_id?: string) => {
     await axios.post(`${BASE}/config/figma`, { token, team_id: team_id ?? '' })
+  },
+
+  saveReddit: async (client_id: string, client_secret: string, username: string, password: string) => {
+    await axios.post(`${BASE}/config/reddit`, { client_id, client_secret, username, password })
+  },
+
+  saveCalendly: async (token: string) => {
+    await axios.post(`${BASE}/config/calendly`, { token })
   },
 
   open: async (url: string): Promise<void> => {

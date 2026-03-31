@@ -65,22 +65,22 @@ Le client IA interroge OSMOzzz via ses tools MCP. OSMOzzz fait tout le travail d
 
 ```
 osmozzz-core      → types partagés (Document, SearchResult, ActionRequest, traits, PrivacyFilter)
-osmozzz-harvester → toutes les sources de données (20 harvesters + FSEvents watcher)
+osmozzz-harvester → toutes les sources de données (21 harvesters + FSEvents watcher)
 osmozzz-embedder  → ONNX + LanceDB (OnnxEmbedder, VectorStore, Vault, Blacklist)
 osmozzz-bridge    → serveur UDS legacy (stdin/stdout bridge, peu utilisé)
 osmozzz-api       → REST API + dashboard (Axum) + ActionQueue + Executor
-osmozzz-cli       → CLI (clap) + serveur MCP + daemon + MCP proxies
+osmozzz-cli       → CLI (clap) + serveur MCP + daemon + MCP proxies + connectors natifs
 osmozzz-p2p       → réseau P2P mesh (iroh QUIC, identité Ed25519, permissions, audit)
 ```
 
 ---
 
-## Architecture Duale — Harvesters + MCP Proxies (FONDAMENTAL)
+## Architecture Triple — Harvesters + MCP Proxies + Connectors Natifs (FONDAMENTAL)
 
 **OSMOzzz est TOUJOURS l'intermédiaire unique entre Claude et toutes les sources de données.**
 Claude ne parle jamais directement à Notion, Jira, Supabase, etc. Tout passe par OSMOzzz.
 
-Il existe deux systèmes complémentaires dans OSMOzzz :
+Il existe **trois systèmes complémentaires** dans OSMOzzz :
 
 ### 1. Harvesters Rust — Indexation locale
 
@@ -94,7 +94,7 @@ Utilisés pour : **recherche sémantique** dans les données passées.
 
 ### 2. MCP Proxies — Subprocesses MCP tiers
 
-Pour les **actions en temps réel** (créer une issue, envoyer un message, exécuter du SQL...), OSMOzzz lance des **subprocesses MCP via `bunx`** (Bun). Ces subprocesses sont des packages npm MCP officiels, proxifiés par OSMOzzz en JSON-RPC stdin/stdout.
+Pour les **actions complètes via packages npm officiels**, OSMOzzz lance des **subprocesses MCP via `bunx`** (Bun). Ces subprocesses sont des packages npm MCP officiels, proxifiés par OSMOzzz en JSON-RPC stdin/stdout.
 
 ```
 Claude → OSMOzzz MCP (Rust) → subprocess bunx @pkg/mcp-server → API cloud
@@ -102,17 +102,17 @@ Claude → OSMOzzz MCP (Rust) → subprocess bunx @pkg/mcp-server → API cloud
 
 **Fichiers** : `crates/osmozzz-cli/src/mcp_proxy/`
 
-| Fichier       | Package npm                           | Config                     |
-| ------------- | ------------------------------------- | -------------------------- |
-| `jira.rs`     | `@aashari/mcp-server-atlassian-jira`  | `~/.osmozzz/jira.toml`     |
-| `github.rs`   | `@modelcontextprotocol/server-github` | `~/.osmozzz/github.toml`   |
-| `notion.rs`   | `@notionhq/notion-mcp-server`         | `~/.osmozzz/notion.toml`   |
-| `slack.rs`    | `@modelcontextprotocol/server-slack`  | `~/.osmozzz/slack.toml`    |
-| `linear.rs`   | `@tacticlaunch/mcp-linear`            | `~/.osmozzz/linear.toml`   |
-| `supabase.rs` | `@supabase/mcp-server-supabase`       | `~/.osmozzz/supabase.toml` |
+| Fichier         | Package npm                           | Config                     |
+| --------------- | ------------------------------------- | -------------------------- |
+| `github.rs`     | `@modelcontextprotocol/server-github` | `~/.osmozzz/github.toml`   |
+| `notion.rs`     | `@notionhq/notion-mcp-server`         | `~/.osmozzz/notion.toml`   |
+| `slack.rs`      | `@modelcontextprotocol/server-slack`  | `~/.osmozzz/slack.toml`    |
+| `supabase.rs`   | `@supabase/mcp-server-supabase`       | `~/.osmozzz/supabase.toml` |
+| `gitlab.rs`     | `@zereight/mcp-gitlab`                | `~/.osmozzz/gitlab.toml`   |
+| `sentry.rs`     | `@sentry/mcp-server`                  | `~/.osmozzz/sentry.toml`   |
+| `cloudflare.rs` | `@cloudflare/mcp-server-cloudflare`   | `~/.osmozzz/cloudflare.toml` |
 
 **Mécanisme** (`McpSubprocess`) :
-
 - Vérifie/installe Bun automatiquement (`~/.bun/bin/bun`)
 - Lance `bunx x --bun <package>` avec les env vars du `.toml`
 - Handshake JSON-RPC 2.0 (`initialize` + `notifications/initialized`)
@@ -120,48 +120,66 @@ Claude → OSMOzzz MCP (Rust) → subprocess bunx @pkg/mcp-server → API cloud
 - Proxifie les appels de Claude vers le subprocess (`tools/call`)
 - Si le `.toml` est absent → subprocess non démarré silencieusement
 
-**Démarrage** : `start_all_proxies()` dans `mod.rs` → appelé au lancement de `osmozzz mcp`.
+### 3. Connectors Natifs Rust — Actions temps réel
 
-### Tableau comparatif
+Pour les connecteurs implémentés **directement en Rust** (sans subprocess npm), OSMOzzz appelle les APIs REST directement. Les tools sont déclarés dans le crate `osmozzz-cli` et dispatchés depuis `mcp.rs`.
 
-|                | Harvester (Rust)        | MCP Proxy (Subprocess)             |
-| -------------- | ----------------------- | ---------------------------------- |
-| **Rôle**       | Indexation (passé)      | Actions temps réel                 |
-| **Transport**  | reqwest HTTP            | bunx subprocess JSON-RPC           |
-| **Output**     | Vec<Document> → LanceDB | Réponse JSON → Claude              |
-| **Tools**      | `search_*` dans mcp.rs  | Tools natifs du package npm        |
-| **Dépendance** | Cargo (reqwest)         | Bun runtime (auto-installé)        |
-| **Config**     | `~/.osmozzz/*.toml`     | `~/.osmozzz/*.toml` (même fichier) |
-
-### Supabase MCP Proxy — Détail
-
-**Package** : `@supabase/mcp-server-supabase` (officiel Supabase)
-**Config** : `~/.osmozzz/supabase.toml`
-
-```toml
-access_token = "sbp_xxxx..."   # Personal Access Token (supabase.com/dashboard/account/tokens)
-project_id   = "xxxx"          # optionnel — restreint à un projet spécifique
+```
+Claude → OSMOzzz MCP (Rust) → connector natif Rust (reqwest) → API cloud
 ```
 
-**~38 tools disponibles** répartis en groupes :
+**Fichiers** : `crates/osmozzz-cli/src/connectors/`
 
-| Groupe          | Tools principaux                                                            |
-| --------------- | --------------------------------------------------------------------------- |
-| Base de données | `execute_sql`, `list_tables`, `list_extensions`, `apply_migration`          |
-| Debugging       | `get_logs` (API, PostgreSQL, Edge Functions, Auth, Storage), `get_advisors` |
-| Développement   | `get_project_url`, `get_publishable_keys`, `generate_typescript_types`      |
-| Edge Functions  | `list_edge_functions`, `deploy_edge_function`                               |
-| Storage         | `list_storage_buckets`, `get_storage_config`                                |
-| Branching       | `create_branch`, `list_branches`, `merge_branch`, `reset_branch`            |
-| Compte          | `list_projects`, `create_project`, `pause_project`, `get_cost`              |
-| Docs            | `search_docs`                                                               |
+| Connecteur | Fichier       | Nb tools | Config                     |
+| ---------- | ------------- | -------- | -------------------------- |
+| Linear     | `linear.rs`   | 17       | `~/.osmozzz/linear.toml`   |
+| Jira       | `jira.rs`     | 23       | `~/.osmozzz/jira.toml`     |
+| GitLab     | `gitlab.rs`   | 23       | `~/.osmozzz/gitlab.toml`   |
+| Vercel     | `vercel.rs`   | 15       | `~/.osmozzz/vercel.toml`   |
+| Railway    | `railway.rs`  | 14       | `~/.osmozzz/railway.toml`  |
+| Render     | `render.rs`   | 14       | `~/.osmozzz/render.toml`   |
+| Google Cal | `gcal.rs`     | 12       | `~/.osmozzz/google.toml`   |
+| Stripe     | `stripe.rs`   | 27       | `~/.osmozzz/stripe.toml`   |
+| HubSpot    | `hubspot.rs`  | 26       | `~/.osmozzz/hubspot.toml`  |
+| PostHog    | `posthog.rs`  | 18       | `~/.osmozzz/posthog.toml`  |
+| Resend     | `resend.rs`   | 14       | `~/.osmozzz/resend.toml`   |
+| Twilio     | `twilio.rs`   | 16       | `~/.osmozzz/twilio.toml`   |
+| Figma      | `figma.rs`    | 15       | `~/.osmozzz/figma.toml`    |
+| Discord    | `discord.rs`  | 28       | `~/.osmozzz/discord.toml`  |
+
+**Total : 262 tools natifs** répartis sur 14 connecteurs. Dispatch dans `mcp.rs` via le pattern `tool_name.starts_with("stripe_")`, etc.
+
+### Tableau comparatif des 3 architectures
+
+|                | Harvester (Rust)        | MCP Proxy (Subprocess)             | Connector Natif (Rust)      |
+| -------------- | ----------------------- | ---------------------------------- | --------------------------- |
+| **Rôle**       | Indexation (passé)      | Actions via package npm officiel   | Actions temps réel          |
+| **Transport**  | reqwest HTTP            | bunx subprocess JSON-RPC           | reqwest HTTP direct         |
+| **Output**     | Vec<Document> → LanceDB | Réponse JSON → Claude              | Réponse JSON → Claude       |
+| **Tools**      | `search_*` dans mcp.rs  | Tools natifs du package npm        | `xxx_*` déclarés en Rust    |
+| **Dépendance** | Cargo (reqwest)         | Bun runtime (auto-installé)        | Cargo (reqwest)             |
+| **Config**     | `~/.osmozzz/*.toml`     | `~/.osmozzz/*.toml`                | `~/.osmozzz/*.toml`         |
+| **Fichiers**   | `osmozzz-harvester/src/`| `osmozzz-cli/src/mcp_proxy/`       | `osmozzz-cli/src/connectors/`|
+
+### Pattern pour ajouter un nouveau Connector Natif
+
+1. Créer `crates/osmozzz-cli/src/connectors/nom.rs` :
+   - `pub fn tools() -> Vec<Value>` — déclare les tools JSON Schema
+   - `pub async fn handle(tool: &str, args: &Value, token: &str) -> Result<String>` — dispatch + appels API
+   - `pub fn load_config() -> Option<NomConfig>` — lit `~/.osmozzz/nom.toml`
+2. Déclarer `pub mod nom;` dans `connectors/mod.rs`
+3. Ajouter le dispatch dans `mcp.rs` : `tool_name.starts_with("nom_")` → `connectors::nom::handle()`
+4. Ajouter les tools dans la liste retournée par `list_tools()` dans `mcp.rs`
+5. Ajouter `POST /api/config/nom` dans `routes.rs`
+6. Ajouter `if name.starts_with("nom_") { return Some("nom"); }` dans la fn `source_for_tool()` de `mcp.rs`
+7. Ajouter card dans le dashboard (ConfigPage)
 
 ### Pattern pour ajouter un nouveau MCP Proxy
 
-1. Créer `crates/osmozzz-cli/src/mcp_proxy/nom.rs` (charger config TOML + appeler `McpSubprocess::start()`)
+1. Créer `crates/osmozzz-cli/src/mcp_proxy/nom.rs` (charger config TOML + appeler `LazyProxy::new()`)
 2. Déclarer `pub mod nom;` dans `mod.rs`
-3. Ajouter `if let Some(p) = nom::start() { proxies.push(p); }` dans `start_all_proxies()`
-4. Ajouter la route `POST /api/config/nom` dans `routes.rs`
+3. Ajouter `if let Some(p) = nom::lazy() { proxies.push(p); }` dans `start_all_proxies()`
+4. Ajouter `POST /api/config/nom` dans `routes.rs`
 5. Ajouter card dans le dashboard (ConfigPage)
 
 ---
@@ -175,7 +193,6 @@ project_id   = "xxxx"          # optionnel — restreint à un projet spécifiqu
 Notion, Github, Linear, Jira, Slack, Trello, Todoist, Gitlab, Airtable, Obsidian, Contacts, Arc`
 
 **Document** :
-
 ```
 id            : String (UUID v4)
 source        : SourceType
@@ -210,7 +227,6 @@ trait Embedder {
 **ActionStatus** : `Pending | Approved | Rejected | Expired`
 
 **ActionRequest** :
-
 ```
 id             : String (UUID v4)
 tool           : String (nom du tool MCP ex: "act_send_email")
@@ -226,18 +242,15 @@ mcp_proxy      : Option<serde_json::Value>
 ### Système de confidentialité (`src/filter/`)
 
 **PrivacyConfig** (TOML à `~/.osmozzz/privacy.toml`) :
-
 ```toml
 api_keys    = true   # masque les clés API/tokens
 email       = false  # masque les adresses email
 phone       = false  # masque les numéros de téléphone
 ```
 
-Le filtre s'applique sur le contenu **avant** envoi aux peers P2P.
-
 ---
 
-## osmozzz-harvester — Sources de données (20 harvesters)
+## osmozzz-harvester — Sources de données (21 harvesters)
 
 ### Sources locales macOS
 
@@ -255,21 +268,17 @@ Le filtre s'applique sur le contenu **avant** envoi aux peers P2P.
 ### Sources fichiers locaux
 
 **`files.rs` — FileHarvester** (source type : `file`, `markdown`, `pdf`) :
-
-- Répertoires scannés : `~/Desktop`, `~/Documents`, `~/Downloads`
+- Répertoires : `~/Desktop`, `~/Documents`, `~/Downloads`
 - Extensions texte (8) : `md, mdx, txt, rst, org, tex, adoc, csv`
-- Extensions image ignorées (17) : `png, jpg, jpeg, gif, svg, webp, ico, bmp, tiff, heic, heif, avif, raw, cr2, nef, arw`
 - PDF extrait et chunké si < 5 MB
 - **Chunking** : `MAX_CHARS=1600`, `OVERLAP_CHARS=160`, `MAX_TEXT_BYTES=2MB`
 - Dirs ignorés (24) : `node_modules, .git, target, __pycache__, .cargo, dist, build, .next, .nuxt, vendor, .build, Pods, DerivedData, .gradle, .idea, venv, .venv, env, .tox, .osmozzz, Library, Temp, obj, Logs`
 
 **`watcher.rs` — FSEvents monitor** :
-
-- `DEBOUNCE_MS=500`, `STARTUP_GRACE_SECS=15` (ignore les events au démarrage)
-- Émet `WatchEvent::Upsert(Vec<Document>)` sur création/modification
+- `DEBOUNCE_MS=500`, `STARTUP_GRACE_SECS=15`
 - Scrute : `~/Desktop`, `~/Documents`
 
-### Sources cloud (nécessitent un fichier `~/.osmozzz/*.toml`)
+### Sources cloud (nécessitent `~/.osmozzz/*.toml`)
 
 | Harvester     | Source type | Config          | Sync daemon | API                       |
 | ------------- | ----------- | --------------- | ----------- | ------------------------- |
@@ -285,53 +294,6 @@ Le filtre s'applique sur le contenu **avant** envoi aux peers P2P.
 | `airtable.rs` | `airtable`  | `airtable.toml` | 60min       | REST api.airtable.com     |
 | `obsidian.rs` | `obsidian`  | `obsidian.toml` | 5min        | Filesystem vault local    |
 
-### Format des fichiers de config cloud
-
-```toml
-# gmail.toml
-username = "user@gmail.com"
-app_password = "xxxx xxxx xxxx xxxx"
-
-# notion.toml
-token = "secret_xxx"
-
-# github.toml
-token = "ghp_xxx"
-repos = ["owner/repo1", "owner/repo2"]
-
-# linear.toml
-api_key = "lin_api_xxx"
-
-# jira.toml
-base_url = "https://monentreprise.atlassian.net"
-email    = "user@company.com"
-token    = "ATATT3xxx"
-
-# slack.toml
-token    = "xoxp-xxx"
-team_id  = "TXXXXXXXX"
-channels = ["general", "engineering"]
-
-# trello.toml
-api_key = "xxx"
-token   = "xxx"
-
-# todoist.toml
-token = "xxx"
-
-# gitlab.toml
-token    = "glpat-xxx"
-base_url = "https://gitlab.com"
-groups   = ["my-group"]
-
-# airtable.toml
-token = "patXXX"
-bases = ["appXXX"]
-
-# obsidian.toml
-vault_path = "~/Documents/MyVault"
-```
-
 ---
 
 ## osmozzz-embedder — Stockage & Recherche
@@ -339,7 +301,6 @@ vault_path = "~/Documents/MyVault"
 ### Vault (`src/vault.rs`)
 
 Interface principale :
-
 ```rust
 Vault::open(model_path, tokenizer_path, db_path) -> Result<Vault>
 vault.embed_raw(text) -> Result<Vec<f32>>
@@ -355,134 +316,20 @@ vault.recent_by_source(source, limit)
 vault.get_full_content_by_url(url)
 ```
 
-### Schéma LanceDB (`documents` table)
-
-```
-id           String       UUID v4
-source       String       "email", "chrome", "file", etc.
-url          String       identifiant unique
-title        String       optionnel
-content      String       texte indexé
-checksum     String       SHA-256 (déduplication)
-harvested_at Int64        timestamp Unix
-source_ts    Int64        timestamp source original (optionnel)
-chunk_index  Int32        position chunk (optionnel)
-chunk_total  Int32        total chunks (optionnel)
-embedding    Vec<f32>     384 dimensions, L2 normalisé
-```
-
 ### Modèle d'embedding
-
 - **Modèle** : all-MiniLM-L6-v2 (SentenceTransformers)
-- **Dimension** : 384 float32
-- **Normalisation** : L2
-- **Distance** : cosine [0, 2] → score `1.0 - dist/2.0` → [0, 1]
+- **Dimension** : 384 float32 · **Normalisation** : L2 · **Distance** : cosine → score `1.0 - dist/2.0`
 - **Chemins** : `~/.osmozzz/models/all-MiniLM-L6-v2.onnx` + `~/.osmozzz/models/tokenizer.json`
-
----
-
-## Sécurité & Confidentialité
-
-OSMOzzz expose quatre mécanismes de contrôle des données envoyées au client IA.
-
-### 1. Filtre de confidentialité (`~/.osmozzz/privacy.toml`)
-
-Masque automatiquement des patterns sensibles **dans tous les résultats** avant envoi au client IA.
-
-```toml
-api_keys    = true   # masque les clés API/tokens
-email       = false  # masque les adresses email
-phone       = false  # masque les numéros de téléphone
-```
-
-Géré via `GET/POST /api/privacy`. S'applique aussi avant tout envoi P2P vers un peer.
-
-### 2. Alias d'identité / Pseudonymisation (`~/.osmozzz/aliases.toml`)
-
-Remplace les vrais noms par des alias **avant** que le client IA ne reçoive les données.
-Le client IA travaille uniquement avec l'alias — il ne voit jamais l'identité réelle.
-Si le client IA cherche un alias dans un tool MCP, OSMOzzz résout l'alias vers le vrai nom dans le vault.
-
-```toml
-# ~/.osmozzz/aliases.toml
-"Jean Pierre" = "Matisse Mouseu"
-"user@gmail.com" = "contact-pro"
-```
-
-Géré via `GET/POST /api/aliases` et la section **Alias d'identité** du dashboard (page Confidentialité).
-
-### 3. Liste noire / Blacklist (`~/.osmozzz/blacklist.toml`)
-
-Exclut des documents ou des sources entières des résultats envoyés au client IA.
-
-```toml
-[urls]        # URLs de documents spécifiques
-[gmail]       # adresses email des expéditeurs
-[imessage]    # numéros de téléphone
-[chrome]      # domaines (substring match)
-[safari]      # domaines
-[files]       # préfixes de chemins de fichiers
-```
-
-- `is_banned(source, url, title)` — vérifié à **l'indexation** (daemon, empêche l'entrée en DB)
-- `is_result_banned(source, url, title, content)` — vérifié à la **recherche** (filtre les résultats sortants)
-
-Géré via `POST /api/ban`, `POST /api/unban`, `GET /api/blacklist` et la section **Liste noire** du dashboard.
-
-### 4. Journal d'accès (`~/.osmozzz/audit.jsonl`)
-
-Log append-only de **tous les appels MCP** reçus (quel tool, quelle requête, combien de résultats, bloqué ou non).
-
-```jsonl
-{"ts":1710000000,"tool":"search_memory","query":"ismail PDF","results":13,"blocked":false}
-{"ts":1710000001,"tool":"search_emails","query":"ismail","results":20,"blocked":false}
-{"ts":1710000002,"tool":"search_notes","query":"ismail","results":1,"blocked":false}
-```
-
-Champs :
-
-- `ts` — timestamp Unix
-- `tool` — nom du tool MCP appelé (ex: `search_memory`, `search_emails`)
-- `query` — requête envoyée
-- `results` — nombre de résultats retournés
-- `blocked` — true si le résultat a été bloqué par une règle de confidentialité
-- `data` — optionnel, données supplémentaires
-
-Consulté via `GET /api/audit?limit=200` et l'onglet **Journal d'accès** du dashboard (page Confidentialité/Actions).
-
-### Moteurs de recherche (3)
-
-1. **Vectoriel ONNX → LanceDB** (`search_memory`) — sémantique
-   - Blended : top-N global + 3 emails forcés (emails ont scores 0.27–0.35 vs Chrome 0.72–0.85)
-2. **Keyword `.contains()`** — exact, scan 100k docs en mémoire, tri par date
-3. **Filesystem direct** — `find_file`, `fetch_content`, `get_recent_files`, `list_directory`
-
-**Recherche multi-terme** (dashboard) : si `+` détecté → AND logique (ex: `qonto + style`)
 
 ---
 
 ## osmozzz-api — REST API & Dashboard
 
-### AppState (`src/state.rs`)
-
-```rust
-pub struct AppState {
-    vault: Arc<Vault>,
-    p2p: Option<Arc<P2pNode>>,
-    index_progress: Arc<Mutex<IndexProgress>>,
-    action_queue: Arc<ActionQueue>,
-}
-```
-
 ### ActionQueue (`src/action_queue.rs`)
-
-Thread-safe `VecDeque` + canal broadcast SSE :
-
-- `push(action)` — ajoute + notifie les abonnés SSE
-- `pending()` — filtre Pending, marque Expired si > 5min
-- `approve(id)` / `reject(id)` — met à jour le statut + notifie
-- `set_execution_result(id, result)` — stocke le résultat d'exécution
-- `subscribe()` — retourne un `broadcast::Receiver<ActionEvent>`
+- `push(action)` → ajoute + notifie SSE
+- `pending()` → filtre Pending, marque Expired si > 5min
+- `approve(id)` / `reject(id)` → statut + SSE
+- `subscribe()` → `broadcast::Receiver<ActionEvent>`
 
 ### Executor (`src/executor.rs`) — 16 actions supportées
 
@@ -508,77 +355,59 @@ Thread-safe `VecDeque` + canal broadcast SSE :
 ### Routes REST (`src/routes.rs`)
 
 #### Statut & Recherche
-
 ```
-GET  /api/status                              → counts par source + métriques
-GET  /api/search?q=...&source=...&from=...&to=... → recherche groupée par source
+GET  /api/status
+GET  /api/search?q=...&source=...&from=...&to=...
 GET  /api/recent?source=...&q=...&from=...&to=...&limit=200&offset=0
-GET  /api/config                              → état des connecteurs (configured: bool)
+GET  /api/config
 ```
 
-#### Configuration des connecteurs (11)
-
+#### Configuration des connecteurs (26 routes)
 ```
-POST /api/config/gmail
-POST /api/config/notion
-POST /api/config/github
-POST /api/config/linear
-POST /api/config/jira
-POST /api/config/slack
-POST /api/config/trello
-POST /api/config/todoist
-POST /api/config/gitlab
-POST /api/config/airtable
-POST /api/config/obsidian
+POST /api/config/gmail        POST /api/config/notion       POST /api/config/github
+POST /api/config/linear       POST /api/config/jira         POST /api/config/slack
+POST /api/config/trello       POST /api/config/todoist      POST /api/config/gitlab
+POST /api/config/airtable     POST /api/config/cloudflare   POST /api/config/sentry
+POST /api/config/obsidian     POST /api/config/supabase     POST /api/config/vercel
+POST /api/config/railway      POST /api/config/render       POST /api/config/google
+POST /api/config/stripe       POST /api/config/hubspot      POST /api/config/posthog
+POST /api/config/resend       POST /api/config/discord      POST /api/config/twilio
+POST /api/config/figma
 ```
 
 #### Documents & Blacklist
-
 ```
-GET  /api/open?url=...                        → ouvre un fichier dans Finder/app
-GET  /api/messages/contacts                   → contacts iMessage
-GET  /api/messages/conversation?contact=...  → conversation iMessage
-POST /api/ban                                 → bannir url ou source+identifier
-POST /api/unban                               → débannir
-GET  /api/blacklist                           → liste des bannis
-POST /api/compact                             → compacter LanceDB
-POST /api/reindex/imessage                    → réindexer iMessages
-GET  /api/files/search?q=...                  → recherche filesystem live
-GET  /api/index/preview                       → preview fichiers qui seraient indexés
-GET  /api/index/progress                      → progression de l'indexation en cours
-POST /api/index                               → lancer une indexation
-GET  /api/privacy                             → lire privacy.toml
-POST /api/privacy                             → écrire privacy.toml
-GET  /api/aliases                             → alias de recherche
-POST /api/aliases                             → créer/modifier alias
+GET  /api/open?url=...
+GET  /api/messages/contacts
+GET  /api/messages/conversation?contact=...
+POST /api/ban · POST /api/unban · GET /api/blacklist
+POST /api/compact
+POST /api/reindex/imessage
+GET  /api/files/search?q=...
+GET  /api/index/preview · GET /api/index/progress · POST /api/index
+GET  /api/privacy · POST /api/privacy
+GET  /api/aliases · POST /api/aliases
 ```
 
 #### Actions (workflow approbation)
-
 ```
-GET  /api/actions                             → toutes les actions (historique)
-GET  /api/actions/pending                     → actions en attente
-GET  /api/actions/stream                      → SSE stream (ActionEvent)
-GET  /api/actions/:id                         → détail d'une action
-POST /api/actions/:id/approve                 → approuver
-POST /api/actions/:id/reject                  → rejeter
-GET  /api/permissions                         → règles de permissions globales
-POST /api/permissions                         → mettre à jour permissions
-GET  /api/source-access                       → accès par source
-POST /api/source-access                       → modifier accès source
-GET  /api/audit                               → log d'audit
+GET  /api/actions             GET  /api/actions/pending
+GET  /api/actions/stream      GET  /api/actions/:id
+POST /api/actions/:id/approve POST /api/actions/:id/reject
+GET  /api/permissions         POST /api/permissions
+GET  /api/source-access       POST /api/source-access
+GET  /api/audit
 ```
 
 #### Réseau P2P
-
 ```
-GET    /api/network/peers                     → peers connus + état connexion
-POST   /api/network/invite                    → générer lien d'invitation (base64 addr iroh)
-POST   /api/network/connect                   → connecter depuis lien
-DELETE /api/network/peers/:peer_id            → déconnecter un peer
-GET    /api/network/permissions/:peer_id      → permissions d'un peer
-POST   /api/network/permissions/:peer_id      → modifier permissions
-GET    /api/network/history                   → historique des requêtes reçues
+GET    /api/network/peers
+POST   /api/network/invite
+POST   /api/network/connect
+DELETE /api/network/peers/:peer_id
+GET    /api/network/permissions/:peer_id
+POST   /api/network/permissions/:peer_id
+GET    /api/network/history
 ```
 
 ---
@@ -586,199 +415,286 @@ GET    /api/network/history                   → historique des requêtes reçu
 ## osmozzz-cli — Interface utilisateur
 
 ### Commandes CLI
-
 ```bash
 osmozzz index   --source chrome|safari|gmail|imessage|notes|calendar|terminal|files|
                           notion|github|linear|jira|slack|trello|todoist|gitlab|airtable|obsidian|contacts|arc
                 [--path PATH] [--reset] [--batch-size N]
 
 osmozzz search  QUERY [--source FILTER] [--limit N] [--format text|json]
-osmozzz status                          # counts par source
-osmozzz compact                         # merge LanceDB fragments
-osmozzz daemon                          # serveur HTTP + watcher + auto-sync
-osmozzz mcp                             # serveur MCP stdin/stdout (tout client IA compatible MCP)
-osmozzz serve   [--socket PATH]         # UDS bridge legacy
-osmozzz install                         # copie modèles ONNX + config client MCP
-osmozzz verify  --sig S --source S --url U --content C --ts T  # Proof of Context
+osmozzz status
+osmozzz compact
+osmozzz daemon
+osmozzz mcp
+osmozzz serve   [--socket PATH]
+osmozzz install
+osmozzz verify  --sig S --source S --url U --content C --ts T
 ```
 
-### Daemon (`src/commands/daemon.rs`)
+### MCP Tools — Vue complète
 
-Séquence de démarrage :
+**Fichier principal** : `crates/osmozzz-cli/src/commands/mcp.rs` (3132 lignes)
 
-1. Copie des modèles ONNX vers `~/.osmozzz/models/`
-2. Ouverture du Vault (LanceDB + ONNX)
-3. Initialisation du nœud P2P iroh
-4. Démarrage du serveur HTTP Axum (port 7878)
-5. Ouverture du dashboard dans le navigateur
-6. Démarrage du watcher FSEvents (Desktop + Documents)
-7. Spawn des tâches auto-sync par source
+#### Tools natifs mcp.rs (31 tools)
+
+**Recherche sémantique** :
+- `search_memory` — vectoriel ONNX blended (global + emails forcés)
+
+**Gmail** (7) :
+`gmail_search`, `gmail_recent`, `gmail_read`, `gmail_by_sender`, `gmail_send`, `gmail_reply`, `gmail_stats`
+
+**Sources locales** (7) :
+`search_messages`, `search_notes`, `search_terminal`, `get_upcoming_events`, `search_calendar`, `search_contacts`, `search_arc`
+
+**Filesystem** (4) :
+`find_file`, `fetch_content`, `get_recent_files`, `list_directory`
+
+**Actions (approbation dashboard)** (11) :
+`act_create_todoist_task`, `act_create_trello_card`, `act_create_gitlab_issue`, `act_send_imessage`, `act_create_calendar_event`, `act_delete_calendar_event`, `act_delete_note`, `act_create_folder`, `act_rename_file`, `act_delete_file`, `act_run_command`
+
+**Workflow** (1) :
+`osmozzz_resume_action`
+
+#### Connectors natifs Rust (262 tools — `connectors/`)
+
+**Linear** (17) :
+`linear_search_issues`, `linear_get_issue`, `linear_create_issue`, `linear_update_issue`, `linear_add_comment`, `linear_list_teams`, `linear_list_issues`, `linear_list_projects`, `linear_list_workflow_states`, `linear_list_labels`, `linear_list_members`, `linear_archive_issue`, `linear_get_viewer`, `linear_create_project`, `linear_list_cycles`, `linear_get_cycle`, `linear_delete_comment`
+
+**Jira** (23) :
+`jira_search_issues`, `jira_get_issue`, `jira_create_issue`, `jira_update_issue`, `jira_add_comment`, `jira_get_comments`, `jira_transition_issue`, `jira_list_transitions`, `jira_assign_issue`, `jira_list_projects`, `jira_get_issue_types`, `jira_list_priorities`, `jira_search_users`, `jira_add_worklog`, `jira_list_boards`, `jira_list_sprints`, `jira_delete_issue`, `jira_link_issues`, `jira_list_link_types`, `jira_get_current_user`, `jira_list_versions`, `jira_move_to_sprint`, `jira_get_fields`
+
+**GitLab natif** (23) :
+`gitlab_list_issues`, `gitlab_get_issue`, `gitlab_create_issue`, `gitlab_update_issue`, `gitlab_close_issue`, `gitlab_add_comment`, `gitlab_get_comments`, `gitlab_assign_issue`, `gitlab_list_labels`, `gitlab_list_mrs`, `gitlab_get_mr`, `gitlab_create_mr`, `gitlab_merge_mr`, `gitlab_add_mr_comment`, `gitlab_list_pipelines`, `gitlab_get_pipeline`, `gitlab_retry_pipeline`, `gitlab_cancel_pipeline`, `gitlab_list_projects`, `gitlab_get_project`, `gitlab_list_members`, `gitlab_get_current_user`, `gitlab_list_branches`
+
+**Vercel** (15) :
+`vercel_list_projects`, `vercel_get_project`, `vercel_list_deployments`, `vercel_get_deployment`, `vercel_list_domains`, `vercel_list_env`, `vercel_cancel_deployment`, `vercel_list_teams`, `vercel_check_alias`, `vercel_get_build_logs`, `vercel_redeploy`, `vercel_delete_project`, `vercel_add_domain_to_project`, `vercel_remove_domain_from_project`, `vercel_get_project_members`
+
+**Railway** (14) :
+`railway_list_projects`, `railway_get_project`, `railway_list_services`, `railway_list_deployments`, `railway_get_logs`, `railway_get_variables`, `railway_trigger_deploy`, `railway_list_environments`, `railway_get_service`, `railway_build_logs`, `railway_restart_deployment`, `railway_create_project`, `railway_delete_project`, `railway_get_usage`
+
+**Render** (14) :
+`render_list_services`, `render_get_service`, `render_list_deploys`, `render_get_deploy`, `render_trigger_deploy`, `render_list_env_vars`, `render_put_env_var`, `render_suspend_service`, `render_resume_service`, `render_get_logs`, `render_list_custom_domains`, `render_add_custom_domain`, `render_delete_custom_domain`, `render_scale_service`
+
+**Google Calendar** (12) :
+`gcal_upcoming`, `gcal_today`, `gcal_this_week`, `gcal_search`, `gcal_list_calendars`, `gcal_create_event`, `gcal_delete_event`, `gcal_update_event`, `gcal_get_event`, `gcal_get_free_busy`, `gcal_add_attendee`, `gcal_list_upcoming_for_calendar`
+
+**Stripe** (27) :
+`stripe_get_balance`, `stripe_list_customers`, `stripe_get_customer`, `stripe_create_customer`, `stripe_list_payment_intents`, `stripe_get_payment_intent`, `stripe_list_subscriptions`, `stripe_get_subscription`, `stripe_list_invoices`, `stripe_get_invoice`, `stripe_list_events`, `stripe_get_event`, `stripe_list_webhooks`, `stripe_get_webhook`, `stripe_create_webhook`, `stripe_delete_webhook`, `stripe_list_payouts`, `stripe_get_payout`, `stripe_search_customers`, `stripe_update_customer`, `stripe_list_products`, `stripe_create_product`, `stripe_list_prices`, `stripe_create_price`, `stripe_create_subscription`, `stripe_create_payment_link`, `stripe_create_checkout_session`
+
+**HubSpot** (26) :
+`hubspot_list_contacts`, `hubspot_get_contact`, `hubspot_create_contact`, `hubspot_update_contact`, `hubspot_search_contacts`, `hubspot_delete_contact`, `hubspot_list_companies`, `hubspot_get_company`, `hubspot_create_company`, `hubspot_update_company`, `hubspot_search_companies`, `hubspot_list_deals`, `hubspot_get_deal`, `hubspot_create_deal`, `hubspot_update_deal`, `hubspot_move_deal_stage`, `hubspot_search_deals`, `hubspot_list_tickets`, `hubspot_get_ticket`, `hubspot_create_ticket`, `hubspot_update_ticket`, `hubspot_create_note`, `hubspot_create_task`, `hubspot_log_call`, `hubspot_list_pipelines`, `hubspot_list_pipeline_stages`
+
+**PostHog** (18) :
+`posthog_capture_event`, `posthog_query_events`, `posthog_get_event_definitions`, `posthog_list_persons`, `posthog_get_person`, `posthog_search_persons`, `posthog_delete_person`, `posthog_list_feature_flags`, `posthog_get_feature_flag`, `posthog_create_feature_flag`, `posthog_update_feature_flag`, `posthog_toggle_feature_flag`, `posthog_list_insights`, `posthog_get_insight`, `posthog_create_trend_insight`, `posthog_list_cohorts`, `posthog_list_dashboards`, `posthog_list_projects`
+
+**Resend** (14) :
+`resend_send_email`, `resend_get_email`, `resend_cancel_email`, `resend_list_domains`, `resend_get_domain`, `resend_create_domain`, `resend_verify_domain`, `resend_delete_domain`, `resend_list_api_keys`, `resend_create_api_key`, `resend_delete_api_key`, `resend_list_audiences`, `resend_create_audience`, `resend_delete_audience`
+
+**Twilio** (16) :
+`twilio_send_sms`, `twilio_send_whatsapp`, `twilio_list_messages`, `twilio_get_message`, `twilio_create_call`, `twilio_list_calls`, `twilio_get_call`, `twilio_list_numbers`, `twilio_search_available_numbers`, `twilio_purchase_number`, `twilio_release_number`, `twilio_create_verify_service`, `twilio_list_verify_services`, `twilio_send_verification`, `twilio_check_verification`, `twilio_lookup_phone_number`
+
+**Figma** (15) :
+`figma_get_file`, `figma_get_file_nodes`, `figma_list_file_versions`, `figma_get_comments`, `figma_post_comment`, `figma_delete_comment`, `figma_get_team_components`, `figma_get_component`, `figma_get_component_sets`, `figma_get_team_projects`, `figma_get_project_files`, `figma_get_local_variables`, `figma_get_published_variables`, `figma_export_images`, `figma_list_webhooks`
+
+**Discord** (28) :
+`discord_send_message`, `discord_edit_message`, `discord_delete_message`, `discord_get_message`, `discord_list_messages`, `discord_list_channels`, `discord_get_channel`, `discord_create_channel`, `discord_edit_channel`, `discord_delete_channel`, `discord_list_members`, `discord_get_member`, `discord_kick_member`, `discord_list_roles`, `discord_create_role`, `discord_add_role_to_member`, `discord_remove_role_from_member`, `discord_list_webhooks`, `discord_create_webhook`, `discord_send_webhook_message`, `discord_create_thread`, `discord_list_active_threads`, `discord_get_guild`, `discord_get_onboarding`, `discord_update_onboarding`, `discord_get_welcome_screen`, `discord_update_welcome_screen`, `discord_get_member_verification`
+
+#### MCP Proxies (via bunx subprocess)
+GitHub (~40), Notion (~25), Slack (~50), Supabase (~38), Sentry (~21), Cloudflare (~89), GitLab proxy (~115)
+
+**Total général : ~600+ tools MCP disponibles**
+
+---
+
+## Dashboard web (3 pages actives)
+
+Interface React embarquée dans le binaire (`include_dir!` dans `server.rs`).
+
+| Page              | Route      | Description                                          |
+| ----------------- | ---------- | ---------------------------------------------------- |
+| **Dashboard**     | `#status`  | Counts par source, métriques disk/RAM/vecteurs       |
+| **Actions MCP**   | `#actions` | File d'approbation SSE temps réel                    |
+| **Connecteurs**   | `#config`  | Configuration des 26 connecteurs (actifs + disponibles) |
+| ~~Réseau~~        | commenté   | P2P peers, invitations, permissions (désactivé UI)   |
+
+**Connecteurs affichés dans ConfigPage** :
+Gmail, Notion, GitHub, Linear, Jira, GitLab, Supabase, Sentry, Cloudflare, Vercel, Railway, Render, Google Calendar, Stripe, HubSpot, PostHog, Resend, Discord, Twilio, Figma
 
 ---
 
 ## osmozzz-p2p — Réseau mesh
 
 ### Architecture
-
 ```
 crates/osmozzz-p2p/src/
 ├── identity.rs    ← clé Ed25519 par machine (~/.osmozzz/identity.toml)
-├── node.rs        ← nœud iroh (QUIC + relay) + gestion des connexions
+├── node.rs        ← nœud iroh (QUIC + relay) + gestion connexions
 ├── protocol.rs    ← messages JSON (Ping/Pong, Hello/Welcome, Search/SearchResult, Info)
 ├── permissions.rs ← contrôle d'accès par source par peer
 ├── store.rs       ← peers.toml (liste persistée + permissions)
 └── history.rs     ← log JSONL (~/.osmozzz/query_history.jsonl)
 ```
 
-### Transport
-
-- **Protocol** : iroh QUIC (UDP), ALPN `b"osmozzz/1"`
-- **Port** : 47474 UDP (géré par iroh, pas fixe)
-- **Relay** : n0.computer (fallback NAT / réseaux restrictifs)
-- **Hole punching** : automatique (STUN + iroh relay)
+- **Protocol** : iroh QUIC (UDP), ALPN `b"osmozzz/1"`, relay n0.computer
 - **Invitation** : lien base64 = endpoint iroh encodé
 
-### Identité (`identity.rs`)
+---
+
+## Sécurité & Confidentialité
+
+### 1. Filtre de confidentialité (`~/.osmozzz/privacy.toml`)
+```toml
+api_keys    = true
+email       = false
+phone       = false
+```
+
+### 2. Alias d'identité (`~/.osmozzz/aliases.toml`)
+Remplace vrais noms par alias avant envoi au client IA.
+
+### 3. Blacklist (`~/.osmozzz/blacklist.toml`)
+Exclut documents ou sources entières. Vérifié à l'indexation ET à la recherche.
+
+### 4. Journal d'accès (`~/.osmozzz/audit.jsonl`)
+Log append-only de tous les appels MCP.
+```jsonl
+{"ts":1710000000,"tool":"search_memory","query":"budget","results":13,"blocked":false}
+```
+
+---
+
+## Fichiers de configuration (`~/.osmozzz/`)
+
+```
+config.toml          privacy.toml         blacklist.toml       aliases.toml
+audit.jsonl          identity.toml        peers.toml           query_history.jsonl
+
+# Harvesters cloud
+gmail.toml           notion.toml          github.toml          linear.toml
+jira.toml            slack.toml           trello.toml          todoist.toml
+gitlab.toml          airtable.toml        obsidian.toml
+
+# MCP Proxies
+cloudflare.toml      sentry.toml          supabase.toml
+
+# Connectors natifs
+vercel.toml          railway.toml         render.toml          google.toml
+stripe.toml          hubspot.toml         posthog.toml         resend.toml
+discord.toml         twilio.toml          figma.toml
+
+vault/               ← LanceDB (fichiers parquet)
+models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
+```
+
+### Formats des fichiers de config cloud
 
 ```toml
-# ~/.osmozzz/identity.toml
-peer_id          = "aabbcc..."  # hex 64 chars de la clé publique Ed25519
-private_key_hex  = "..."
-display_name     = "MacBook Pro de Thomas"
-```
+# gmail.toml
+username = "user@gmail.com"
+app_password = "xxxx xxxx xxxx xxxx"
 
-### Protocole de messages
+# notion.toml
+token = "secret_xxx"
 
-```
-Ping / Pong                          ← keepalive
-Hello { peer_id, display_name }      ← handshake initial
-Welcome { peer_id, display_name }    ← acknowledgment
-Search { request_id, query, limit }  ← requête de recherche
-SearchResult { request_id, peer_id, peer_name, results }
-GetInfo / Info { peer_id, display_name, shared_sources, version }
-Error { code, message }
-```
+# github.toml
+token = "ghp_xxx"
+repos = ["owner/repo1"]
 
-### Permissions par peer
+# linear.toml
+api_key = "lin_api_xxx"
 
-**Sources activées par défaut** : File, Notion, Github, Linear, Jira, Slack, Trello, Todoist, Gitlab, Airtable, Obsidian
+# jira.toml
+base_url = "https://monentreprise.atlassian.net"
+email    = "user@company.com"
+token    = "ATATT3xxx"
 
-**Sources désactivées par défaut** (sensibles) : Email, IMessage, Terminal, Chrome, Safari, Notes, Calendar
+# slack.toml
+token    = "xoxp-xxx"
+team_id  = "TXXXXXXXX"
+channels = ["general"]
 
-```
-PeerPermissions {
-    allowed_sources: Vec<SharedSource>,
-    max_results_per_query: usize  // défaut: 10
-}
-```
+# gitlab.toml
+token    = "glpat-xxx"
+base_url = "https://gitlab.com"
+groups   = ["my-group"]
 
-### Audit (`history.rs`)
+# vercel.toml
+token   = "xxx"
+team_id = "xxx"   # optionnel
 
-```jsonl
-{
-  "ts": 1710000000,
-  "peer_id": "aabb...",
-  "peer_name": "Thomas",
-  "query": "budget Q1",
-  "results_count": 5,
-  "blocked": false
-}
+# railway.toml
+token = "xxx"
+
+# render.toml
+api_key = "rnd_xxx"
+
+# google.toml (Google Calendar CalDAV)
+email         = "user@gmail.com"
+app_password  = "xxxx xxxx xxxx xxxx"
+
+# stripe.toml
+secret_key = "sk_live_xxx"   # ou sk_test_xxx
+
+# hubspot.toml
+access_token = "pat-xxx"
+
+# posthog.toml
+api_key     = "phx_xxx"
+project_id  = "12345"
+host        = "https://app.posthog.com"   # optionnel
+
+# resend.toml
+api_key = "re_xxx"
+
+# discord.toml
+bot_token = "xxx"
+guild_id  = "123456789"
+
+# twilio.toml
+account_sid  = "ACxxx"
+auth_token   = "xxx"
+from_number  = "+1234567890"
+
+# figma.toml
+access_token = "figd_xxx"
+team_id      = "xxx"   # optionnel
+
+# cloudflare.toml
+api_token  = "xxx"
+account_id = "xxx"
+
+# sentry.toml
+token = "sntrys_xxx"
+host  = "https://sentry.io"   # optionnel
+
+# supabase.toml
+access_token = "sbp_xxx"
+project_id   = "xxx"   # optionnel
 ```
 
 ---
 
-## Les 25 tools MCP (`src/commands/mcp.rs`)
+## Build & Deploy
 
-### Recherche sémantique
-
-| Tool            | Paramètres    | Description                                     |
-| --------------- | ------------- | ----------------------------------------------- |
-| `search_memory` | query, limit? | Vectoriel ONNX blended (global + emails forcés) |
-
-### Recherche par source (keyword exact)
-
-| Tool                  | Paramètres      | Source                          |
-| --------------------- | --------------- | ------------------------------- |
-| `search_emails`       | keyword, limit? | email                           |
-| `get_emails_by_date`  | query?, limit?  | email par période               |
-| `read_email`          | id              | email (contenu complet par URL) |
-| `search_messages`     | keyword, limit? | imessage                        |
-| `search_notes`        | keyword, limit? | notes                           |
-| `search_terminal`     | keyword, limit? | terminal                        |
-| `search_calendar`     | keyword, limit? | calendar                        |
-| `get_upcoming_events` | limit?          | calendar (prochains événements) |
-| `search_notion`       | keyword, limit? | notion                          |
-| `search_github`       | keyword, limit? | github                          |
-| `search_linear`       | keyword, limit? | linear                          |
-| `search_jira`         | keyword, limit? | jira                            |
-| `search_slack`        | keyword, limit? | slack                           |
-| `search_trello`       | keyword, limit? | trello                          |
-| `search_todoist`      | keyword, limit? | todoist                         |
-| `search_gitlab`       | keyword, limit? | gitlab                          |
-| `search_airtable`     | keyword, limit? | airtable                        |
-| `search_obsidian`     | keyword, limit? | obsidian                        |
-
-### Filesystem
-
-| Tool               | Paramètres                                   | Description                          |
-| ------------------ | -------------------------------------------- | ------------------------------------ |
-| `find_file`        | name, limit?                                 | recherche par nom/chemin             |
-| `fetch_content`    | path, query?, block_index?, offset?, length? | lire fichier + RAG scoring optionnel |
-| `get_recent_files` | hours?                                       | fichiers récemment modifiés          |
-| `list_directory`   | path                                         | lister un répertoire                 |
-| `index_files`      | path                                         | déclencher l'indexation              |
-
-### Admin
-
-| Tool         | Paramètres | Description       |
-| ------------ | ---------- | ----------------- |
-| `get_status` | —          | counts par source |
-
-### Workflow action (approbation obligatoire)
-
-Tout tool préfixé `act_` crée une `ActionRequest` → visible dans le dashboard → l'utilisateur approuve/rejette → l'executor exécute.
-
----
-
-## Dashboard web (5 pages)
-
-Interface React embarquée dans le binaire (`include_dir!` macro dans `server.rs`).
-
-| Page              | Route      | Description                                        |
-| ----------------- | ---------- | -------------------------------------------------- |
-| **Statut**        | `/`        | Counts par source, métriques disk/RAM/vecteurs     |
-| **Recherche**     | `/search`  | Recherche multi-source + filtres date + scope peer |
-| **Récents**       | `/recent`  | Documents récents par source, filtres              |
-| **Configuration** | `/config`  | Configuration des connecteurs cloud                |
-| **Actions**       | `/actions` | File d'approbation (SSE temps réel)                |
-| **Réseau**        | `/network` | Peers P2P, invitations, permissions, historique    |
-
-**Règles d'affichage des sources :**
-
-- Sources locales (10) : toujours présentes (Chrome, Safari, Email, iMessage, Notes, Calendar, Terminal, Fichiers, Contacts, Arc)
-- Sources cloud (10) : présentes seulement si le `.toml` de config existe
-- Sources P2P : affichées uniquement si peers connectés
-
-**Recherche avancée :**
-
-- Multi-terme AND : `qonto + style`
-- Filtre de périmètre : [Moi seulement | Tout le réseau | peer_name...]
-
----
-
-## Variables d'environnement
-
+### Build rapide (développement) — TOUJOURS utiliser
 ```bash
-# OBLIGATOIRE pour osmozzz mcp (le client IA doit l'avoir dans son env)
-ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib
-
-# Optionnel (fallback sur gmail.toml)
-OSMOZZZ_GMAIL_USER="user@gmail.com"
-OSMOZZZ_GMAIL_PASSWORD="app password"
+./build.sh
+~/.cargo/bin/osmozzz daemon
 ```
 
-**Exemple de configuration (Claude Desktop)** (`~/Library/Application Support/Claude/claude_desktop_config.json`) :
+### Release publique (GitHub Actions)
+**Fichier** : `.github/workflows/release.yml` — déclenché sur tag `v*`
+```bash
+git tag v1.2.3
+git push --tags
+```
+**NE PAS** modifier le workflow. Le `.pkg` s'installe dans `/usr/local/bin/osmozzz`.
 
+### Variables d'environnement
+```bash
+ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib   # OBLIGATOIRE pour osmozzz mcp
+```
+
+**Config Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`) :
 ```json
 {
   "mcpServers": {
@@ -795,119 +711,19 @@ OSMOZZZ_GMAIL_PASSWORD="app password"
 
 ---
 
-## Build & Deploy
-
-### Prérequis
-
-```bash
-brew install onnxruntime
-export ORT_DYLIB_PATH=$(brew --prefix onnxruntime)/lib/libonnxruntime.dylib
-./scripts/download-model.sh   # télécharge ~90MB
-```
-
-### Release publique (GitHub Actions) — NE JAMAIS modifier le workflow existant
-
-**Fichier** : `.github/workflows/release.yml`
-
-Le workflow se déclenche sur un tag `v*`. Il fait tout dans l'ordre :
-
-1. `brew install onnxruntime protobuf`
-2. Télécharge les modèles ONNX depuis HuggingFace directement (pas de script)
-3. `npm ci && npm run build` (dashboard)
-4. `touch crates/osmozzz-api/src/server.rs` + `cargo build --release -p osmozzz-cli`
-5. Construit le payload `.pkg` à la main (`pkg-root/`) avec `pkgbuild`
-6. Publie `osmozzz.pkg` sur GitHub Releases via `softprops/action-gh-release@v2`
-
-**Pour publier une release :**
-
-```bash
-git tag v1.2.3
-git push --tags
-```
-
-**Règles strictes :**
-
-- NE PAS créer de `scripts/release.sh` — le build PKG est inline dans le workflow
-- NE PAS modifier la structure `pkg-root/` — elle correspond au `postinstall`
-- `ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib` — chemin fixe sur les runners GitHub macOS
-- Le `.pkg` s'installe dans `/usr/local/bin/osmozzz` + `/usr/local/lib/libonnxruntime.dylib` + `/Library/OSMOzzz/models/`
-
----
-
-### Build rapide (développement) — TOUJOURS utiliser
-
-```bash
-./build.sh       # smart build : npm si dashboard changé + cargo incremental
-osmozzz daemon
-```
-
-`build.sh` fait :
-
-1. `npm run build` **seulement si** `dashboard/src/` a changé depuis le dernier build
-2. `touch crates/osmozzz-api/src/server.rs` (force recompilation include_dir!)
-3. `cargo build --release -p osmozzz-cli` (incremental, ~30s si peu de changements)
-4. `cp target/release/osmozzz ~/.cargo/bin/osmozzz`
-5. Copie des modèles ONNX vers `~/.osmozzz/models/`
-
-### Build complet (première fois ou changement de deps)
-
-```bash
-cd dashboard && npm run build
-touch crates/osmozzz-api/src/server.rs
-cargo install --path crates/osmozzz-cli --locked
-osmozzz daemon
-```
-
-**Important** :
-
-- Frontend changé → `npm run build` + `touch server.rs` requis
-- Rust seul changé → `./build.sh` suffit (skip npm automatiquement)
-- `cargo build` ≠ `cargo install` : le daemon utilise `~/.cargo/bin/osmozzz` (install)
-- Après install : Ctrl+C daemon → `osmozzz daemon` → Cmd+Shift+R navigateur
-
----
-
-## Fichiers de configuration (`~/.osmozzz/`)
-
-```
-config.toml          ← config CLI/daemon (optionnel)
-privacy.toml         ← filtres confidentialité (api_keys, email, phone)
-blacklist.toml       ← documents bannis par URL/source/identifiant
-aliases.toml         ← pseudonymisation (vrai nom → alias vu par le client IA)
-audit.jsonl          ← journal d'accès MCP (tool, query, results, blocked) append-only
-identity.toml        ← identité P2P Ed25519 (auto-créé)
-peers.toml           ← peers P2P connus + permissions
-query_history.jsonl  ← audit des requêtes P2P reçues (append-only)
-gmail.toml           ← config Gmail IMAP
-notion.toml          ← token Notion
-github.toml          ← token + repos GitHub
-linear.toml          ← api_key Linear
-jira.toml            ← base_url + email + token Jira
-slack.toml           ← token + team_id + channels Slack
-trello.toml          ← api_key + token Trello
-todoist.toml         ← token Todoist
-gitlab.toml          ← token + base_url + groups GitLab
-airtable.toml        ← token + bases Airtable
-obsidian.toml        ← vault_path Obsidian
-vault/               ← LanceDB (fichiers parquet)
-models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
-```
-
----
-
 ## Règles globales
 
-0. **INTERDIT : commandes git sans demande explicite** — ne jamais exécuter `git add`, `git commit`, `git push`, `git reset`, ni aucune commande git destructive ou de publication sans que l'utilisateur le demande explicitement. Modifier des fichiers est autorisé, les commiter/pousser ne l'est JAMAIS de façon autonome.
+0. **INTERDIT : commandes git sans demande explicite** — ne jamais exécuter `git add`, `git commit`, `git push`, `git reset`, ni aucune commande git destructive ou de publication sans que l'utilisateur le demande explicitement.
 
 1. **Jamais de données hors du Mac** — tout est local, les peers P2P ne reçoivent que des résultats filtrés
 2. **Philosophie "moins c'est plus"** — pas de sur-ingénierie
-3. **Build toujours dans l'ordre** : `npm run build` → `touch server.rs` → `cargo install`
+3. **Build toujours dans l'ordre** : `npm run build` → `touch server.rs` → `cargo build --release` → `cp`
 4. **Pas de breaking changes** sur le schéma LanceDB sans migration
 5. **Un sous-agent par domaine** — ne pas mélanger les responsabilités
-6. **Configuration utilisateur** : uniquement via le dashboard, jamais via toml manuels
-7. **ORT_DYLIB_PATH** : toujours injecter dans les configs du client IA (load-dynamic)
+6. **Configuration utilisateur** : uniquement via le dashboard
+7. **ORT_DYLIB_PATH** : toujours injecter dans les configs du client IA
 8. **Privacy filter** : s'applique TOUJOURS avant envoi à un peer P2P
-9. **Permissions P2P** : rechargées à chaque requête (révocables instantanément)
+9. **Permissions P2P** : rechargées à chaque requête
 10. **Audit** : historique append-only, jamais modifié
 
 ---
@@ -915,25 +731,14 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 ## Pattern d'ajout d'un nouveau harvester
 
 1. Créer `crates/osmozzz-harvester/src/nom_source.rs` (impl trait `Harvester`)
-2. Exporter depuis `crates/osmozzz-harvester/src/lib.rs`
+2. Exporter depuis `lib.rs`
 3. Ajouter variante dans `SourceType` (osmozzz-core)
-4. Ajouter dans `osmozzz-cli/src/commands/index.rs` (CLI)
+4. Ajouter dans `osmozzz-cli/src/commands/index.rs`
 5. Ajouter dans `osmozzz-cli/src/commands/daemon.rs` (auto-sync interval)
-6. Ajouter MCP tool dans `osmozzz-cli/src/commands/mcp.rs`
-7. Ajouter dans `osmozzz-api/src/routes.rs` (get_status + get_config)
+6. Ajouter MCP tool `search_nom` dans `mcp.rs`
+7. Ajouter dans `routes.rs` (get_status + get_config)
 8. Ajouter config POST route si cloud connector
-9. Ajouter card dans dashboard (StatusPage, RecentPage, ConfigPage si cloud)
-10. Build : `npm run build` → `touch server.rs` → `cargo install`
-
----
-
-## Sous-agents disponibles
-
-| Agent           | CLAUDE.md                            | Domaine                        |
-| --------------- | ------------------------------------ | ------------------------------ |
-| Harvester Agent | `crates/osmozzz-harvester/CLAUDE.md` | Nouvelles sources de données   |
-| MCP Tools Agent | `crates/osmozzz-cli/CLAUDE.md`       | Interface IA (tools MCP)       |
-| Storage Agent   | `crates/osmozzz-embedder/CLAUDE.md`  | LanceDB, recherche, embeddings |
+9. Ajouter card dans dashboard (ConfigPage)
 
 ---
 
@@ -941,22 +746,25 @@ models/              ← all-MiniLM-L6-v2.onnx + tokenizer.json
 
 ### Fait ✅
 
-- 20 harvesters (locaux + cloud + contacts + arc)
-- 25 tools MCP (search, filesystem, get_status, get_upcoming_events)
-- Dashboard 5 pages (Statut, Recherche, Récents, Config, Actions, Réseau)
-- REST API complète (Axum) avec toutes routes
-- Daemon auto-sync par source avec intervals dédiés
-- Blacklist / ban documents & sources (URL, expéditeur, domaine, chemin)
-- Alias d'identité / pseudonymisation (vrai nom → alias vu par le client IA)
-- Journal d'accès MCP (audit.jsonl, onglet "Journal d'accès" dashboard)
+- 21 harvesters (locaux + cloud)
+- 7 MCP Proxies (GitHub, Notion, Slack, Supabase, GitLab, Sentry, Cloudflare)
+- 14 Connectors natifs Rust (Linear, Jira, GitLab, Vercel, Railway, Render, GCal, Stripe, HubSpot, PostHog, Resend, Twilio, Figma, Discord) — 262 tools
+- 31 tools MCP natifs (search, gmail, filesystem, actions, workflow)
+- ~600+ tools MCP au total
+- Dashboard 3 pages (Dashboard, Actions MCP, Connecteurs)
+- REST API complète (Axum) avec 26 routes config
+- Daemon auto-sync par source
+- Blacklist / ban documents & sources
+- Alias d'identité / pseudonymisation
+- Journal d'accès MCP (audit.jsonl)
 - Compact LanceDB
-- Système d'actions avec workflow approbation (ActionQueue + Executor)
-- 16 types d'actions exécutables (email, Slack, Notion, Linear, Todoist, GitHub, Trello, GitLab, iMessage, Calendar, Notes, Fichiers, Shell)
-- Filtre de confidentialité (api_keys, email, phone)
-- FSEvents watcher (Desktop + Documents)
-- P2P mesh iroh (QUIC + relay + Ed25519 + permissions granulaires + audit)
-- Proof of Context (HMAC-SHA256 `osmozzz verify`)
+- Système d'actions avec workflow approbation (ActionQueue + Executor + 16 actions)
+- Filtre de confidentialité
+- FSEvents watcher
+- P2P mesh iroh (QUIC + relay + Ed25519 + permissions + audit)
+- Proof of Context (HMAC-SHA256)
 - Support PDF (extraction + chunking)
-- Contacts macOS harvester
-- Arc browser harvester
-- Recherche multi-terme AND (`+`)
+
+### À faire 🔲
+
+- Nouveaux connecteurs : Zendesk, Salesforce, Monday.com, Datadog, PagerDuty, Shopify, Google Drive/Sheets, Confluence, Mailchimp, Calendly

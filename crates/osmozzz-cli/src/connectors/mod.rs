@@ -6,12 +6,14 @@
 ///
 /// La couche sécurité (sanitize_proxy_response + audit_log) est appliquée
 /// CENTRALEMENT dans le dispatcher de mcp.rs, après le retour du connecteur.
+pub mod calendly;
 pub mod discord;
 pub mod figma;
 pub mod gcal;
 pub mod gitlab;
 pub mod hubspot;
 pub mod posthog;
+pub mod reddit;
 pub mod resend;
 pub mod stripe;
 pub mod jira;
@@ -40,6 +42,8 @@ pub fn all_tools() -> Vec<Value> {
     tools.extend(discord::tools());
     tools.extend(twilio::tools());
     tools.extend(figma::tools());
+    tools.extend(reddit::tools());
+    tools.extend(calendly::tools());
     tools
 }
 
@@ -57,8 +61,10 @@ pub async fn handle(name: &str, args: &Value) -> Option<Result<String, String>> 
     if name.starts_with("hubspot_")  { return Some(hubspot::handle(name, args).await); }
     if name.starts_with("posthog_")  { return Some(posthog::handle(name, args).await); }
     if name.starts_with("resend_")   { return Some(resend::handle(name, args).await); }
-    if name.starts_with("discord_")  { return Some(discord::handle(name, args).await); }
-    if name.starts_with("twilio_")   { return Some(twilio::handle(name, args).await); }
-    if name.starts_with("figma_")    { return Some(figma::handle(name, args).await); }
+    if name.starts_with("discord_")   { return Some(discord::handle(name, args).await); }
+    if name.starts_with("twilio_")    { return Some(twilio::handle(name, args).await); }
+    if name.starts_with("figma_")     { return Some(figma::handle(name, args).await); }
+    if name.starts_with("reddit_")    { return Some(reddit::handle(name, args).await); }
+    if name.starts_with("calendly_")  { return Some(calendly::handle(name, args).await); }
     None
 }
