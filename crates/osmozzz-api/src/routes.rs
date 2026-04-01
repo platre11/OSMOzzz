@@ -1904,7 +1904,7 @@ pub struct AuditEntry {
     pub results: usize,
     pub blocked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data:    Option<String>,
+    pub data:    Option<serde_json::Value>,
 }
 
 fn audit_path() -> Option<std::path::PathBuf> {

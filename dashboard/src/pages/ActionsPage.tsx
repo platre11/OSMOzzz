@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Zap, PlugZap, Shield, Database, RefreshCw } from 'lucide-react'
+import { Zap, PlugZap, Shield, Database, RefreshCw, Key, UserRound, ShieldOff } from 'lucide-react'
 import styled, { keyframes } from 'styled-components'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api } from '../api'
@@ -244,41 +244,84 @@ const JournalQuery = styled.span`
   font-style: italic;
 `
 
-const JournalCount = styled.span<{ $blocked: boolean }>`
-  font-size: 11px; font-weight: 600; white-space: nowrap;
-  color: ${({ $blocked }) => $blocked ? '#dc2626' : '#6b7280'};
-`
 
-const JournalData = styled.pre`
+
+const DataBox = styled.div`
   margin: 6px 0 0; padding: 10px 14px; border-radius: 8px;
   background: #f8fafc; border: 1px solid #e8eaed;
   font-size: 11px; color: #374151; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
-  max-height: 300px; overflow-y: auto; font-family: 'SF Mono', monospace;
+  max-height: 220px; overflow-y: auto; font-family: 'SF Mono', monospace;
 `
 
 const SecurityBox = styled.div`
-  margin: 4px 0 0; padding: 8px 12px; border-radius: 7px;
-  background: #f8fafc; border: 1px solid #e8eaed;
-  display: flex; flex-direction: column; gap: 3px;
+  margin: 6px 0 0; border-radius: 8px;
+  background: #fffbeb; border: 1px solid #fde68a;
+  overflow: hidden;
 `
 
-const SecurityLine = styled.div<{ $kind: 'block' | 'tokenize' | 'alias' }>`
-  font-size: 11px; font-family: 'SF Mono', monospace; line-height: 1.6;
+const SecurityBoxHeader = styled.div`
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-bottom: 1px solid #fde68a;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: #92400e;
+`
+
+const SecurityGroup = styled.div`
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid #fef3c7;
+  &:last-child { border-bottom: none; }
+`
+
+const SecurityGroupTitle = styled.div<{ $color: string }>`
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: ${({ $color }) => $color};
+  margin-bottom: 5px;
+`
+
+const SecurityMaskList = styled.div`
+  display: flex; flex-direction: column; gap: 2px;
+`
+
+const SecurityMaskItem = styled.div`
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 11px; font-family: 'SF Mono', monospace;
+`
+
+const SecurityMaskNum = styled.span`
+  color: #9ca3af; font-size: 10px; font-weight: 700; flex-shrink: 0; min-width: 22px;
+`
+
+const SecurityMaskEmail = styled.span`color: #1a1d23;`
+
+const SecurityRow = styled.div`
+  display: flex; align-items: center; gap: 10px;
+  padding: 3px 0;
+`
+
+const SecurityRealValue = styled.span`
+  font-size: 11px; font-family: 'SF Mono', monospace; color: #1a1d23; flex-shrink: 0;
+`
+
+const SecurityArrow = styled.span`font-size: 11px; color: #9ca3af; flex-shrink: 0;`
+
+const SecurityReplaced = styled.span<{ $kind: 'block' | 'tokenize' | 'alias' | 'mask' }>`
+  font-size: 11px; font-family: 'SF Mono', monospace; font-weight: 600;
   color: ${({ $kind }) =>
-    $kind === 'block'    ? '#dc2626' :
+    $kind === 'block' || $kind === 'mask' ? '#dc2626' :
     $kind === 'alias'    ? '#059669' :
     '#d97706'};
 `
 
-const SecurityBadge = styled.span<{ $kind: 'block' | 'tokenize' | 'alias' }>`
+const SecurityBadge = styled.span<{ $kind: 'block' | 'tokenize' | 'alias' | 'mask' }>`
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-left: 4px;
   background: ${({ $kind }) =>
-    $kind === 'block'    ? '#fee2e2' :
+    $kind === 'block' || $kind === 'mask' ? '#fee2e2' :
     $kind === 'alias'    ? '#d1fae5' :
     '#fef3c7'};
   color: ${({ $kind }) =>
-    $kind === 'block'    ? '#dc2626' :
+    $kind === 'block' || $kind === 'mask' ? '#dc2626' :
     $kind === 'alias'    ? '#059669' :
     '#d97706'};
 `
@@ -582,8 +625,10 @@ function extractTextFromJson(obj: unknown, depth = 0): string[] {
 function formatJournalData(raw: string): string {
   try {
     const parsed = JSON.parse(raw)
-    const lines = extractTextFromJson(parsed)
-    // Déduplique et filtre les lignes vides/trop courtes
+    // Nouveau format avec security actions : extraire le champ "text"
+    const source = parsed?.text !== undefined ? parsed.text : parsed
+    if (typeof source === 'string') return source
+    const lines = extractTextFromJson(source)
     const seen = new Set<string>()
     const unique = lines.filter(l => {
       const t = l.trim()
@@ -597,7 +642,7 @@ function formatJournalData(raw: string): string {
   }
 }
 
-type SecurityAction = { kind: 'block' | 'tokenize' | 'alias'; field: string; real_value: string; replaced_by: string }
+type SecurityAction = { kind: 'block' | 'tokenize' | 'alias' | 'mask'; field: string; real_value: string; replaced_by: string }
 
 function parseSecurityActions(raw?: string): SecurityAction[] {
   if (!raw) return []
@@ -608,42 +653,227 @@ function parseSecurityActions(raw?: string): SecurityAction[] {
   return []
 }
 
+// Patterns fixes à mettre en évidence dans les données brutes
+// (les versions numérotées [TOKEN masqué #N] etc. sont ajoutées dynamiquement depuis les actions)
+const HIGHLIGHT_PATTERNS = [
+  { pattern: '[bloqué]', display: undefined as string | undefined, color: '#dc2626', bg: '#fee2e2' },
+]
+
+function HighlightedText({ text, actions }: { text: string; actions: SecurityAction[] }) {
+  // Construit la liste de tous les patterns à chercher (fixes + alias replaced_by + emails/phones numérotés)
+  // Pour les tok_nm_xxx, on ajoute un `display` avec le numéro pour l'affichage uniquement
+  const patterns: { pattern: string; display?: string; color: string; bg: string }[] = [...HIGHLIGHT_PATTERNS]
+
+  // DB tokens — numérotés dans le display (#N) mais matchés sur la valeur exacte
+  const dbTokenActions = actions.filter(a => a.kind === 'tokenize' && a.replaced_by.startsWith('tok_'))
+  dbTokenActions.forEach((a, i) => {
+    if (!patterns.find(p => p.pattern === a.replaced_by))
+      patterns.push({ pattern: a.replaced_by, display: `${a.replaced_by} #${i + 1}`, color: '#d97706', bg: '#fef3c7' })
+  })
+
+  for (const a of actions) {
+    if (!a.replaced_by || patterns.find(p => p.pattern === a.replaced_by)) continue
+    if (a.kind === 'alias')    patterns.push({ pattern: a.replaced_by, color: '#059669', bg: '#d1fae5' })
+    if (a.kind === 'mask')     patterns.push({ pattern: a.replaced_by, color: '#dc2626', bg: '#fee2e2' })
+    if (a.kind === 'tokenize') patterns.push({ pattern: a.replaced_by, color: '#d97706', bg: '#fef3c7' })
+  }
+
+  // Split le texte sur tous les patterns et retourne des spans
+  const parts: React.ReactNode[] = []
+  let remaining = text
+  let key = 0
+
+  while (remaining.length > 0) {
+    let earliest = -1
+    let matchedPattern: typeof patterns[0] | null = null
+
+    for (const p of patterns) {
+      const idx = remaining.indexOf(p.pattern)
+      if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+        earliest = idx
+        matchedPattern = p
+      }
+    }
+
+    if (earliest === -1 || !matchedPattern) {
+      parts.push(remaining)
+      break
+    }
+
+    if (earliest > 0) parts.push(remaining.slice(0, earliest))
+    parts.push(
+      <span key={key++} style={{
+        fontWeight: 700, color: matchedPattern.color,
+        background: matchedPattern.bg, borderRadius: 3, padding: '0 2px',
+      }}>{matchedPattern.display ?? matchedPattern.pattern}</span>
+    )
+    remaining = remaining.slice(earliest + matchedPattern.pattern.length)
+  }
+
+  return <>{parts}</>
+}
+
 function JournalEntryRow({ entry }: {
-  entry: { ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string }
+  entry: { ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string | Record<string, unknown> }
 }) {
   const [expanded, setExpanded] = useState(false)
   const date = new Date(entry.ts * 1000)
   const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   const day  = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
-  const secActions = parseSecurityActions(entry.data)
-  const displayData = entry.data && secActions.length === 0 ? formatJournalData(entry.data) : ''
-  const clickable = (!!entry.data || secActions.length > 0) && !entry.blocked
+  // Normalise data : string ou objet → toujours string pour les parsers
+  const rawData = entry.data == null ? undefined
+    : typeof entry.data === 'string' ? entry.data
+    : JSON.stringify(entry.data)
+  const secActions = parseSecurityActions(rawData)
+  const displayData = rawData ? formatJournalData(rawData) : ''
+  const hasContent = !!rawData && !entry.blocked
+  const color = connectorColor(entry.tool)
+  const { connector, action } = parseToolDisplay(entry.tool)
 
   return (
     <JournalRow
       $blocked={entry.blocked}
-      onClick={clickable ? () => setExpanded(v => !v) : undefined}
-      style={clickable ? { cursor: 'pointer' } : undefined}
+      $color={color}
+      onClick={hasContent ? () => setExpanded(v => !v) : undefined}
+      style={hasContent ? { cursor: 'pointer' } : undefined}
     >
       <JournalMeta>
         <JournalTime>{day} {time}</JournalTime>
-        <JournalTool>{entry.tool}</JournalTool>
-        {entry.blocked && <JournalCount $blocked>⛔</JournalCount>}
-        {secActions.some(a => a.kind === 'block')    && <SecurityBadge $kind="block">bloqué</SecurityBadge>}
-        {secActions.some(a => a.kind === 'tokenize') && <SecurityBadge $kind="tokenize">tokenisé</SecurityBadge>}
-        {secActions.some(a => a.kind === 'alias')    && <SecurityBadge $kind="alias">alias</SecurityBadge>}
+        <JournalConnector $color={entry.blocked ? '#dc2626' : color}>{connector}</JournalConnector>
+        {action && <JournalAction>{action}</JournalAction>}
+        <JournalResultsBadge $blocked={entry.blocked}>
+          {entry.blocked ? '⛔ bloqué' : `${entry.results} résultat${entry.results !== 1 ? 's' : ''}`}
+        </JournalResultsBadge>
+        {secActions.length > 0 && (
+          <>
+            {secActions.some(a => a.kind === 'tokenize') && <SecurityBadge $kind="tokenize">🔑 {secActions.filter(a => a.kind === 'tokenize').length} tokenisé</SecurityBadge>}
+            {secActions.some(a => a.kind === 'alias')    && <SecurityBadge $kind="alias">👤 alias</SecurityBadge>}
+            {secActions.some(a => a.kind === 'mask')     && <SecurityBadge $kind="mask">🔒 {secActions.filter(a => a.kind === 'mask').length} masqué</SecurityBadge>}
+            {secActions.some(a => a.kind === 'block')    && <SecurityBadge $kind="block">🚫 bloqué</SecurityBadge>}
+          </>
+        )}
       </JournalMeta>
       {entry.query && <JournalQuery>{entry.query}</JournalQuery>}
+      {expanded && displayData && (
+        <DataBox><HighlightedText text={displayData} actions={secActions} /></DataBox>
+      )}
       {expanded && secActions.length > 0 && (
         <SecurityBox>
-          {secActions.map((a, i) => (
-            <SecurityLine key={i} $kind={a.kind}>
-              {a.field}: &quot;{a.real_value}&quot; → {a.replaced_by}
-            </SecurityLine>
-          ))}
+          <SecurityBoxHeader>
+            <Shield size={11} />
+            Filtres de confidentialité appliqués
+          </SecurityBoxHeader>
+          {/* Groupe mask — rendu d'un type de valeur masquée en colonne compacte */}
+          {(['[email masqué', '[téléphone masqué'] as const).map(prefix => {
+            const items = secActions.filter(a => a.kind === 'mask' && a.replaced_by.startsWith(prefix))
+            if (items.length === 0) return null
+            const label = prefix === '[email masqué' ? 'Emails masqués' : 'Téléphones masqués'
+            return (
+              <SecurityGroup key={prefix}>
+                <SecurityGroupTitle $color="#dc2626">
+                  <ShieldOff size={11} />
+                  {label}
+                </SecurityGroupTitle>
+                <SecurityMaskList>
+                  {items.map((a, i) => {
+                    const numMatch = a.replaced_by.match(/#(\d+)\]$/)
+                    const num = numMatch ? `#${numMatch[1]}` : `#${i + 1}`
+                    return (
+                      <SecurityMaskItem key={i}>
+                        <SecurityMaskNum>{num}</SecurityMaskNum>
+                        <SecurityMaskEmail>{a.real_value}</SecurityMaskEmail>
+                      </SecurityMaskItem>
+                    )
+                  })}
+                </SecurityMaskList>
+              </SecurityGroup>
+            )
+          })}
+          {/* Groupes tokenize — un groupe par type de placeholder (TOKEN, CLÉ API, DB) */}
+          {([
+            { prefix: '[TOKEN masqué',    label: 'Tokens détectés' },
+            { prefix: '[CLÉ API masquée', label: 'Clés API masquées' },
+          ] as const).map(({ prefix, label }) => {
+            const items = secActions.filter(a => a.kind === 'tokenize' && a.replaced_by.startsWith(prefix))
+            if (items.length === 0) return null
+            return (
+              <SecurityGroup key={prefix}>
+                <SecurityGroupTitle $color="#d97706">
+                  <Key size={11} />
+                  {label}
+                </SecurityGroupTitle>
+                <SecurityMaskList>
+                  {items.map((a, i) => {
+                    const numMatch = a.replaced_by.match(/#(\d+)\]$/)
+                    const num = numMatch ? `#${numMatch[1]}` : `#${i + 1}`
+                    return (
+                      <SecurityMaskItem key={i}>
+                        <SecurityMaskNum>{num}</SecurityMaskNum>
+                        <SecurityMaskEmail>{a.real_value}</SecurityMaskEmail>
+                      </SecurityMaskItem>
+                    )
+                  })}
+                </SecurityMaskList>
+              </SecurityGroup>
+            )
+          })}
+          {/* Tokenize DB (tok_nm_xxx) — affiche champ + valeur originale → token */}
+          {secActions.some(a => a.kind === 'tokenize' && a.replaced_by.startsWith('tok_')) && (
+            <SecurityGroup>
+              <SecurityGroupTitle $color="#d97706">
+                <Key size={11} />
+                Données tokenisées
+              </SecurityGroupTitle>
+              <SecurityMaskList>
+                {secActions.filter(a => a.kind === 'tokenize' && a.replaced_by.startsWith('tok_')).map((a, i) => (
+                  <SecurityRow key={i}>
+                    <SecurityMaskNum>#{i + 1}</SecurityMaskNum>
+                    <SecurityRealValue>{a.field ? `${a.field}: ` : ''}{a.real_value}</SecurityRealValue>
+                    <SecurityArrow>→</SecurityArrow>
+                    <SecurityReplaced $kind="tokenize">{a.replaced_by}</SecurityReplaced>
+                  </SecurityRow>
+                ))}
+              </SecurityMaskList>
+            </SecurityGroup>
+          )}
+          {/* Groupe alias */}
+          {secActions.some(a => a.kind === 'alias') && (
+            <SecurityGroup>
+              <SecurityGroupTitle $color="#059669">
+                <UserRound size={11} />
+                Alias appliqués
+              </SecurityGroupTitle>
+              <SecurityMaskList>
+                {secActions.filter(a => a.kind === 'alias').map((a, i) => (
+                  <SecurityRow key={i}>
+                    <SecurityRealValue>{a.real_value}</SecurityRealValue>
+                    <SecurityArrow>→</SecurityArrow>
+                    <SecurityReplaced $kind="alias">{a.replaced_by}</SecurityReplaced>
+                  </SecurityRow>
+                ))}
+              </SecurityMaskList>
+            </SecurityGroup>
+          )}
+          {/* Groupe block (SQL tokenizer) */}
+          {secActions.some(a => a.kind === 'block') && (
+            <SecurityGroup>
+              <SecurityGroupTitle $color="#dc2626">
+                <ShieldOff size={11} />
+                Valeurs bloquées
+              </SecurityGroupTitle>
+              <SecurityMaskList>
+                {secActions.filter(a => a.kind === 'block').map((a, i) => (
+                  <SecurityRow key={i}>
+                    <SecurityRealValue>{a.real_value}</SecurityRealValue>
+                    <SecurityArrow>→</SecurityArrow>
+                    <SecurityReplaced $kind="block">{a.replaced_by}</SecurityReplaced>
+                  </SecurityRow>
+                ))}
+              </SecurityMaskList>
+            </SecurityGroup>
+          )}
         </SecurityBox>
       )}
-      {expanded && secActions.length === 0 && entry.data && <JournalData>{displayData}</JournalData>}
     </JournalRow>
   )
 }

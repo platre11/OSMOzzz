@@ -485,7 +485,7 @@ export const api = {
   },
 
   getAudit: async (limit = 200): Promise<Array<{
-    ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string;
+    ts: number; tool: string; query: string; results: number; blocked: boolean; data?: string | Record<string, unknown>;
   }>> => {
     const r = await axios.get(`${BASE}/audit`, { params: { limit } })
     return r.data.data ?? []

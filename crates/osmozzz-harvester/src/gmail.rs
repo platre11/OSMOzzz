@@ -56,9 +56,17 @@ impl GmailConfig {
                 if let Some(val) = rest.trim_start_matches(|c| c == ' ' || c == '=').strip_prefix('"') {
                     username = val.strip_suffix('"').map(String::from);
                 }
-            } else if let Some(rest) = line.strip_prefix("password") {
+            } else if let Some(rest) = line.strip_prefix("app_password") {
+                // Champ écrit par le dashboard (format actuel)
                 if let Some(val) = rest.trim_start_matches(|c| c == ' ' || c == '=').strip_prefix('"') {
                     password = val.strip_suffix('"').map(String::from);
+                }
+            } else if let Some(rest) = line.strip_prefix("password") {
+                // Compatibilité anciens fichiers générés manuellement
+                if password.is_none() {
+                    if let Some(val) = rest.trim_start_matches(|c| c == ' ' || c == '=').strip_prefix('"') {
+                        password = val.strip_suffix('"').map(String::from);
+                    }
                 }
             }
         }

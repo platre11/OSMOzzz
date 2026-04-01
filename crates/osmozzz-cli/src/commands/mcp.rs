@@ -957,45 +957,162 @@ fn infer_col_type(col_name: &str) -> &'static str {
 
 // ─── Audit log ───────────────────────────────────────────────────────────────
 
+/// Entrée d'audit de sécurité — décrit une action de filtrage appliquée sur une réponse.
+#[derive(serde::Serialize)]
+struct SecurityAuditEntry {
+    kind:        String,          // "tokenize" | "mask" | "alias" | "block"
+    real_value:  String,          // valeur originale (ou description)
+    replaced_by: String,          // ce qui la remplace dans la réponse envoyée à l'IA
+    #[serde(skip_serializing_if = "Option::is_none")]
+    field:       Option<String>,  // nom du champ DB (tokenisation SQL uniquement)
+}
+
 /// Filtre de sécurité appliqué SYSTÉMATIQUEMENT sur toutes les réponses proxy MCP.
-/// Masque tokens, clés API, JWT et secrets quelle que soit la config utilisateur.
-/// Utilise le filtre api_keys existant + une règle JWT supplémentaire.
-fn sanitize_proxy_response(text: &str) -> String {
+/// Retourne (texte_filtré, actions_de_sécurité) pour traçabilité dans l'audit.
+fn sanitize_proxy_response(text: &str) -> (String, Vec<SecurityAuditEntry>) {
     use osmozzz_core::filter::{PrivacyConfig, PrivacyFilter};
+    use regex::Regex;
 
-    // ApiKeysRule + ConnectorTokensRule sont maintenant toujours actifs dans l'engine
     let cfg = PrivacyConfig::load();
-    let filter = PrivacyFilter::from_config(&cfg);
-    let filtered = filter.apply(text);
+    let mut sec: Vec<SecurityAuditEntry> = vec![];
 
-    // Masque les JWT et tokens base64 longs (Atlassian, GitHub PAT, etc.)
-    let filtered = mask_long_tokens(&filtered);
+    /// Extrait les valeurs uniques matchées par une regex depuis `text`,
+    /// les remplace par des placeholders numérotés et génère les SecurityAuditEntry.
+    fn extract_numbered(
+        text: &str, re: &Regex, label_singular: &str, sec: &mut Vec<SecurityAuditEntry>,
+    ) -> String {
+        let mut unique: Vec<String> = Vec::new();
+        for m in re.find_iter(text) {
+            let v = m.as_str().to_string();
+            if !unique.contains(&v) { unique.push(v); }
+        }
+        let mut s = text.to_string();
+        for (i, val) in unique.iter().enumerate() {
+            let placeholder = format!("[{} #{}]", label_singular, i + 1);
+            s = s.replace(val.as_str(), &placeholder);
+            sec.push(SecurityAuditEntry {
+                kind: "mask".to_string(),
+                real_value: val.clone(),
+                replaced_by: placeholder,
+                field: None,
+            });
+        }
+        s
+    }
 
-    // Applique les alias utilisateur (aliases.toml) — même logique que les sources indexées
+    // Étape 1a — Emails numérotés (si privacy.email activée)
+    let working = if cfg.email {
+        let re = Regex::new(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b").unwrap();
+        extract_numbered(text, &re, "email masqué", &mut sec)
+    } else {
+        text.to_string()
+    };
+
+    // Étape 1b — Téléphones numérotés (si privacy.phone activée)
+    let working = if cfg.phone {
+        let re = Regex::new(concat!(
+            r"(?x)\b(",
+            r"(?:(?:\+33|0033)\s?[1-9](?:[\s.\-]?\d{2}){4}",
+            r"|0[1-9](?:[\s.\-]?\d{2}){4})",
+            r"|\+\d{1,3}[\s.\-]?\(?\d{1,4}\)?(?:[\s.\-]?\d{2,4}){2,4}",
+            r")\b",
+        )).unwrap();
+        extract_numbered(&working, &re, "téléphone masqué", &mut sec)
+    } else {
+        working
+    };
+
+    // Étape 2 — PrivacyFilter (tokens secrets, clés API) — email+phone déjà traités
+    let cfg_no_email_phone = PrivacyConfig { email: false, phone: false, ..cfg };
+    let filter = PrivacyFilter::from_config(&cfg_no_email_phone);
+    let filtered = filter.apply(&working);
+
+    // Numéroter les placeholders résiduels du PrivacyFilter (tokens secrets, clés API)
+    // Même logique que les emails : chaque occurrence unique → [TOKEN masqué #N]
+    fn number_placeholders(text: &str, placeholder: &str, numbered_prefix: &str, label: &str, kind: &str, sec: &mut Vec<SecurityAuditEntry>) -> String {
+        let mut result = text.to_string();
+        let mut n = 0usize;
+        loop {
+            match result.find(placeholder) {
+                None => break,
+                Some(pos) => {
+                    n += 1;
+                    let numbered = format!("[{} #{}]", numbered_prefix, n);
+                    result.replace_range(pos..pos + placeholder.len(), &numbered);
+                    sec.push(SecurityAuditEntry {
+                        kind: kind.to_string(),
+                        real_value: format!("{} #{}", label, n),
+                        replaced_by: numbered,
+                        field: None,
+                    });
+                }
+            }
+        }
+        result
+    }
+    let filtered = number_placeholders(&filtered, "[TOKEN masqué]",    "TOKEN masqué",   "Secret connu", "tokenize", &mut sec);
+    let filtered = number_placeholders(&filtered, "[CLÉ API masquée]", "CLÉ API masquée", "Clé API",     "tokenize", &mut sec);
+
+    // Étape 3 — Masque les JWT et tokens base64 longs (Atlassian, GitHub PAT, etc.)
+    let (filtered, token_actions) = mask_long_tokens(&filtered);
+    sec.extend(token_actions);
+
+    // Étape 4 — Alias utilisateur (aliases.toml)
     let aliases = load_aliases();
-    apply_aliases(&filtered, &aliases).0
+    let (filtered, alias_applied) = apply_aliases(&filtered, &aliases);
+    for (real, aliased) in alias_applied {
+        sec.push(SecurityAuditEntry { kind: "alias".to_string(), real_value: real, replaced_by: aliased, field: None });
+    }
+
+    (filtered, sec)
 }
 
 /// Masque les tokens longs sans espaces qui ressemblent à des credentials.
-fn mask_long_tokens(text: &str) -> String {
-    // Split sur les séparateurs communs et masque les tokens trop longs
+/// Chaque token unique est numéroté [TOKEN masqué #N] pour traçabilité dans le dashboard.
+fn mask_long_tokens(text: &str) -> (String, Vec<SecurityAuditEntry>) {
     let mut result = String::with_capacity(text.len());
+    let mut actions: Vec<SecurityAuditEntry> = vec![];
+    // Map token → numéro pour dédupliquer (même token = même numéro)
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
     for word in text.split_inclusive(|c: char| c.is_whitespace() || c == '"' || c == ',' || c == '\n') {
         let trimmed = word.trim_matches(|c: char| c == '"' || c == ',' || c.is_whitespace());
-        // Un token suspect : >60 chars, pas d'espaces, mixte alphanum+symboles
-        let is_suspicious = trimmed.len() > 60
+
+        let is_mime     = (trimmed.contains("?B?") || trimmed.contains("?Q?")) && trimmed.contains("?=");
+        let is_url      = trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with('/');
+        let is_uuid     = trimmed.len() == 36 && trimmed.chars().filter(|&c| c == '-').count() == 4;
+        // Exclure les fragments JSON/XML : JSON-escaped newline (\n littéral), balises HTML/XML, JSON structural
+        let is_json_frag = trimmed.contains("\\n") || trimmed.contains("\\/")
+            || trimmed.starts_with('}') || trimmed.starts_with(']')
+            || trimmed.starts_with('<') || trimmed.starts_with('{') || trimmed.starts_with('[');
+
+        let is_suspicious = !is_mime && !is_url && !is_uuid && !is_json_frag
+            && trimmed.len() > 60
             && !trimmed.contains(' ')
             && trimmed.chars().any(|c| c.is_ascii_uppercase())
             && trimmed.chars().any(|c| c.is_ascii_lowercase())
             && trimmed.chars().any(|c| c.is_ascii_digit());
+
         if is_suspicious {
-            // Remplace le token dans le mot original
-            result.push_str(&word.replace(trimmed, "[TOKEN masqué]"));
+            let n = seen.len() + 1;
+            let num = *seen.entry(trimmed.to_string()).or_insert(n);
+            let placeholder = format!("[TOKEN masqué #{}]", num);
+            result.push_str(&word.replace(trimmed, &placeholder));
+            if num == n {
+                // Première occurrence de ce token : créer l'entrée d'audit
+                let preview = format!("{}…", trimmed.chars().take(8).collect::<String>());
+                actions.push(SecurityAuditEntry {
+                    kind: "tokenize".to_string(),
+                    real_value: preview,
+                    replaced_by: placeholder,
+                    field: None,
+                });
+            }
         } else {
             result.push_str(word);
         }
     }
-    result
+    (result, actions)
 }
 
 // ─── Gmail IMAP helpers (sync, appelés via spawn_blocking) ───────────────────
@@ -1076,21 +1193,27 @@ fn gmail_imap_search(keyword: &str, limit: usize) -> Result<String, String> {
 fn gmail_imap_recent(limit: usize) -> Result<String, String> {
     let creds = gmail_load_creds()?;
     let mut session = gmail_imap_connect(&creds)?;
-    let mailbox = session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
-    let total = mailbox.exists;
-    if total == 0 {
+    session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
+
+    // UID SEARCH ALL → liste complète des UIDs, triée décroissant, N derniers
+    let uids = session.uid_search("ALL").map_err(|e| format!("Erreur SEARCH : {e}"))?;
+    if uids.is_empty() {
         let _ = session.logout();
         return Ok("Boîte de réception vide.".to_string());
     }
-    let start = total.saturating_sub(limit as u32 - 1).max(1);
-    let range = format!("{}:*", start);
-    let messages = session.fetch(&range, "UID ENVELOPE")
+    let mut uids_vec: Vec<u32> = uids.into_iter().collect();
+    uids_vec.sort_unstable_by(|a, b| b.cmp(a));
+    uids_vec.truncate(limit);
+
+    let uid_set = uids_vec.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    let messages = session.uid_fetch(&uid_set, "ENVELOPE")
         .map_err(|e| format!("Erreur FETCH : {e}"))?;
+
     let mut out = format!("📬 {} dernier(s) email(s) :\n\n", messages.len());
     let mut msgs: Vec<_> = messages.iter().collect();
-    msgs.sort_by(|a, b| b.message.cmp(&a.message));
+    msgs.sort_by(|a, b| b.uid.cmp(&a.uid));
     for msg in msgs {
-        out.push_str(&fmt_envelope(msg.uid.unwrap_or(msg.message), msg));
+        out.push_str(&fmt_envelope(msg.uid.unwrap_or(0), msg));
         out.push('\n');
     }
     out.push_str("─────\nUtilise gmail_read(uid) pour lire le contenu complet.");
@@ -1240,15 +1363,26 @@ async fn gmail_smtp_reply(to: &str, subject: &str, body: &str, in_reply_to: &str
     Ok(())
 }
 
-fn audit_log(tool: &str, query: &str, results: usize, blocked: bool, data: Option<&str>) {
+fn audit_log(tool: &str, query: &str, results: usize, blocked: bool, data: Option<&str>, security: &[SecurityAuditEntry]) {
     use std::io::Write;
+    // Si des actions de sécurité ont été effectuées, on les embed dans data
+    let data_val = match data {
+        None => serde_json::Value::Null,
+        Some(text) => {
+            if security.is_empty() {
+                serde_json::Value::String(text.to_string())
+            } else {
+                serde_json::json!({ "text": text, "security": security })
+            }
+        }
+    };
     let entry = serde_json::json!({
         "ts":      chrono::Utc::now().timestamp(),
         "tool":    tool,
         "query":   query,
         "results": results,
         "blocked": blocked,
-        "data":    data,
+        "data":    data_val,
     });
     if let Some(path) = dirs_next::home_dir().map(|h| h.join(".osmozzz/audit.jsonl")) {
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
@@ -1387,7 +1521,7 @@ fn send(response: &Response) {
                                 // 1. Scanner anti-injection de prompt
                                 let (scanned, injected) = scan_injection(&processed);
                                 if injected {
-                                    audit_log("⚠️ INJECTION", &processed[..processed.len().min(200)], 0, true, None);
+                                    audit_log("⚠️ INJECTION", &processed[..processed.len().min(200)], 0, true, None, &[]);
                                 }
                                 processed = scanned;
                                 // 2. Filtre confidentialité (email, téléphone)
@@ -1626,7 +1760,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                     .unwrap_or(std::cmp::Ordering::Equal));
 
                                 let text = format_results(&query, &results, &proof_key);
-                                audit_log("search_memory", &query, results.len(), false, Some(&text));
+                                audit_log("search_memory", &query, results.len(), false, Some(&text), &[]);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": text}]
                                 })));
@@ -1696,8 +1830,8 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let result = tokio::task::spawn_blocking(move || gmail_imap_search(&keyword, limit)).await;
                         match result {
                             Ok(Ok(text)) => {
-                                let secured = sanitize_proxy_response(&text);
-                                audit_log("gmail_search", args["keyword"].as_str().unwrap_or(""), 1, false, None);
+                                let (secured, sec) = sanitize_proxy_response(&text);
+                                audit_log("gmail_search", args["keyword"].as_str().unwrap_or(""), 1, false, Some(&secured), &sec);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
                             }
                             Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
@@ -1712,8 +1846,8 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let result = tokio::task::spawn_blocking(move || gmail_imap_recent(limit)).await;
                         match result {
                             Ok(Ok(text)) => {
-                                let secured = sanitize_proxy_response(&text);
-                                audit_log("gmail_recent", "recent", 1, false, None);
+                                let (secured, sec) = sanitize_proxy_response(&text);
+                                audit_log("gmail_recent", "recent", 1, false, Some(&secured), &sec);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
                             }
                             Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
@@ -1731,8 +1865,8 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let result = tokio::task::spawn_blocking(move || gmail_imap_read(&uid_clone)).await;
                         match result {
                             Ok(Ok(text)) => {
-                                let secured = sanitize_proxy_response(&text);
-                                audit_log("gmail_read", &uid, 1, false, None);
+                                let (secured, sec) = sanitize_proxy_response(&text);
+                                audit_log("gmail_read", &uid, 1, false, Some(&secured), &sec);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
                             }
                             Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
@@ -1751,8 +1885,8 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let result = tokio::task::spawn_blocking(move || gmail_imap_by_sender(&sender, limit)).await;
                         match result {
                             Ok(Ok(text)) => {
-                                let secured = sanitize_proxy_response(&text);
-                                audit_log("gmail_by_sender", args["sender"].as_str().unwrap_or(""), 1, false, None);
+                                let (secured, sec) = sanitize_proxy_response(&text);
+                                audit_log("gmail_by_sender", args["sender"].as_str().unwrap_or(""), 1, false, Some(&secured), &sec);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": secured}] })));
                             }
                             Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
@@ -1777,11 +1911,11 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let result = gmail_smtp_send(&to, &subject, &body).await;
                         match result {
                             Ok(_) => {
-                                audit_log("gmail_send", &to, 1, false, None);
+                                audit_log("gmail_send", &to, 1, false, None, &[]);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Email envoyé à {}", to)}] })));
                             }
                             Err(e) => {
-                                audit_log("gmail_send", &to, 0, true, None);
+                                audit_log("gmail_send", &to, 0, true, None, &[]);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("❌ Erreur envoi : {}", e)}] })));
                             }
                         }
@@ -1806,11 +1940,11 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 let result = gmail_smtp_reply(&from, &reply_subject, &body, &message_id).await;
                                 match result {
                                     Ok(_) => {
-                                        audit_log("gmail_reply", &uid, 1, false, None);
+                                        audit_log("gmail_reply", &uid, 1, false, None, &[]);
                                         send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("✅ Réponse envoyée à {}", from)}] })));
                                     }
                                     Err(e) => {
-                                        audit_log("gmail_reply", &uid, 0, true, None);
+                                        audit_log("gmail_reply", &uid, 0, true, None, &[]);
                                         send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("❌ Erreur envoi : {}", e)}] })));
                                     }
                                 }
@@ -1825,7 +1959,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                         let result = tokio::task::spawn_blocking(|| gmail_imap_stats()).await;
                         match result {
                             Ok(Ok(text)) => {
-                                audit_log("gmail_stats", "stats", 1, false, None);
+                                audit_log("gmail_stats", "stats", 1, false, None, &[]);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": text}] })));
                             }
                             Ok(Err(e)) => send(&Response::ok(id, json!({ "content": [{"type": "text", "text": format!("Erreur Gmail : {}", e)}] }))),
@@ -1870,7 +2004,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_messages: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("imessage") {
-                            audit_log("search_messages", &keyword, 0, true, None);
+                            audit_log("search_messages", &keyword, 0, true, None, &[]);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'iMessage' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1881,7 +2015,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("iMessages", &keyword, &results)
                                 };
-                                audit_log("search_messages", &keyword, results.len(), false, Some(&msg));
+                                audit_log("search_messages", &keyword, results.len(), false, Some(&msg), &[]);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1903,7 +2037,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_notes: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("notes") {
-                            audit_log("search_notes", &keyword, 0, true, None);
+                            audit_log("search_notes", &keyword, 0, true, None, &[]);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Notes' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1914,7 +2048,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Notes", &keyword, &results)
                                 };
-                                audit_log("search_notes", &keyword, results.len(), false, Some(&msg));
+                                audit_log("search_notes", &keyword, results.len(), false, Some(&msg), &[]);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -1936,7 +2070,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_terminal: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("terminal") {
-                            audit_log("search_terminal", &keyword, 0, true, None);
+                            audit_log("search_terminal", &keyword, 0, true, None, &[]);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Terminal' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -1947,7 +2081,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Terminal", &keyword, &results)
                                 };
-                                audit_log("search_terminal", &keyword, results.len(), false, Some(&msg));
+                                audit_log("search_terminal", &keyword, results.len(), false, Some(&msg), &[]);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -2026,7 +2160,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                         eprintln!("[OSMOzzz MCP] search_calendar: \"{}\"", keyword);
                         if !SourceAccess::load().is_allowed("calendar") {
-                            audit_log("search_calendar", &keyword, 0, true, None);
+                            audit_log("search_calendar", &keyword, 0, true, None, &[]);
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Calendar' désactivée dans Actions MCP."}] })));
                             continue;
                         }
@@ -2037,7 +2171,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 } else {
                                     format_keyword_results("Calendar", &keyword, &results)
                                 };
-                                audit_log("search_calendar", &keyword, results.len(), false, Some(&msg));
+                                audit_log("search_calendar", &keyword, results.len(), false, Some(&msg), &[]);
                                 send(&Response::ok(id, json!({
                                     "content": [{"type": "text", "text": msg}]
                                 })));
@@ -2375,8 +2509,8 @@ pub async fn run(cfg: Config) -> Result<()> {
 
                                 // Cas 1 : act_* → exécuté par l'executor du daemon, résultat stocké
                                 if let Some(result) = data["execution_result"].as_str() {
-                                    let secured = sanitize_proxy_response(result);
-                                    audit_log("osmozzz_resume_action", &action_id, 1, false, Some(&secured));
+                                    let (secured, sec) = sanitize_proxy_response(result);
+                                    audit_log("osmozzz_resume_action", &action_id, 1, false, Some(&secured), &sec);
                                     send(&Response::ok(id, json!({"content":[{"type":"text","text":secured}]})));
                                     continue;
                                 }
@@ -2385,12 +2519,12 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 if let Some(result) = connectors::handle(&tool, &params).await {
                                     match result {
                                         Ok(text) => {
-                                            let secured = sanitize_proxy_response(&text);
-                                            audit_log(&tool, &action_id, 1, false, Some(&secured));
+                                            let (secured, sec) = sanitize_proxy_response(&text);
+                                            audit_log(&tool, &action_id, 1, false, Some(&secured), &sec);
                                             send(&Response::ok(id, json!({"content":[{"type":"text","text":secured}]})));
                                         }
                                         Err(e) => {
-                                            audit_log(&tool, &action_id, 0, true, None);
+                                            audit_log(&tool, &action_id, 0, true, None, &[]);
                                             send(&Response::err(id, -32603, &e));
                                         }
                                     }
@@ -2407,12 +2541,12 @@ pub async fn run(cfg: Config) -> Result<()> {
                                         });
                                         match result {
                                             Ok(text) => {
-                                                let text = sanitize_proxy_response(&text);
-                                                audit_log(&tool, tool_action, 1, false, Some(&text));
+                                                let (text, sec) = sanitize_proxy_response(&text);
+                                                audit_log(&tool, tool_action, 1, false, Some(&text), &sec);
                                                 send(&Response::ok(id, json!({"content":[{"type":"text","text":text}]})));
                                             }
                                             Err(e) => {
-                                                audit_log(&tool, tool_action, 0, true, None);
+                                                audit_log(&tool, tool_action, 0, true, None, &[]);
                                                 send(&Response::err(id, -32603, &e));
                                             }
                                         }
@@ -2465,13 +2599,13 @@ pub async fn run(cfg: Config) -> Result<()> {
                             .unwrap_or_else(|| Err(format!("Connecteur inconnu: {tool_name}")));
                         match result {
                             Ok(text) => {
-                                let secured = sanitize_proxy_response(&text);
+                                let (secured, sec) = sanitize_proxy_response(&text);
                                 let query = args.get("query").or_else(|| args.get("q")).or_else(|| args.get("jql")).or_else(|| args.get("keyword")).and_then(|v| v.as_str()).unwrap_or(tool_name);
-                                audit_log(tool_name, query, 1, false, Some(&secured));
+                                audit_log(tool_name, query, 1, false, Some(&secured), &sec);
                                 send(&Response::ok(id, json!({"content":[{"type":"text","text":secured}]})));
                             }
                             Err(e) => {
-                                audit_log(tool_name, tool_name, 0, true, None);
+                                audit_log(tool_name, tool_name, 0, true, None, &[]);
                                 send(&Response::err(id, -32603, &e));
                             }
                         }
@@ -2537,24 +2671,39 @@ pub async fn run(cfg: Config) -> Result<()> {
                             Ok(text) => {
                                 // 1. Tokenise/bloque les colonnes DB AVANT tout autre filtre
                                 //    (le JSON doit être propre — non altéré par les remplacements texte)
-                                let (text, _db_actions) = if proxy_name == "supabase" {
+                                let (text, db_actions) = if proxy_name == "supabase" {
                                     tokenize_sql_result(&proxy_name, &text)
                                 } else {
                                     (text, vec![])
                                 };
                                 // 2. Filtre privacy + alias (après tokenisation)
-                                let text = sanitize_proxy_response(&text);
+                                let (text, mut sec) = sanitize_proxy_response(&text);
+                                // 3. Fusionner les actions DB dans sec pour l'audit
+                                for action in &db_actions {
+                                    if let (Some(kind), Some(real), Some(replaced)) = (
+                                        action.get("kind").and_then(|v| v.as_str()),
+                                        action.get("real_value").and_then(|v| v.as_str()),
+                                        action.get("replaced_by").and_then(|v| v.as_str()),
+                                    ) {
+                                        sec.push(SecurityAuditEntry {
+                                            kind: kind.to_string(),
+                                            real_value: real.to_string(),
+                                            replaced_by: replaced.to_string(),
+                                            field: action.get("field").and_then(|v| v.as_str()).map(String::from),
+                                        });
+                                    }
+                                }
                                 let query = args.get("query")
                                     .or_else(|| args.get("q"))
                                     .or_else(|| args.get("filter"))
                                     .or_else(|| args.get("title"))
                                     .and_then(|v| v.as_str())
                                     .unwrap_or(tool_action);
-                                audit_log(&format!("{}:{}", proxy_name, tool_action), query, 1, false, Some(&text));
+                                audit_log(&format!("{}:{}", proxy_name, tool_action), query, 1, false, Some(&text), &sec);
                                 send(&Response::ok(id, json!({ "content": [{"type": "text", "text": text}] })));
                             },
                             Err(e) => {
-                                audit_log(&format!("{}:{}", proxy_name, tool_action), tool_action, 0, true, None);
+                                audit_log(&format!("{}:{}", proxy_name, tool_action), tool_action, 0, true, None, &[]);
                                 send(&Response::err(id, -32603, &e));
                             },
                         }
