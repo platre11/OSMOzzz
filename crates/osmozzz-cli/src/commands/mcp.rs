@@ -16,7 +16,6 @@ use serde_json::{json, Value};
 
 use crate::config::Config;
 use crate::connectors;
-use crate::mcp_proxy;
 use crate::proof;
 use shellexpand;
 use reqwest;
@@ -71,10 +70,10 @@ fn tool_source(name: &str) -> Option<&'static str> {
     if name == "search_terminal" { return Some("terminal"); }
     if name == "find_file" || name == "fetch_content" || name == "get_recent_files" || name == "list_directory" || name == "index_files" { return Some("file"); }
     if name == "search_notion"   { return Some("notion"); }
-    if name == "search_github"   { return Some("github"); }
+    if name == "search_github" || name.starts_with("github_") { return Some("github"); }
     if name == "search_linear"   || name.starts_with("linear_")     { return Some("linear"); }
     if name == "search_jira"     || name.starts_with("jira_")        { return Some("jira"); }
-    if name == "search_slack"    { return Some("slack"); }
+    if name == "search_slack"    || name.starts_with("slack_")       { return Some("slack"); }
     if name == "search_trello"   { return Some("trello"); }
     if name == "search_todoist"  { return Some("todoist"); }
     if name == "search_gitlab"   || name.starts_with("gitlab_")      { return Some("gitlab"); }
@@ -1597,9 +1596,6 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz MCP] Vault chargé.");
 
-    // ── Démarrage des proxies MCP tiers (Jira, GitHub, ...) ─────────────────
-    let mut proxies = mcp_proxy::start_all_proxies();
-
     eprintln!("[OSMOzzz MCP] En attente de messages MCP sur stdin...");
     eprintln!("[OSMOzzz MCP] Conseil : lance 'osmozzz daemon' en parallèle pour l'indexation en temps réel.");
 
@@ -1690,24 +1686,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                         None => true, // search_memory, get_status, osmozzz_resume_action
                     }
                 }).collect();
-                // Filtre les tools proxy selon source_access
-                for proxy in &mut proxies {
-                    let proxy_name = proxy.name.clone();
-                    if !access.get(proxy_name.as_str()).unwrap_or(&true) {
-                        continue; // source bloquée → aucun tool de ce proxy
-                    }
-                    for tool in proxy.list_tools() {
-                        if let Some(tool_name) = tool.get("name").and_then(|v| v.as_str()) {
-                            let desc = tool.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                            let schema = tool.get("inputSchema").cloned().unwrap_or(json!({"type": "object", "properties": {}}));
-                            all_tools.push(json!({
-                                "name": format!("{}__{}", proxy_name, tool_name),
-                                "description": desc,
-                                "inputSchema": schema
-                            }));
-                        }
-                    }
-                }
                 eprintln!("[OSMOzzz MCP] tools/list → {} tools actifs", all_tools.len());
                 send(&Response::ok(id, json!({ "tools": all_tools })));
             }
@@ -2562,30 +2540,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                                     continue;
                                 }
 
-                                // Cas 3 : proxy MCP subprocess (format "proxy_name:tool_action")
-                                if let Some(colon) = tool.find(':') {
-                                    let proxy_name_str = &tool[..colon];
-                                    let tool_action    = &tool[colon+1..];
-                                    if let Some(idx) = proxies.iter().position(|p| p.name == proxy_name_str) {
-                                        let result = tokio::task::block_in_place(|| {
-                                            proxies[idx].call_tool(tool_action, &params)
-                                        });
-                                        match result {
-                                            Ok(text) => {
-                                                let (text, sec) = sanitize_proxy_response(&text);
-                                                audit_log(&tool, tool_action, 1, false, Some(&text), &sec);
-                                                send(&Response::ok(id, json!({"content":[{"type":"text","text":text}]})));
-                                            }
-                                            Err(e) => {
-                                                audit_log(&tool, tool_action, 0, true, None, &[]);
-                                                send(&Response::err(id, -32603, &e));
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                }
-
-                                send(&Response::err(id, -32603, &format!("Impossible d'exécuter l'action approuvée : tool inconnu '{}'", tool)));
+                                send(&Response::err(id, -32603, &format!("Impossible d'exécuter l'action approuvée : tool inconnu '{}'", tool)))
                             }
                             _ => {
                                 send(&Response::ok(id, json!({"content":[{"type":"text","text":
@@ -2686,7 +2641,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                     // ── Connecteurs natifs (Linear / Jira / …) ───────────────────────────
                     // Dispatché vers crate::connectors — sécurité appliquée ici.
 
-                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") || tool_name.starts_with("hubspot_") || tool_name.starts_with("posthog_") || tool_name.starts_with("resend_") || tool_name.starts_with("discord_") || tool_name.starts_with("twilio_") || tool_name.starts_with("figma_") || tool_name.starts_with("reddit_") || tool_name.starts_with("calendly_") => {
+                    tool_name if tool_name.starts_with("linear_") || tool_name.starts_with("jira_") || tool_name.starts_with("gitlab_") || tool_name.starts_with("vercel_") || tool_name.starts_with("railway_") || tool_name.starts_with("render_") || tool_name.starts_with("gcal_") || tool_name.starts_with("stripe_") || tool_name.starts_with("hubspot_") || tool_name.starts_with("posthog_") || tool_name.starts_with("resend_") || tool_name.starts_with("discord_") || tool_name.starts_with("twilio_") || tool_name.starts_with("figma_") || tool_name.starts_with("reddit_") || tool_name.starts_with("calendly_") || tool_name.starts_with("github_") || tool_name.starts_with("notion_") || tool_name.starts_with("slack_") || tool_name.starts_with("sentry_") || tool_name.starts_with("supabase_") || tool_name.starts_with("cloudflare_") => {
                         // Vérification validation manuelle (permissions.toml)
                         let connector_base = tool_name.split('_').next().unwrap_or(tool_name);
                         let perms = McpPermissions::load();
@@ -2731,101 +2686,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                     }
 
                     other => {
-                        // Format "proxy_name__tool_name" (ex: "supabase__execute_sql")
-                        let (proxy_name_str, tool_action) = match other.find("__") {
-                            Some(pos) => (&other[..pos], &other[pos+2..]),
-                            None => (other, ""),
-                        };
-
-                        let proxy_idx = proxies.iter().position(|p| p.name == proxy_name_str);
-
-                        if proxy_idx.is_none() || tool_action.is_empty() {
-                            send(&Response::err(id, -32601, &format!("Unknown tool: {}", other)));
-                            continue;
-                        }
-                        let idx = proxy_idx.unwrap();
-                        let proxy_name = proxies[idx].name.clone();
-
-                        // Permissions rechargées à chaque appel
-                        let permissions = McpPermissions::load();
-                        if permissions.requires_auth(&proxy_name) {
-                            let preview = format!(
-                                "[{}] {} — paramètres : {}",
-                                proxy_name, tool_action,
-                                serde_json::to_string(&args).unwrap_or_default()
-                            );
-                            let mut mcp_action = osmozzz_core::ActionRequest::new(
-                                format!("{}:{}", proxy_name, tool_action),
-                                args.clone(),
-                                preview.clone(),
-                            );
-                            mcp_action.mcp_proxy = Some(true);
-                            let action_id = mcp_action.id.clone();
-
-                            match submit_action(mcp_action).await {
-                                Ok(()) => {
-                                    eprintln!("[OSMOzzz MCP] Validation requise pour {} — action ID: {}", tool_action, action_id);
-                                    // Retourne immédiatement — ne bloque plus.
-                                    // Claude doit appeler osmozzz_resume_action(action_id) après approbation.
-                                    send(&Response::ok(id, json!({
-                                        "content": [{"type": "text", "text": format!(
-                                            "⏳ Validation manuelle requise.\n\
-                                            Action ID : {action_id}\n\
-                                            Aperçu    : {preview}\n\n\
-                                            INSTRUCTIONS (dans cet ordre) :\n\
-                                            1. Informe l'utilisateur : \"⏳ J'attends ta validation dans le dashboard OSMOzzz (http://localhost:7878) — va dans l'onglet Actions et approuve l'action.\"\n\
-                                            2. Appelle IMMÉDIATEMENT `osmozzz_resume_action` avec action_id=\"{action_id}\" — l'outil se mettra en attente automatiquement jusqu'à ton approbation (120s max)."
-                                        )}]
-                                    })));
-                                }
-                                Err(_) => send(&Response::err(id, -32603, "Impossible de soumettre l'action au daemon")),
-                            }
-                            continue; // skip l'exécution directe ci-dessous
-                        }
-
-                        let result = tokio::task::block_in_place(|| {
-                            proxies[idx].call_tool(tool_action, &args)
-                        });
-                        match result {
-                            Ok(text) => {
-                                // 1. Tokenise/bloque les colonnes DB AVANT tout autre filtre
-                                //    (le JSON doit être propre — non altéré par les remplacements texte)
-                                let (text, db_actions) = if proxy_name == "supabase" {
-                                    tokenize_sql_result(&proxy_name, &text)
-                                } else {
-                                    (text, vec![])
-                                };
-                                // 2. Filtre privacy + alias (après tokenisation)
-                                let (text, mut sec) = sanitize_proxy_response(&text);
-                                // 3. Fusionner les actions DB dans sec pour l'audit
-                                for action in &db_actions {
-                                    if let (Some(kind), Some(real), Some(replaced)) = (
-                                        action.get("kind").and_then(|v| v.as_str()),
-                                        action.get("real_value").and_then(|v| v.as_str()),
-                                        action.get("replaced_by").and_then(|v| v.as_str()),
-                                    ) {
-                                        sec.push(SecurityAuditEntry {
-                                            kind: kind.to_string(),
-                                            real_value: real.to_string(),
-                                            replaced_by: replaced.to_string(),
-                                            field: action.get("field").and_then(|v| v.as_str()).map(String::from),
-                                        });
-                                    }
-                                }
-                                let query = args.get("query")
-                                    .or_else(|| args.get("q"))
-                                    .or_else(|| args.get("filter"))
-                                    .or_else(|| args.get("title"))
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or(tool_action);
-                                audit_log(&format!("{}:{}", proxy_name, tool_action), query, 1, false, Some(&text), &sec);
-                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": text}] })));
-                            },
-                            Err(e) => {
-                                audit_log(&format!("{}:{}", proxy_name, tool_action), tool_action, 0, true, None, &[]);
-                                send(&Response::err(id, -32603, &e));
-                            },
-                        }
+                        send(&Response::err(id, -32601, &format!("Unknown tool: {}", other)));
                     }
                 }
             }

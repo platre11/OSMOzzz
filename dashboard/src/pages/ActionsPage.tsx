@@ -30,11 +30,6 @@ const TopTabItem = styled.button<{ $active: boolean }>`
   &:hover { color: #1a1d23; }
 `
 
-const SseStatusInline = styled.span`
-  margin-left: auto; display: flex; align-items: center; gap: 6px;
-  font-size: 11px; color: #9ca3af; padding-bottom: 10px;
-`
-
 const Content = styled.div`min-width: 0;`
 
 const SideNavItem = styled.button<{ $active: boolean }>`
@@ -449,13 +444,6 @@ const RejectBtn = styled.button`
   &:hover { border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
   &:disabled { opacity: .5; cursor: not-allowed; }
 `
-
-const LiveDot = styled.span<{ $active: boolean }>`
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  background: ${({ $active }) => $active ? '#10b981' : '#d1d5db'};
-  margin-right: 6px;
-`
-
 
 const ExecResult = styled.div<{ $ok: boolean }>`
   margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
@@ -985,7 +973,6 @@ function ActionCardItem({ action, onDecision }: {
 export default function ActionsPage() {
   type Section = 'flux' | 'sources' | 'privacy' | 'database'
   const [activeSection, setActiveSection] = useState<Section>('flux')
-  const [sseConnected, setSseConnected] = useState(false)
   const queryClient = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
 
@@ -1238,8 +1225,7 @@ export default function ActionsPage() {
   useEffect(() => {
     const es = new EventSource('/api/actions/stream')
     esRef.current = es
-    es.onopen  = () => setSseConnected(true)
-    es.onerror = () => setSseConnected(false)
+    es.onerror = () => { /* reconnect handled by browser */ }
     es.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data) as ActionEvent
@@ -1249,7 +1235,7 @@ export default function ActionsPage() {
         }
       } catch { /* ignore */ }
     }
-    return () => { es.close(); setSseConnected(false) }
+    return () => { es.close() }
   }, [queryClient])
 
   const { data: pending = [], isLoading: loadingPending } = useQuery({
@@ -1302,10 +1288,6 @@ export default function ActionsPage() {
             {id === 'flux' && visiblePending.length > 0 && <BadgeCount>{visiblePending.length}</BadgeCount>}
           </TopTabItem>
         ))}
-        <SseStatusInline>
-          <LiveDot $active={sseConnected} />
-          {sseConnected ? 'Temps réel actif' : 'Connexion...'}
-        </SseStatusInline>
       </TopTabBar>
 
       {/* ── Contenu ── */}

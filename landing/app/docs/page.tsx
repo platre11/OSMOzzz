@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import styled, { createGlobalStyle } from 'styled-components'
 import Link from 'next/link'
 
@@ -182,7 +182,8 @@ const Content = styled.main`
   flex: 1;
   min-width: 0;
   padding: 48px 80px 96px 64px;
-  max-width: 860px;
+  max-width: 1000px;
+  margin: 0 auto;
 `
 
 const DocSection = styled.section`
@@ -414,6 +415,55 @@ const Badge = styled.span<{ $color?: string }>`
   letter-spacing: .04em;
 `
 
+const ConnectorRow = styled.tr<{ $open: boolean }>`
+  cursor: pointer;
+  transition: background .12s;
+  background: ${p => p.$open ? 'rgba(91,94,244,.06)' : 'transparent'};
+  &:hover { background: rgba(91,94,244,.04); }
+`
+
+const ConnectorExpand = styled.tr`
+  background: rgba(15,17,28,.6);
+`
+
+const ToolsGrid = styled.td`
+  padding: 10px 14px 16px 14px;
+  border-bottom: 1px solid rgba(31,34,48,.8);
+`
+
+const ToolPill = styled.span`
+  display: inline-block;
+  font-family: 'SF Mono', 'Fira Code', Monaco, monospace;
+  font-size: 11px;
+  color: #a5b4fc;
+  background: rgba(91,94,244,.08);
+  border: 1px solid rgba(91,94,244,.15);
+  border-radius: 4px;
+  padding: 2px 7px;
+  margin: 3px 3px 0 0;
+`
+
+const CountBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(91,94,244,.12);
+  color: #a5b4fc;
+`
+
+const Chevron = styled.span<{ $open: boolean }>`
+  display: inline-block;
+  transition: transform .2s;
+  transform: ${p => p.$open ? 'rotate(90deg)' : 'rotate(0deg)'};
+  color: #4b5563;
+  font-size: 11px;
+`
+
 // ─── Logo SVG ─────────────────────────────────────────────────────────────────
 
 function SiteLogo({ size = 28 }: { size?: number }) {
@@ -536,33 +586,34 @@ const MCP_CONFIGS: Record<McpClient, { file: string; code: string }> = {
   },
 }
 
-const TOOLS = [
-  { name: 'search_memory',      cat: 'Recherche',   desc: 'Recherche sémantique vectorielle dans toutes les sources' },
-  { name: 'search_emails',      cat: 'Recherche',   desc: 'Recherche dans les emails par mot-clé' },
-  { name: 'get_emails_by_date', cat: 'Recherche',   desc: 'Emails filtrés par période ou date' },
-  { name: 'read_email',         cat: 'Recherche',   desc: 'Contenu complet d\'un email (par ID)' },
-  { name: 'search_messages',    cat: 'Recherche',   desc: 'Recherche dans les iMessages / SMS' },
-  { name: 'search_notes',       cat: 'Recherche',   desc: 'Recherche dans Apple Notes' },
-  { name: 'search_terminal',    cat: 'Recherche',   desc: 'Recherche dans l\'historique terminal' },
-  { name: 'search_calendar',    cat: 'Recherche',   desc: 'Recherche dans Apple Calendrier' },
-  { name: 'get_upcoming_events',cat: 'Recherche',   desc: 'Prochains événements du calendrier' },
-  { name: 'search_notion',      cat: 'Recherche',   desc: 'Recherche dans les pages Notion' },
-  { name: 'search_github',      cat: 'Recherche',   desc: 'Recherche dans les issues & PRs GitHub' },
-  { name: 'search_linear',      cat: 'Recherche',   desc: 'Recherche dans les issues Linear' },
-  { name: 'search_jira',        cat: 'Recherche',   desc: 'Recherche dans les tickets Jira' },
-  { name: 'search_slack',       cat: 'Recherche',   desc: 'Recherche dans les messages Slack' },
-  { name: 'search_trello',      cat: 'Recherche',   desc: 'Recherche dans les cartes Trello' },
-  { name: 'search_todoist',     cat: 'Recherche',   desc: 'Recherche dans les tâches Todoist' },
-  { name: 'search_gitlab',      cat: 'Recherche',   desc: 'Recherche dans les issues GitLab' },
-  { name: 'search_airtable',    cat: 'Recherche',   desc: 'Recherche dans les bases Airtable' },
-  { name: 'search_obsidian',    cat: 'Recherche',   desc: 'Recherche dans le vault Obsidian' },
-  { name: 'find_file',          cat: 'Fichiers',    desc: 'Recherche un fichier par nom ou chemin' },
-  { name: 'fetch_content',      cat: 'Fichiers',    desc: 'Lit le contenu d\'un fichier (avec scoring RAG)' },
-  { name: 'get_recent_files',   cat: 'Fichiers',    desc: 'Fichiers récemment modifiés' },
-  { name: 'list_directory',     cat: 'Fichiers',    desc: 'Liste le contenu d\'un dossier' },
-  { name: 'index_files',        cat: 'Fichiers',    desc: 'Déclenche l\'indexation d\'un dossier' },
-  { name: 'get_status',         cat: 'Admin',       desc: 'Nombre de documents indexés par source' },
+const CONNECTORS: { name: string; count: number; tools: string[] }[] = [
+  { name: 'Gmail',            count: 7,   tools: ['gmail_search','gmail_recent','gmail_read','gmail_by_sender','gmail_send','gmail_reply','gmail_stats'] },
+  { name: 'GitHub',           count: 40,  tools: ['create_issue','get_issue','list_issues','search_issues','create_pull_request','get_pull_request','list_pull_requests','merge_pull_request','create_branch','push_files','get_file_contents','create_or_update_file','fork_repository','create_repository','search_repositories','search_code','search_users','add_issue_comment','list_commits','get_pull_request_status','get_pull_request_files','get_pull_request_reviews','get_pull_request_comments','create_pull_request_review','update_pull_request_branch','update_issue','...'] },
+  { name: 'GitLab',           count: 135, tools: ['gitlab_list_issues','gitlab_get_issue','gitlab_create_issue','gitlab_update_issue','gitlab_close_issue','gitlab_add_comment','gitlab_list_mrs','gitlab_get_mr','gitlab_create_mr','gitlab_merge_mr','gitlab_list_pipelines','gitlab_get_pipeline','gitlab_retry_pipeline','gitlab_cancel_pipeline','gitlab_list_projects','gitlab_list_branches','gitlab_create_branch','gitlab_push_files','gitlab_fork_repository','gitlab_create_repository','create_merge_request_thread','list_merge_request_diffs','get_merge_request_conflicts','approve_merge_request','create_label','list_labels','create_milestone','list_milestones','create_release','list_releases','get_pipeline_job_output','...'] },
+  { name: 'Linear',           count: 17,  tools: ['linear_search_issues','linear_get_issue','linear_create_issue','linear_update_issue','linear_add_comment','linear_list_teams','linear_list_issues','linear_list_projects','linear_list_workflow_states','linear_list_labels','linear_list_members','linear_archive_issue','linear_get_viewer','linear_create_project','linear_list_cycles','linear_get_cycle','linear_delete_comment'] },
+  { name: 'Jira',             count: 23,  tools: ['jira_search_issues','jira_get_issue','jira_create_issue','jira_update_issue','jira_add_comment','jira_get_comments','jira_transition_issue','jira_list_transitions','jira_assign_issue','jira_list_projects','jira_get_issue_types','jira_list_priorities','jira_search_users','jira_add_worklog','jira_list_boards','jira_list_sprints','jira_delete_issue','jira_link_issues','jira_list_link_types','jira_get_current_user','jira_list_versions','jira_move_to_sprint','jira_get_fields'] },
+  { name: 'Notion',           count: 22,  tools: ['notion_search','notion_get_page','notion_create_page','notion_update_page','notion_get_database','notion_query_database','notion_get_block_children','notion_append_block_children','notion_update_block','notion_delete_block','notion_get_user','notion_get_users','notion_get_self','notion_create_comment','notion_retrieve_comment','notion_create_data_source','notion_get_data_source','notion_update_data_source','notion_list_data_source_templates','notion_move_page','notion_retrieve_block','notion_retrieve_page_property'] },
+  { name: 'Slack',            count: 50,  tools: ['slack_list_channels','slack_get_channel_history','slack_post_message','slack_reply_to_thread','slack_add_reaction','slack_get_users','slack_get_user_profile','slack_list_members','slack_search_messages','slack_create_channel','slack_set_channel_topic','slack_get_thread_replies','slack_list_workspaces','slack_upload_file','slack_delete_message','slack_schedule_message','...'] },
+  { name: 'Supabase',         count: 30,  tools: ['supabase_execute_sql','supabase_apply_migration','supabase_list_migrations','supabase_list_tables','supabase_list_projects','supabase_get_project','supabase_create_project','supabase_pause_project','supabase_restore_project','supabase_list_organizations','supabase_get_organization','supabase_list_branches','supabase_create_branch','supabase_delete_branch','supabase_merge_branch','supabase_reset_branch','supabase_rebase_branch','supabase_deploy_edge_function','supabase_list_edge_functions','supabase_get_edge_function','supabase_get_logs','supabase_generate_typescript_types','supabase_list_extensions','supabase_get_advisors','supabase_get_cost','supabase_confirm_cost','supabase_get_project_url','supabase_get_publishable_keys','supabase_list_storage_buckets','supabase_get_storage_config'] },
+  { name: 'Sentry',           count: 27,  tools: ['sentry_find_organizations','sentry_find_projects','sentry_list_issues','sentry_get_sentry_resource','sentry_list_events','sentry_list_issue_events','sentry_find_releases','sentry_find_teams','sentry_whoami','sentry_create_team','sentry_create_project','sentry_update_project','sentry_find_dsns','sentry_create_dsn','sentry_update_issue','sentry_get_issue_tag_values','sentry_analyze_issue_with_seer','sentry_get_profile_details','sentry_get_event_attachment','sentry_get_doc','sentry_search_docs','sentry_search_issues','sentry_search_events','sentry_search_issue_events','sentry_get_issue_details','sentry_get_trace_details','sentry_search_docs'] },
+  { name: 'Cloudflare',       count: 89,  tools: ['worker_list','worker_get','worker_put','worker_delete','kv_namespace_list','kv_namespace_create','kv_key_list','kv_key_get','kv_key_put','kv_key_delete','r2_bucket_list','r2_bucket_create','r2_object_list','r2_object_get','d1_database_list','d1_database_create','d1_database_query','zone_list','dns_record_list','dns_record_create','dns_record_delete','pages_project_list','pages_project_get','pages_deployment_list','analytics_get','...'] },
+  { name: 'Stripe',           count: 27,  tools: ['stripe_get_balance','stripe_list_customers','stripe_get_customer','stripe_create_customer','stripe_update_customer','stripe_search_customers','stripe_list_payment_intents','stripe_get_payment_intent','stripe_list_subscriptions','stripe_get_subscription','stripe_create_subscription','stripe_list_invoices','stripe_get_invoice','stripe_list_products','stripe_create_product','stripe_list_prices','stripe_create_price','stripe_list_events','stripe_get_event','stripe_list_webhooks','stripe_get_webhook','stripe_create_webhook','stripe_delete_webhook','stripe_list_payouts','stripe_get_payout','stripe_create_payment_link','stripe_create_checkout_session'] },
+  { name: 'HubSpot',          count: 26,  tools: ['hubspot_list_contacts','hubspot_get_contact','hubspot_create_contact','hubspot_update_contact','hubspot_search_contacts','hubspot_delete_contact','hubspot_list_companies','hubspot_get_company','hubspot_create_company','hubspot_update_company','hubspot_search_companies','hubspot_list_deals','hubspot_get_deal','hubspot_create_deal','hubspot_update_deal','hubspot_move_deal_stage','hubspot_search_deals','hubspot_list_tickets','hubspot_get_ticket','hubspot_create_ticket','hubspot_update_ticket','hubspot_create_note','hubspot_create_task','hubspot_log_call','hubspot_list_pipelines','hubspot_list_pipeline_stages'] },
+  { name: 'PostHog',          count: 18,  tools: ['posthog_capture_event','posthog_query_events','posthog_get_event_definitions','posthog_list_persons','posthog_get_person','posthog_search_persons','posthog_delete_person','posthog_list_feature_flags','posthog_get_feature_flag','posthog_create_feature_flag','posthog_update_feature_flag','posthog_toggle_feature_flag','posthog_list_insights','posthog_get_insight','posthog_create_trend_insight','posthog_list_cohorts','posthog_list_dashboards','posthog_list_projects'] },
+  { name: 'Discord',          count: 28,  tools: ['discord_send_message','discord_edit_message','discord_delete_message','discord_get_message','discord_list_messages','discord_list_channels','discord_get_channel','discord_create_channel','discord_edit_channel','discord_delete_channel','discord_list_members','discord_get_member','discord_kick_member','discord_list_roles','discord_create_role','discord_add_role_to_member','discord_remove_role_from_member','discord_list_webhooks','discord_create_webhook','discord_send_webhook_message','discord_create_thread','discord_list_active_threads','discord_get_guild','discord_get_onboarding','discord_update_onboarding','discord_get_welcome_screen','discord_update_welcome_screen','discord_get_member_verification'] },
+  { name: 'Vercel',           count: 15,  tools: ['vercel_list_projects','vercel_get_project','vercel_list_deployments','vercel_get_deployment','vercel_list_domains','vercel_list_env','vercel_cancel_deployment','vercel_list_teams','vercel_check_alias','vercel_get_build_logs','vercel_redeploy','vercel_delete_project','vercel_add_domain_to_project','vercel_remove_domain_from_project','vercel_get_project_members'] },
+  { name: 'Railway',          count: 14,  tools: ['railway_list_projects','railway_get_project','railway_list_services','railway_list_deployments','railway_get_logs','railway_get_variables','railway_trigger_deploy','railway_list_environments','railway_get_service','railway_build_logs','railway_restart_deployment','railway_create_project','railway_delete_project','railway_get_usage'] },
+  { name: 'Render',           count: 14,  tools: ['render_list_services','render_get_service','render_list_deploys','render_get_deploy','render_trigger_deploy','render_list_env_vars','render_put_env_var','render_suspend_service','render_resume_service','render_get_logs','render_list_custom_domains','render_add_custom_domain','render_delete_custom_domain','render_scale_service'] },
+  { name: 'Twilio',           count: 16,  tools: ['twilio_send_sms','twilio_send_whatsapp','twilio_list_messages','twilio_get_message','twilio_create_call','twilio_list_calls','twilio_get_call','twilio_list_numbers','twilio_search_available_numbers','twilio_purchase_number','twilio_release_number','twilio_create_verify_service','twilio_list_verify_services','twilio_send_verification','twilio_check_verification','twilio_lookup_phone_number'] },
+  { name: 'Resend',           count: 14,  tools: ['resend_send_email','resend_get_email','resend_cancel_email','resend_list_domains','resend_get_domain','resend_create_domain','resend_verify_domain','resend_delete_domain','resend_list_api_keys','resend_create_api_key','resend_delete_api_key','resend_list_audiences','resend_create_audience','resend_delete_audience'] },
+  { name: 'Figma',            count: 15,  tools: ['figma_get_file','figma_get_file_nodes','figma_list_file_versions','figma_get_comments','figma_post_comment','figma_delete_comment','figma_get_team_components','figma_get_component','figma_get_component_sets','figma_get_team_projects','figma_get_project_files','figma_get_local_variables','figma_get_published_variables','figma_export_images','figma_list_webhooks'] },
+  { name: 'Google Calendar',  count: 12,  tools: ['gcal_upcoming','gcal_today','gcal_this_week','gcal_search','gcal_list_calendars','gcal_create_event','gcal_delete_event','gcal_update_event','gcal_get_event','gcal_get_free_busy','gcal_add_attendee','gcal_list_upcoming_for_calendar'] },
+  { name: 'Airtable',         count: 5,   tools: ['search_airtable','airtable_list_bases','airtable_list_tables','airtable_get_records','airtable_create_record'] },
+  { name: 'Trello',           count: 4,   tools: ['search_trello','trello_list_boards','trello_list_cards','trello_create_card'] },
+  { name: 'Todoist',          count: 4,   tools: ['search_todoist','todoist_list_tasks','todoist_create_task','todoist_complete_task'] },
 ]
+
+const TOTAL_TOOLS = CONNECTORS.reduce((s, c) => s + c.count, 0)
 
 const NAV_SECTIONS = [
   {
@@ -575,7 +626,7 @@ const NAV_SECTIONS = [
   {
     label: 'Clients IA MCP',
     items: [
-      { id: 'clients-mcp', label: 'Configurer un client' },
+      { id: 'claude-desktop', label: 'Configurer un client' },
     ],
   },
   {
@@ -583,35 +634,85 @@ const NAV_SECTIONS = [
     items: [
       { id: 'mcp',            label: 'C\'est quoi MCP ?' },
       { id: 'privacy',        label: 'Confidentialité' },
-      { id: 'tools',          label: 'Les 25 tools' },
+      { id: 'tools',          label: 'Les connecteurs' },
     ],
   },
 ]
+
+// ─── Connectors Table ─────────────────────────────────────────────────────────
+
+function ConnectorsTable() {
+  const [open, setOpen] = useState<string | null>(null)
+
+  return (
+    <ToolTable>
+      <thead>
+        <tr>
+          <Th style={{ width: 32 }}></Th>
+          <Th>Connecteur</Th>
+          <Th style={{ width: 120 }}>Tools</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {CONNECTORS.map(c => (
+          <React.Fragment key={c.name}>
+            <ConnectorRow
+              $open={open === c.name}
+              onClick={() => setOpen(open === c.name ? null : c.name)}
+            >
+              <Td style={{ width: 32, paddingRight: 0 }}>
+                <Chevron $open={open === c.name}>▶</Chevron>
+              </Td>
+              <Td style={{ color: '#e8eaf0', fontWeight: 600 }}>{c.name}</Td>
+              <Td><CountBadge>{c.count}</CountBadge></Td>
+            </ConnectorRow>
+            {open === c.name && (
+              <ConnectorExpand>
+                <ToolsGrid colSpan={3}>
+                  {c.tools.map(t => (
+                    <ToolPill key={t}>{t}</ToolPill>
+                  ))}
+                </ToolsGrid>
+              </ConnectorExpand>
+            )}
+          </React.Fragment>
+        ))}
+      </tbody>
+    </ToolTable>
+  )
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DocsPage() {
   const [activeId, setActiveId] = useState('installation')
   const [activeClient, setActiveClient] = useState<McpClient>('Claude Desktop')
-  const observersRef = useRef<IntersectionObserver[]>([])
-
-  // Scrollspy
+  // Scrollspy — picks the section whose top is closest to (but above) 120px from viewport top
   useEffect(() => {
     const allIds = NAV_SECTIONS.flatMap(s => s.items.map(i => i.id))
-    observersRef.current.forEach(o => o.disconnect())
-    observersRef.current = []
 
-    allIds.forEach(id => {
-      const el = document.getElementById(id)
-      if (!el) return
-      const obs = new IntersectionObserver(
-        ([entry]) => { if (entry.isIntersecting) setActiveId(id) },
-        { rootMargin: '-30% 0px -60% 0px' }
-      )
-      obs.observe(el)
-      observersRef.current.push(obs)
-    })
-    return () => observersRef.current.forEach(o => o.disconnect())
+    const onScroll = () => {
+      const OFFSET = 120
+      let best: string | null = null
+      let bestDist = Infinity
+
+      allIds.forEach(id => {
+        const el = document.getElementById(id)
+        if (!el) return
+        const rect = el.getBoundingClientRect()
+        // distance from top of viewport, only sections that have scrolled past OFFSET
+        if (rect.top <= OFFSET) {
+          const dist = OFFSET - rect.top
+          if (dist < bestDist) { bestDist = dist; best = id }
+        }
+      })
+
+      if (best) setActiveId(best)
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll() // run on mount
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   const scrollTo = (id: string) => {
@@ -797,63 +898,48 @@ export default function DocsPage() {
             <DocSection id="privacy">
               <DocH2>Confidentialité & contrôle</DocH2>
               <DocP>
-                OSMOzzz est conçu pour que vous gardiez le contrôle total sur ce que voit votre client IA.
-                Quatre mécanismes indépendants :
+                OSMOzzz intègre quatre systèmes de sécurité indépendants, accessibles depuis le dashboard → Actions MCP.
               </DocP>
-              <DocH3>Filtre de confidentialité</DocH3>
+
+              <DocH3>Flux d'actions</DocH3>
               <DocP>
-                Masque automatiquement les patterns sensibles dans les résultats :
-                numéros de carte bancaire, IBAN, clés API, adresses email, numéros de téléphone.
-                Configurable depuis le dashboard → Actions MCP → Confidentialité.
+                Chaque appel tool de votre client IA est enregistré en temps réel : connecteur utilisé,
+                requête exécutée, résultats retournés, et toutes les transformations de sécurité appliquées.
+                Vous savez exactement ce que votre IA a fait et ce qu'elle a vu, à chaque instant.
+                Vous pouvez également valider manuellement certaines actions avant exécution,
+                et consulter l'historique complet des appels passés.
               </DocP>
-              <DocH3>Alias d'identité</DocH3>
+
+              <DocH3>Sources</DocH3>
               <DocP>
-                Si configuré, OSMOzzz remplace les vrais noms par des alias avant envoi au client IA.
-                "Jean Dupont" devient "Collaborateur-A". Sans configuration, les données
-                passent sans transformation.
+                Contrôlez l'accès de votre client IA connecteur par connecteur : activez ou désactivez
+                l'accès en un clic, et choisissez si les tools s'exécutent automatiquement ou nécessitent
+                votre validation manuelle avant d'être exécutés.
               </DocP>
-              <DocH3>Liste noire</DocH3>
+
+              <DocH3>Confidentialité</DocH3>
               <DocP>
-                Excluez des documents, des expéditeurs, des domaines ou des chemins de fichiers
-                entiers des résultats. Ces données ne sont jamais transmises, même si elles
-                correspondent à la requête.
+                Masquez automatiquement les adresses email et numéros de téléphone dans toutes les
+                réponses transmises à votre IA. Configurez des alias d'identité pour remplacer
+                les vrais noms par des pseudonymes — votre IA travaille avec "Collaborateur-A"
+                plutôt qu'avec "Jean Dupont".
               </DocP>
-              <DocH3>Contrôle d'accès par source</DocH3>
+
+              <DocH3>Bases de données</DocH3>
               <DocP>
-                Activez ou désactivez l'accès à chaque source individuellement.
-                Par défaut, les sources sensibles (iMessage, Terminal, historique de navigation)
-                peuvent être désactivées si vous ne souhaitez pas que votre client IA y ait accès.
+                Définissez la visibilité de chaque colonne de vos bases SQL colonne par colonne :
+                valeur brute transmise à l'IA, token opaque stable (l'IA peut raisonner dessus
+                sans jamais voir la vraie valeur), ou colonne entièrement bloquée.
               </DocP>
             </DocSection>
 
             <DocSection id="tools">
-              <DocH2>Les 25 tools MCP</DocH2>
+              <DocH2>Les {TOTAL_TOOLS}+ tools MCP</DocH2>
               <DocP>
-                OSMOzzz expose 25 tools à votre client IA. Il les découvre automatiquement
-                au démarrage — vous n'avez rien à configurer.
+                OSMOzzz expose {TOTAL_TOOLS}+ tools à votre client IA via {CONNECTORS.length} connecteurs cloud.
+                Cliquez sur un connecteur pour voir la liste de ses tools.
               </DocP>
-              <ToolTable>
-                <thead>
-                  <tr>
-                    <Th>Tool</Th>
-                    <Th>Catégorie</Th>
-                    <Th>Description</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {TOOLS.map(t => (
-                    <tr key={t.name}>
-                      <TdCode>{t.name}</TdCode>
-                      <Td>
-                        <Badge $color={t.cat === 'Recherche' ? 'purple' : t.cat === 'Fichiers' ? 'green' : undefined}>
-                          {t.cat}
-                        </Badge>
-                      </Td>
-                      <Td>{t.desc}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </ToolTable>
+              <ConnectorsTable />
             </DocSection>
 
           </Content>

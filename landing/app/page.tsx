@@ -55,6 +55,14 @@ const NavInner = styled.div`
   max-width: 1000px; margin: 0 auto;
   padding: 0 24px; height: 56px;
   display: flex; align-items: center; justify-content: space-between;
+  position: relative;
+`
+const NavCenter = styled.div`
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; align-items: center;
+`
+const NavSep = styled.div`
+  width: 1px; height: 16px; background: #374151;
 `
 const NavRight = styled.div`
   display: flex; gap: 12px; align-items: center;
@@ -75,11 +83,11 @@ const LangBtn = styled.button<{ $active: boolean }>`
 const BtnGhost = styled.a`
   display: flex; align-items: center; gap: 6px;
   padding: 6px 14px; border-radius: 8px;
-  border: 1px solid var(--border);
-  background: transparent; color: var(--muted);
+  border: none;
+  background: transparent; color: #e8eaf0;
   text-decoration: none; font-size: 13px; font-weight: 500;
-  transition: all .15s;
-  &:hover { border-color: #374151; color: var(--text); }
+  transition: color .15s;
+  &:hover { color: #fff; }
 `
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
@@ -110,7 +118,7 @@ const HeroBadge = styled.div`
   font-size: 12px; color: var(--muted); font-weight: 500;
 `
 const H1 = styled.h1`
-  font-size: clamp(42px, 7vw, 52px);
+  font-size: clamp(22px, 3.5vw, 28px);
   font-weight: 800; line-height: 1.1;
   letter-spacing: -0.04em; color: #fff;
   margin-bottom: 24px;
@@ -278,41 +286,20 @@ const CompareConclusion = styled.div`
 
 // ── Sources ───────────────────────────────────────────────────────────────────
 
-const SourcesSplit = styled.div`
-  display: grid; grid-template-columns: 1fr auto 1fr; gap: 40px; align-items: start;
-  @media (max-width: 640px) { grid-template-columns: 1fr; }
-`
-const SourcesDivider = styled.div`
-  width: 1px; background: var(--border); align-self: stretch; margin-top: 40px;
-  @media (max-width: 640px) { display: none; }
-`
-const SourcesColHeader = styled.div<{ $type: 'local' | 'cloud' }>`
-  display: flex; align-items: center; gap: 8px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.08em; margin-bottom: 16px;
-  color: ${p => p.$type === 'local' ? '#4ade80' : '#a5b4fc'};
-`
-const SourcesDot = styled.span<{ $type: 'local' | 'cloud' }>`
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  background: ${p => p.$type === 'local' ? '#4ade80' : '#a5b4fc'};
-  box-shadow: ${p => p.$type === 'local' ? '0 0 6px #4ade80' : '0 0 6px #a5b4fc'};
-`
 const SourcesCards = styled.div`
   display: flex; flex-wrap: wrap; gap: 10px;
 `
-const SourceCard = styled.div<{ $type: 'local' | 'cloud' }>`
+const SourceCard = styled.div`
   padding: 8px 18px; border-radius: 999px;
   font-size: 13px; font-weight: 600; letter-spacing: .02em;
   font-family: 'SF Mono', 'Fira Code', monospace;
   transition: transform .15s, box-shadow .15s; cursor: default;
-  color: ${p => p.$type === 'local' ? 'rgba(74,222,128,.9)' : 'rgba(139,148,255,.9)'};
-  background: ${p => p.$type === 'local' ? 'rgba(22,163,74,.1)' : 'rgba(91,94,244,.1)'};
-  border: 1px solid ${p => p.$type === 'local' ? 'rgba(74,222,128,.2)' : 'rgba(139,148,255,.2)'};
+  color: rgba(139,148,255,.9);
+  background: rgba(91,94,244,.1);
+  border: 1px solid rgba(139,148,255,.2);
   &:hover {
     transform: translateY(-2px);
-    box-shadow: ${p => p.$type === 'local'
-      ? '0 4px 20px rgba(74,222,128,.15)'
-      : '0 4px 20px rgba(139,148,255,.15)'};
+    box-shadow: 0 4px 20px rgba(139,148,255,.15);
   }
 `
 
@@ -436,18 +423,21 @@ export default function HomePage() {
         <NavBar>
           <NavInner>
             <SiteLogo size={80} />
+            <NavCenter>
+              <BtnGhost href="/docs">
+                Documentation
+              </BtnGhost>
+              <NavSep />
+              <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
+                <GithubIcon />
+                {t('navGithub')}
+              </BtnGhost>
+            </NavCenter>
             <NavRight>
               <LangSwitcher>
                 <LangBtn $active={lang === 'en'} onClick={() => setLang('en')}>EN</LangBtn>
                 <LangBtn $active={lang === 'fr'} onClick={() => setLang('fr')}>FR</LangBtn>
               </LangSwitcher>
-              <BtnGhost href="/docs">
-                Docs
-              </BtnGhost>
-              <BtnGhost href="https://github.com/platre11/OSMOzzz" target="_blank" rel="noreferrer">
-                <GithubIcon />
-                {t('navGithub')}
-              </BtnGhost>
             </NavRight>
           </NavInner>
         </NavBar>
@@ -563,9 +553,9 @@ export default function HomePage() {
         {/* Pill background */}
         <div style={{
           position: 'absolute',
-          top: '50%', left: '13%',
-          transform: 'translateY(-50%)',
-          width: '100%', height: '85%',
+          top: '50%', left: 'calc(50% - 150px)',
+          transform: 'translate(-50%, -50%)',
+          width: '900px', height: '340px',
           borderRadius: '999px 0 0 999px',
           background: 'linear-gradient(90deg, rgba(91,94,244,.08) 0%, rgba(91,94,244,.03) 60%, transparent 100%)',
           pointerEvents: 'none',
@@ -573,31 +563,16 @@ export default function HomePage() {
         <Container>
           <H2>{t('sourcesTitle')}</H2>
           <SectionSub>{t('sourcesSub')}</SectionSub>
-          <SourcesSplit>
-            <div>
-              <SourcesColHeader $type="local">
-                <SourcesDot $type="local" />
-                {t('sourcesLocalLabel')}
-              </SourcesColHeader>
-              <SourcesCards>
-                {['Chrome','Safari','iMessage','Apple Notes','Calendar','Terminal','Files'].map(name => (
-                  <SourceCard key={name} $type="local"><span>{name}</span></SourceCard>
-                ))}
-              </SourcesCards>
-            </div>
-            <SourcesDivider />
-            <div>
-              <SourcesColHeader $type="cloud">
-                <SourcesDot $type="cloud" />
-                {t('sourcesCloudLabel')}
-              </SourcesColHeader>
-              <SourcesCards>
-                {['Gmail','Notion','GitHub','Linear','Jira','Supabase'].map(name => (
-                  <SourceCard key={name} $type="cloud"><span>{name}</span></SourceCard>
-                ))}
-              </SourcesCards>
-            </div>
-          </SourcesSplit>
+          <SourcesCards style={{ marginTop: '32px' }}>
+            {[
+              'Gmail','Notion','GitHub','GitLab','Linear','Jira','Slack',
+              'Supabase','Sentry','Cloudflare','Vercel','Railway','Render',
+              'Google Calendar','Stripe','HubSpot','PostHog','Resend',
+              'Discord','Twilio','Figma','Airtable','Trello','Todoist',
+            ].map(name => (
+              <SourceCard key={name}><span>{name}</span></SourceCard>
+            ))}
+          </SourcesCards>
         </Container>
       </Section>
 

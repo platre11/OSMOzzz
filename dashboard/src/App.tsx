@@ -7,6 +7,7 @@ import ConfigPage from './pages/ConfigPage'
 import NetworkPage from './pages/NetworkPage'
 import ActionsPage from './pages/ActionsPage'
 import { api } from './api'
+import type { StatusData } from './api'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchInterval: 10000 } },
@@ -37,6 +38,7 @@ const Logo = styled.div`
   font-weight: 800;
   color: #5b5ef4;
   letter-spacing: -.03em;
+  flex-shrink: 0;
 
   span {
     font-size: 11px;
@@ -45,6 +47,55 @@ const Logo = styled.div`
     margin-left: 6px;
     letter-spacing: 0;
   }
+`
+
+const NavMetrics = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+`
+
+const NavMetricItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #9ca3af;
+`
+
+const NavMetricLabel = styled.span`
+  font-weight: 700;
+  color: #6b7280;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+`
+
+const NavMetricValue = styled.span`
+  font-weight: 600;
+  color: #1a1d23;
+  font-size: 12px;
+`
+
+const NavSseStatus = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-left: auto;
+  flex-shrink: 0;
+`
+
+const SseDot = styled.span<{ $active: boolean }>`
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: ${({ $active }) => $active ? '#10b981' : '#d1d5db'};
 `
 
 // ─── Sidebar fixe à gauche ────────────────────────────────────────────────────
@@ -135,17 +186,17 @@ const NavItem = styled.button<{ $active?: boolean }>`
 // ─── Pages ────────────────────────────────────────────────────────────────────
 
 const PAGES: { id: Page; label: string; Icon: React.ElementType }[] = [
-  { id: 'status',  label: 'Dashboard',   Icon: icons.LayoutDashboard },
+  // { id: 'status',  label: 'Dashboard',   Icon: icons.LayoutDashboard },
+  { id: 'config',  label: 'Connecteurs', Icon: icons.Plug2 },
   { id: 'actions', label: 'Actions MCP', Icon: icons.Zap },
   { id: 'network', label: 'Réseau',      Icon: icons.Network },
-  { id: 'config',  label: 'Connecteurs', Icon: icons.Plug2 },
 ]
 
 const VALID_PAGES: Page[] = ['status', 'actions', 'network', 'config']
 
 function pageFromHash(): Page {
   const hash = window.location.hash.slice(1) as Page
-  return VALID_PAGES.includes(hash) ? hash : 'status'
+  return VALID_PAGES.includes(hash) ? hash : 'config'
 }
 
 function AppInner() {
@@ -176,10 +227,55 @@ function AppInner() {
     refetchInterval: 10_000,
   })
 
+  const { data: statusData } = useQuery<StatusData>({
+    queryKey: ['status'],
+    queryFn: api.getStatus,
+    refetchInterval: 30_000,
+  })
+
+  const [sseConnected, setSseConnected] = useState(false)
+  useEffect(() => {
+    const es = new EventSource('/api/actions/stream')
+    es.onopen = () => setSseConnected(true)
+    es.onerror = () => setSseConnected(false)
+    return () => es.close()
+  }, [])
+
+  const perf = statusData?.perf
+  const totalMb = perf ? (perf.process_rss_mb ?? 0) + perf.estimated_ram_mb : null
+
   return (
     <>
       <TopBar>
         <Logo>OSMOzzz <span>local memory</span></Logo>
+
+        {perf && (
+          <NavMetrics>
+            <NavMetricItem>
+              <NavMetricLabel>DB</NavMetricLabel>
+              <NavMetricValue>{perf.db_disk_mb} MB</NavMetricValue>
+            </NavMetricItem>
+            <NavMetricItem>
+              <NavMetricLabel>Vect</NavMetricLabel>
+              <NavMetricValue>~{perf.estimated_ram_mb} MB</NavMetricValue>
+            </NavMetricItem>
+            {perf.process_rss_mb != null && (
+              <NavMetricItem>
+                <NavMetricLabel>RAM</NavMetricLabel>
+                <NavMetricValue>{perf.process_rss_mb} MB</NavMetricValue>
+              </NavMetricItem>
+            )}
+            <NavMetricItem>
+              <NavMetricLabel>Total</NavMetricLabel>
+              <NavMetricValue>~{totalMb} MB</NavMetricValue>
+            </NavMetricItem>
+          </NavMetrics>
+        )}
+
+        <NavSseStatus>
+          <SseDot $active={sseConnected} />
+          {sseConnected ? 'Temps réel actif' : 'Connexion...'}
+        </NavSseStatus>
       </TopBar>
       <Sidebar>
         {PAGES.map(({ id, label, Icon }) => (

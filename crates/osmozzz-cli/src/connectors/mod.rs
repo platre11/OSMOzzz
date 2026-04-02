@@ -7,14 +7,20 @@
 /// La couche sécurité (sanitize_proxy_response + audit_log) est appliquée
 /// CENTRALEMENT dans le dispatcher de mcp.rs, après le retour du connecteur.
 pub mod calendly;
+pub mod cloudflare;
 pub mod discord;
 pub mod figma;
+pub mod github;
+pub mod supabase;
+pub mod notion;
+pub mod slack;
 pub mod gcal;
 pub mod gitlab;
 pub mod hubspot;
 pub mod posthog;
 pub mod reddit;
 pub mod resend;
+pub mod sentry;
 pub mod stripe;
 pub mod jira;
 pub mod linear;
@@ -39,11 +45,17 @@ pub fn all_tools() -> Vec<Value> {
     tools.extend(hubspot::tools());
     tools.extend(posthog::tools());
     tools.extend(resend::tools());
+    tools.extend(sentry::tools());
     tools.extend(discord::tools());
     tools.extend(twilio::tools());
     tools.extend(figma::tools());
+    tools.extend(notion::tools());
+    tools.extend(slack::tools());
     tools.extend(reddit::tools());
     tools.extend(calendly::tools());
+    tools.extend(supabase::tools());
+    tools.extend(cloudflare::tools());
+    tools.extend(github::tools());
     tools
 }
 
@@ -61,10 +73,16 @@ pub async fn handle(name: &str, args: &Value) -> Option<Result<String, String>> 
     if name.starts_with("hubspot_")  { return Some(hubspot::handle(name, args).await); }
     if name.starts_with("posthog_")  { return Some(posthog::handle(name, args).await); }
     if name.starts_with("resend_")   { return Some(resend::handle(name, args).await); }
+    if name.starts_with("sentry_")   { return Some(sentry::handle(name, args).await); }
     if name.starts_with("discord_")   { return Some(discord::handle(name, args).await); }
     if name.starts_with("twilio_")    { return Some(twilio::handle(name, args).await); }
     if name.starts_with("figma_")     { return Some(figma::handle(name, args).await); }
+    if name.starts_with("notion_")    { return Some(notion::handle(name, args).await); }
+    if name.starts_with("slack_")     { return Some(slack::handle(name, args).await); }
     if name.starts_with("reddit_")    { return Some(reddit::handle(name, args).await); }
     if name.starts_with("calendly_")  { return Some(calendly::handle(name, args).await); }
+    if name.starts_with("supabase_")    { return Some(supabase::handle(name, args).await); }
+    if name.starts_with("cloudflare_") { return Some(cloudflare::handle(name, args).await); }
+    if name.starts_with("github_")     { return Some(github::handle(name, args).await); }
     None
 }
