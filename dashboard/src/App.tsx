@@ -137,7 +137,7 @@ const NavItem = styled.button<{ $active?: boolean }>`
 const PAGES: { id: Page; label: string; Icon: React.ElementType }[] = [
   { id: 'status',  label: 'Dashboard',   Icon: icons.LayoutDashboard },
   { id: 'actions', label: 'Actions MCP', Icon: icons.Zap },
-  // { id: 'network', label: 'Réseau',      Icon: icons.Network },
+  { id: 'network', label: 'Réseau',      Icon: icons.Network },
   { id: 'config',  label: 'Connecteurs', Icon: icons.Plug2 },
 ]
 

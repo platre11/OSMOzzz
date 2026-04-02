@@ -8,7 +8,7 @@ pub mod store;
 
 pub use identity::PeerIdentity;
 pub use node::P2pNode;
-pub use permissions::{PeerPermissions, SharedSource};
-pub use protocol::{PeerInfo, SearchRequest, SearchResponse};
+pub use permissions::{PeerPermissions, SharedSource, ToolAccessMode};
+pub use protocol::{PeerInfo, SearchRequest, SearchResponse, ToolCallRequest, ToolCallResult};
 pub use store::{KnownPeer, PeerStore};
 pub use history::{QueryHistoryEntry, QueryHistoryLog};

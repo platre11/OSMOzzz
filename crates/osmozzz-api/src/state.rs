@@ -20,4 +20,6 @@ pub struct AppState {
     pub p2p: Option<Arc<P2pNode>>,
     pub index_progress: Arc<std::sync::Mutex<IndexProgress>>,
     pub action_queue: Arc<ActionQueue>,
+    /// File d'approbation dédiée aux demandes P2P (séparée de action_queue qui est locale Claude)
+    pub p2p_action_queue: Arc<ActionQueue>,
 }

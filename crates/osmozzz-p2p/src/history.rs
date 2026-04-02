@@ -9,9 +9,17 @@ pub struct QueryHistoryEntry {
     pub ts: i64,
     pub peer_id: String,
     pub peer_name: String,
+    /// Pour "search" : la query texte. Pour "tool_call" : le nom du tool.
     pub query: String,
     pub results_count: usize,
     pub blocked: bool,   // true si la requête a été bloquée par les permissions
+    /// "search" | "tool_call" — défaut "search" pour compatibilité ascendante
+    #[serde(default = "default_kind")]
+    pub kind: String,
+}
+
+fn default_kind() -> String {
+    "search".to_string()
 }
 
 pub struct QueryHistoryLog {

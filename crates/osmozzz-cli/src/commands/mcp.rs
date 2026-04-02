@@ -574,6 +574,37 @@ fn tools_list() -> Value {
     ]);
     list.as_array_mut().unwrap().extend(connectors::all_tools());
     // ── Tool de reprise post-approbation ──────────────────────────────────────
+    // ── Tools P2P (partage de tools entre pairs) ──────────────────────────────
+    list.as_array_mut().unwrap().push(json!({
+        "name": "list_connected_peers",
+        "description": "P2P — Liste les pairs OSMOzzz actuellement connectés. Retourne peer_id et nom d'affichage de chaque pair. Utiliser avant call_peer_tool pour trouver le bon peer_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    }));
+    list.as_array_mut().unwrap().push(json!({
+        "name": "call_peer_tool",
+        "description": "P2P — Appelle un tool sur le Mac d'un pair connecté. Le pair doit avoir accordé l'accès au tool (mode Auto ou Approbation). Retourne le résultat du tool exécuté à distance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "peer_id": {
+                    "type": "string",
+                    "description": "L'identifiant du pair cible (obtenu via list_connected_peers)"
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Le nom du tool à exécuter sur le Mac du pair (ex: 'search_memory', 'gmail_recent', 'linear_list_issues')"
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Les paramètres du tool (même format que si vous appeliez le tool directement)"
+                }
+            },
+            "required": ["peer_id", "tool_name", "params"]
+        }
+    }));
     list.as_array_mut().unwrap().push(json!({
         "name": "osmozzz_resume_action",
         "description": "OSMOZZZ 🔄 — Reprend une action après approbation dans le dashboard OSMOzzz. \
@@ -2560,6 +2591,94 @@ pub async fn run(cfg: Config) -> Result<()> {
                                 send(&Response::ok(id, json!({"content":[{"type":"text","text":
                                     format!("Statut inconnu : {status}")
                                 }]})));
+                            }
+                        }
+                    }
+
+                    // ── Tools P2P ────────────────────────────────────────────────────────
+
+                    "list_connected_peers" => {
+                        let client = reqwest::Client::new();
+                        match client
+                            .get("http://127.0.0.1:7878/api/network/connected-peers")
+                            .send()
+                            .await
+                        {
+                            Ok(resp) => {
+                                let text = resp.text().await.unwrap_or_default();
+                                let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                                let peers = parsed.get("data").cloned().unwrap_or(serde_json::Value::Array(vec![]));
+                                if let Some(arr) = peers.as_array() {
+                                    if arr.is_empty() {
+                                        send(&Response::ok(id, json!({"content":[{"type":"text","text":
+                                            "Aucun pair OSMOzzz connecté pour l'instant.\n\
+                                            Pour connecter un pair, échangez vos liens d'invitation depuis la page Réseau du dashboard."
+                                        }]})));
+                                    } else {
+                                        let mut out = String::from("Pairs OSMOzzz connectés :\n\n");
+                                        for p in arr {
+                                            let pid = p.get("peer_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                            let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                            out.push_str(&format!("• {} — peer_id: {}\n", name, pid));
+                                        }
+                                        send(&Response::ok(id, json!({"content":[{"type":"text","text": out}]})));
+                                    }
+                                } else {
+                                    send(&Response::ok(id, json!({"content":[{"type":"text","text": "Aucun pair connecté."}]})));
+                                }
+                            }
+                            Err(e) => {
+                                send(&Response::err(id, -32603, &format!("Impossible de joindre le daemon OSMOzzz : {e}")));
+                            }
+                        }
+                    }
+
+                    "call_peer_tool" => {
+                        let peer_id = match args.get("peer_id").and_then(|v| v.as_str()) {
+                            Some(p) => p.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Paramètre requis : peer_id"));
+                                continue;
+                            }
+                        };
+                        let tool_name_remote = match args.get("tool_name").and_then(|v| v.as_str()) {
+                            Some(t) => t.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Paramètre requis : tool_name"));
+                                continue;
+                            }
+                        };
+                        let params = args.get("params").cloned().unwrap_or(json!({}));
+                        let body = json!({
+                            "peer_id": peer_id,
+                            "tool_name": tool_name_remote,
+                            "params": params
+                        });
+                        let client = reqwest::Client::new();
+                        match client
+                            .post("http://127.0.0.1:7878/api/network/call-peer-tool")
+                            .json(&body)
+                            .timeout(std::time::Duration::from_secs(130))
+                            .send()
+                            .await
+                        {
+                            Ok(resp) => {
+                                let text = resp.text().await.unwrap_or_default();
+                                let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                                if let Some(data) = parsed.get("data") {
+                                    if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                                        send(&Response::err(id, -32603, &format!("Erreur du pair : {err}")));
+                                    } else if let Some(result) = data.get("result").and_then(|v| v.as_str()) {
+                                        send(&Response::ok(id, json!({"content":[{"type":"text","text": result}]})));
+                                    } else {
+                                        send(&Response::ok(id, json!({"content":[{"type":"text","text": "Réponse vide du pair."}]})));
+                                    }
+                                } else {
+                                    send(&Response::err(id, -32603, "Réponse invalide du daemon"));
+                                }
+                            }
+                            Err(e) => {
+                                send(&Response::err(id, -32603, &format!("Impossible de joindre le daemon OSMOzzz : {e}")));
                             }
                         }
                     }

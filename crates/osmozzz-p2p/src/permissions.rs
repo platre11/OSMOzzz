@@ -1,4 +1,18 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+
+/// Mode d'accès d'un peer à un connecteur/tool spécifique.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolAccessMode {
+    /// Accès libre — le peer peut utiliser ce tool sans approbation
+    #[default]
+    Auto,
+    /// Approbation requise — chaque appel passe par la file d'actions du dashboard
+    Require,
+    /// Accès bloqué — le peer ne peut pas utiliser ce tool
+    Disabled,
+}
 
 /// Sources de données que l'on accepte de partager avec un peer.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -67,6 +81,9 @@ pub struct PeerPermissions {
     pub allowed_sources: Vec<SharedSource>,
     /// Limite de résultats par requête (protection contre l'abus)
     pub max_results_per_query: usize,
+    /// Mode d'accès par connecteur/tool — clé = nom du connecteur (ex: "github", "linear")
+    #[serde(default)]
+    pub tool_permissions: HashMap<String, ToolAccessMode>,
 }
 
 impl Default for PeerPermissions {
@@ -74,6 +91,7 @@ impl Default for PeerPermissions {
         Self {
             allowed_sources: SharedSource::all(),
             max_results_per_query: 10,
+            tool_permissions: HashMap::new(),
         }
     }
 }
@@ -85,5 +103,9 @@ impl PeerPermissions {
 
     pub fn allowed_source_names(&self) -> Vec<String> {
         self.allowed_sources.iter().map(|s| s.as_str().to_string()).collect()
+    }
+
+    pub fn tool_mode(&self, connector: &str) -> &ToolAccessMode {
+        self.tool_permissions.get(connector).unwrap_or(&ToolAccessMode::Auto)
     }
 }

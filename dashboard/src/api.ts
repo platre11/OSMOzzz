@@ -106,6 +106,11 @@ export interface BlacklistResponse {
   entries: BlacklistEntry[]
 }
 
+export interface MyIdentity {
+  peer_id: string
+  display_name: string
+}
+
 export interface PeerResponse {
   peer_id: string
   display_name: string
@@ -120,13 +125,22 @@ export interface PeerPermissions {
   max_results_per_query: number
 }
 
+/** Mode d'accès d'un peer à un connecteur/tool spécifique */
+export type ToolAccessMode = 'auto' | 'require' | 'disabled'
+
+/** Map connecteur → mode (ex: { github: 'auto', linear: 'require', stripe: 'disabled' }) */
+export type ToolPermissions = Record<string, ToolAccessMode>
+
 export interface QueryHistoryEntry {
   ts: number
   peer_id: string
   peer_name: string
+  /** Pour "search" : la query texte. Pour "tool_call" : le nom du tool. */
   query: string
   results_count: number
   blocked: boolean
+  /** "search" | "tool_call" — les anciennes entrées sont "search" par défaut */
+  kind: string
 }
 
 export const ALL_SOURCES = [
@@ -418,6 +432,25 @@ export const api = {
     return r.data.data ?? []
   },
 
+  getMyIdentity: async (): Promise<MyIdentity> => {
+    const r = await axios.get(`${BASE}/network/identity`)
+    return r.data.data
+  },
+
+  getPeerToolPermissions: async (peer_id: string): Promise<ToolPermissions> => {
+    const r = await axios.get(`${BASE}/network/tool-permissions/${peer_id}`)
+    return r.data.data ?? {}
+  },
+
+  setPeerToolPermissions: async (peer_id: string, permissions: ToolPermissions): Promise<void> => {
+    await axios.post(`${BASE}/network/tool-permissions/${peer_id}`, { permissions })
+  },
+
+  getConfiguredConnectors: async (): Promise<string[]> => {
+    const r = await axios.get(`${BASE}/configured-connectors`)
+    return r.data.data ?? []
+  },
+
   // ─── IA locale ───────────────────────────────────────────────────────────────
 
   /**
@@ -444,6 +477,23 @@ export const api = {
 
   setPrivacy: async (config: PrivacyConfig): Promise<void> => {
     await axios.post(`${BASE}/privacy`, config)
+  },
+
+  // ─── Actions P2P (flux réseau — séparé des actions locales Claude) ──────────
+
+  getP2pPending: async (): Promise<ActionRequest[]> => {
+    const r = await axios.get(`${BASE}/network/p2p-pending`)
+    return r.data.data ?? []
+  },
+
+  approveP2pAction: async (id: string): Promise<ActionRequest> => {
+    const r = await axios.post(`${BASE}/network/p2p-actions/${id}/approve`)
+    return r.data.data
+  },
+
+  rejectP2pAction: async (id: string): Promise<ActionRequest> => {
+    const r = await axios.post(`${BASE}/network/p2p-actions/${id}/reject`)
+    return r.data.data
   },
 
   // ─── Actions orchestrateur ───────────────────────────────────────────────────

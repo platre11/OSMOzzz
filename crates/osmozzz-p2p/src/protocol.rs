@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Messages échangés entre deux daemons OSMOzzz via TLS.
+/// Messages échangés entre deux daemons OSMOzzz via QUIC/iroh.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
@@ -13,17 +13,22 @@ pub enum Message {
     /// Réponse au Hello — confirme la connexion
     Welcome { peer_id: String, display_name: String },
 
-    /// Requête de recherche
+    /// Requête de recherche sémantique (sources locales indexées)
     Search(SearchRequest),
     /// Résultats de recherche
     SearchResult(SearchResponse),
+
+    /// Appel d'un tool MCP distant (connecteur cloud ou action)
+    ToolCall(ToolCallRequest),
+    /// Résultat d'un appel tool MCP
+    ToolResult(ToolCallResult),
 
     /// Demande d'info sur les sources partagées
     GetInfo,
     /// Réponse info
     Info(PeerInfo),
 
-    /// Erreur
+    /// Erreur protocolaire
     Error { code: String, message: String },
 }
 
@@ -49,6 +54,30 @@ pub struct PeerSearchResult {
     pub content: String,
     pub score: f32,
     pub url: String,
+}
+
+/// Appel d'un tool MCP hébergé sur le peer distant.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolCallRequest {
+    /// UUID de la requête — utilisé pour matcher la réponse
+    pub request_id: String,
+    /// Nom du tool tel qu'il est déclaré dans OSMOzzz (ex: "linear_list_issues")
+    pub tool_name: String,
+    /// Paramètres JSON du tool
+    pub params: serde_json::Value,
+}
+
+/// Réponse à un appel tool MCP.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolCallResult {
+    pub request_id: String,
+    pub peer_id: String,
+    pub peer_name: String,
+    pub tool_name: String,
+    /// Résultat sérialisé si succès
+    pub result: Option<String>,
+    /// Message d'erreur si échec
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

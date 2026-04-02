@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::permissions::PeerPermissions;
+use crate::permissions::{PeerPermissions, ToolAccessMode};
 
 /// Un peer connu — persisté dans ~/.osmozzz/peers.toml
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct KnownPeer {
     pub peer_id: String,
     pub display_name: String,
-    pub addresses: Vec<String>,   // "ip:port" — plusieurs adresses possibles
+    pub addresses: Vec<String>,   // tickets iroh base64 (incluent relay + adresses directes)
     pub public_key_hex: String,
     pub permissions: PeerPermissions,
     pub connected: bool,
@@ -85,6 +85,19 @@ impl PeerStore {
         let mut file = self.load_file();
         if let Some(peer) = file.peers.get_mut(peer_id) {
             peer.permissions = perms;
+        }
+        self.save_file(&file)
+    }
+
+    /// Met à jour uniquement les permissions de tools (connecteurs) d'un peer.
+    pub fn update_tool_permissions(
+        &self,
+        peer_id: &str,
+        tool_perms: HashMap<String, ToolAccessMode>,
+    ) -> Result<()> {
+        let mut file = self.load_file();
+        if let Some(peer) = file.peers.get_mut(peer_id) {
+            peer.permissions.tool_permissions = tool_perms;
         }
         self.save_file(&file)
     }

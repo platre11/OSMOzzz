@@ -21,6 +21,7 @@ pub async fn start_server(
     vault: Arc<Vault>,
     p2p: Option<Arc<P2pNode>>,
     action_queue: Arc<ActionQueue>,
+    p2p_action_queue: Arc<ActionQueue>,
     port: u16,
 ) -> Result<()> {
     let state = AppState {
@@ -28,6 +29,7 @@ pub async fn start_server(
         p2p,
         index_progress: Arc::new(std::sync::Mutex::new(Default::default())),
         action_queue,
+        p2p_action_queue,
     };
 
     let cors = CorsLayer::new()
@@ -91,6 +93,16 @@ pub async fn start_server(
         .route("/network/peers/:peer_id", delete(routes::delete_network_peer))
         .route("/network/permissions/:peer_id", get(routes::get_network_permissions).post(routes::post_network_permissions))
         .route("/network/history", get(routes::get_network_history))
+        .route("/network/identity", get(routes::get_network_identity))
+        .route("/network/tool-permissions/:peer_id", get(routes::get_network_tool_permissions).post(routes::post_network_tool_permissions))
+        .route("/network/connected-peers", get(routes::get_network_connected_peers))
+        .route("/network/call-peer-tool", post(routes::post_network_call_peer_tool))
+        .route("/network/simulate", post(routes::post_network_simulate))
+        .route("/network/p2p-pending", get(routes::get_network_p2p_pending))
+        .route("/network/p2p-stream", get(routes::get_network_p2p_stream))
+        .route("/network/p2p-actions/:id/approve", post(routes::post_network_p2p_approve))
+        .route("/network/p2p-actions/:id/reject", post(routes::post_network_p2p_reject))
+        .route("/configured-connectors", get(routes::get_configured_connectors))
         // ── Actions orchestrateur ──────────────────────────────────────────
         .route("/actions",              get(routes::get_actions_all).post(routes::post_action))
         .route("/actions/pending",      get(routes::get_actions_pending))

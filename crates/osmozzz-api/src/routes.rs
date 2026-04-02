@@ -1214,9 +1214,14 @@ pub async fn post_network_permissions(
     let allowed = body.allowed_sources.iter()
         .filter_map(|s| source_str_to_enum(s))
         .collect();
+    // Préserve les tool_permissions existantes
+    let existing_tool_perms = p2p.store.get(&peer_id)
+        .map(|p| p.permissions.tool_permissions)
+        .unwrap_or_default();
     let perms = osmozzz_p2p::PeerPermissions {
         allowed_sources: allowed,
         max_results_per_query: body.max_results_per_query.unwrap_or(10),
+        tool_permissions: existing_tool_perms,
     };
     match p2p.store.update_permissions(&peer_id, perms) {
         Ok(_) => ApiResponse::ok("Permissions mises à jour".to_string()).into_response(),
@@ -1230,6 +1235,221 @@ pub async fn get_network_history(State(state): State<AppState>) -> impl IntoResp
     };
     let entries = p2p.history.recent(100);
     ApiResponse::ok(entries).into_response()
+}
+
+// ─── Identité locale ─────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct IdentityResponse {
+    pub peer_id: String,
+    pub display_name: String,
+}
+
+pub async fn get_network_identity(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<IdentityResponse>::err("P2P non initialisé").into_response();
+    };
+    let display_name = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "OSMOzzz".to_string());
+    ApiResponse::ok(IdentityResponse {
+        peer_id: p2p.identity.id.clone(),
+        display_name,
+    }).into_response()
+}
+
+// ─── Permissions tools par peer ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ToolPermissionsBody {
+    pub permissions: std::collections::HashMap<String, String>,
+}
+
+pub async fn get_network_tool_permissions(
+    State(state): State<AppState>,
+    axum::extract::Path(peer_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<std::collections::HashMap<String, osmozzz_p2p::ToolAccessMode>>::err(
+            "P2P non initialisé",
+        ).into_response();
+    };
+    match p2p.store.get(&peer_id) {
+        Some(peer) => ApiResponse::ok(peer.permissions.tool_permissions).into_response(),
+        None => ApiResponse::<std::collections::HashMap<String, osmozzz_p2p::ToolAccessMode>>::err(
+            "Peer introuvable",
+        ).into_response(),
+    }
+}
+
+pub async fn post_network_tool_permissions(
+    State(state): State<AppState>,
+    axum::extract::Path(peer_id): axum::extract::Path<String>,
+    Json(body): Json<ToolPermissionsBody>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<String>::err("P2P non initialisé").into_response();
+    };
+    let perms: std::collections::HashMap<String, osmozzz_p2p::ToolAccessMode> = body
+        .permissions
+        .into_iter()
+        .filter_map(|(k, v)| {
+            let mode = match v.as_str() {
+                "auto"     => osmozzz_p2p::ToolAccessMode::Auto,
+                "require"  => osmozzz_p2p::ToolAccessMode::Require,
+                "disabled" => osmozzz_p2p::ToolAccessMode::Disabled,
+                _ => return None,
+            };
+            Some((k, mode))
+        })
+        .collect();
+    match p2p.store.update_tool_permissions(&peer_id, perms) {
+        Ok(_)  => ApiResponse::ok("Permissions outils mises à jour".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
+    }
+}
+
+// ─── GET /api/configured-connectors ──────────────────────────────────────────
+// Retourne la liste des connecteurs pour lesquels un fichier .toml existe.
+
+pub async fn get_configured_connectors() -> impl IntoResponse {
+    let home = match dirs_next::home_dir() {
+        Some(h) => h.join(".osmozzz"),
+        None => return ApiResponse::ok(Vec::<String>::new()).into_response(),
+    };
+    // (toml_file, connector_id)
+    let mapping = [
+        ("github.toml",     "github"),
+        ("notion.toml",     "notion"),
+        ("slack.toml",      "slack"),
+        ("linear.toml",     "linear"),
+        ("jira.toml",       "jira"),
+        ("gitlab.toml",     "gitlab"),
+        ("supabase.toml",   "supabase"),
+        ("sentry.toml",     "sentry"),
+        ("cloudflare.toml", "cloudflare"),
+        ("vercel.toml",     "vercel"),
+        ("railway.toml",    "railway"),
+        ("render.toml",     "render"),
+        ("google.toml",     "gcal"),
+        ("stripe.toml",     "stripe"),
+        ("hubspot.toml",    "hubspot"),
+        ("posthog.toml",    "posthog"),
+        ("resend.toml",     "resend"),
+        ("discord.toml",    "discord"),
+        ("twilio.toml",     "twilio"),
+        ("figma.toml",      "figma"),
+    ];
+    let configured: Vec<String> = mapping.iter()
+        .filter(|(file, _)| home.join(file).exists())
+        .map(|(_, id)| id.to_string())
+        .collect();
+    ApiResponse::ok(configured).into_response()
+}
+
+// ─── POST /api/network/simulate-peer-request ─────────────────────────────────
+//
+// Injecte une fausse requête P2P dans la file d'actions pour tester le flux
+// approbation/rejet sans avoir besoin d'un 2e Mac.
+
+#[derive(Deserialize)]
+pub struct SimulateBody {
+    #[serde(default = "default_sim_peer_name")]
+    pub peer_name: String,
+    #[serde(default = "default_sim_tool")]
+    pub tool_name: String,
+    #[serde(default = "default_sim_query")]
+    pub query: String,
+}
+fn default_sim_peer_name() -> String { "Alice (simulation)".to_string() }
+fn default_sim_tool()      -> String { "search_memory".to_string() }
+fn default_sim_query()     -> String { "test de connexion P2P".to_string() }
+
+pub async fn post_network_simulate(
+    State(state): State<AppState>,
+    body: Option<Json<SimulateBody>>,
+) -> impl IntoResponse {
+    use osmozzz_core::{ActionRequest, ActionStatus};
+    let sim = body.map(|Json(b)| b).unwrap_or_else(|| SimulateBody {
+        peer_name: default_sim_peer_name(),
+        tool_name: default_sim_tool(),
+        query:     default_sim_query(),
+    });
+    let now = chrono::Utc::now().timestamp();
+    let params = serde_json::json!({ "query": sim.query });
+    let preview = format!(
+        "[P2P Simulation — {}] {} — paramètres : {}",
+        sim.peer_name,
+        sim.tool_name,
+        serde_json::to_string(&params).unwrap_or_default()
+    );
+    let action = ActionRequest {
+        id: uuid::Uuid::new_v4().to_string(),
+        tool: format!("p2p:{}", sim.tool_name),
+        params,
+        preview,
+        status: ActionStatus::Pending,
+        created_at: now,
+        expires_at: now + 300,
+        execution_result: None,
+        mcp_proxy: None,
+    };
+    let action_id = action.id.clone();
+    state.p2p_action_queue.push(action);
+    ApiResponse::ok(serde_json::json!({
+        "action_id": action_id,
+        "message": format!("Requête simulée de \"{}\" → apparaît dans la section Flux P2P de la page Réseau", sim.peer_name)
+    })).into_response()
+}
+
+// ─── GET /api/network/connected-peers ────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct ConnectedPeer {
+    pub peer_id: String,
+    pub display_name: String,
+}
+
+pub async fn get_network_connected_peers(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<Vec<ConnectedPeer>>::err("P2P non initialisé").into_response();
+    };
+    let peers = p2p.connected_peers_list().await
+        .into_iter()
+        .map(|(peer_id, display_name)| ConnectedPeer { peer_id, display_name })
+        .collect::<Vec<_>>();
+    ApiResponse::ok(peers).into_response()
+}
+
+// ─── POST /api/network/call-peer-tool ────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct CallPeerToolBody {
+    pub peer_id: String,
+    pub tool_name: String,
+    pub params: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct CallPeerToolResponse {
+    pub result: Option<String>,
+    pub error: Option<String>,
+}
+
+pub async fn post_network_call_peer_tool(
+    State(state): State<AppState>,
+    Json(body): Json<CallPeerToolBody>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<CallPeerToolResponse>::err("P2P non initialisé").into_response();
+    };
+    match p2p.call_peer_tool(&body.peer_id, &body.tool_name, body.params).await {
+        Ok(res) => ApiResponse::ok(CallPeerToolResponse {
+            result: res.result,
+            error: res.error,
+        }).into_response(),
+        Err(e) => ApiResponse::<CallPeerToolResponse>::err(e.to_string()).into_response(),
+    }
 }
 
 fn source_str_to_enum(s: &str) -> Option<osmozzz_p2p::SharedSource> {
@@ -2156,6 +2376,49 @@ pub async fn post_config_calendly(Json(body): Json<CalendlyConfigBody>) -> impl 
     match write_config("calendly.toml", &content) {
         Ok(_)  => ApiResponse::ok("Calendly configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── P2P Flux d'approbation (séparé de la queue locale Claude) ───────────────
+
+/// GET /api/network/p2p-pending — actions P2P en attente d'approbation
+pub async fn get_network_p2p_pending(State(state): State<AppState>) -> impl IntoResponse {
+    ApiResponse::ok(state.p2p_action_queue.pending()).into_response()
+}
+
+/// GET /api/network/p2p-stream — SSE temps réel pour le flux P2P
+pub async fn get_network_p2p_stream(
+    State(state): State<AppState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.p2p_action_queue.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|result| {
+        let event = result.ok().and_then(|ev| {
+            serde_json::to_string(&ev).ok().map(|data| Ok(Event::default().data(data)))
+        });
+        async move { event }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// POST /api/network/p2p-actions/:id/approve
+pub async fn post_network_p2p_approve(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.p2p_action_queue.approve(&id) {
+        Some(action) => ApiResponse::ok(action).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Action P2P non trouvée" }))).into_response(),
+    }
+}
+
+/// POST /api/network/p2p-actions/:id/reject
+pub async fn post_network_p2p_reject(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.p2p_action_queue.reject(&id) {
+        Some(action) => ApiResponse::ok(action).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Action P2P non trouvée" }))).into_response(),
     }
 }
 
