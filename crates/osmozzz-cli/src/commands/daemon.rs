@@ -385,39 +385,47 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     eprintln!("[OSMOzzz Daemon] En écoute... (Ctrl+C pour arrêter)");
 
-    let mut rx = start_watcher(watch_paths);
+    // ── FSEvents watcher DÉSACTIVÉ — décommenter pour réactiver ────────────
+    // let mut rx = start_watcher(watch_paths);
+    // loop {
+    //     tokio::select! {
+    //         event = rx.recv() => {
+    //             match event {
+    //                 Some(WatchEvent::Upsert(docs)) => {
+    //                     for doc in &docs {
+    //                         match vault.upsert(doc).await {
+    //                             Ok(()) => {
+    //                                 eprintln!(
+    //                                     "[OSMOzzz Daemon] Indexé : {}",
+    //                                     doc.url
+    //                                 );
+    //                             }
+    //                             Err(OsmozzError::Storage(e)) if e.contains("duplicate") => {
+    //                                 // Déjà présent en base, pas grave
+    //                             }
+    //                             Err(e) => {
+    //                                 eprintln!(
+    //                                     "[OSMOzzz Daemon] Erreur upsert {}: {}",
+    //                                     doc.url, e
+    //                                 );
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 None => {
+    //                     eprintln!("[OSMOzzz Daemon] Watcher arrêté.");
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //         _ = tokio::signal::ctrl_c() => {
+    //             eprintln!("\n[OSMOzzz Daemon] Arrêt propre (Ctrl+C).");
+    //             break;
+    //         }
+    // ────────────────────────────────────────────────────────────────────────
 
     loop {
         tokio::select! {
-            event = rx.recv() => {
-                match event {
-                    Some(WatchEvent::Upsert(docs)) => {
-                        for doc in &docs {
-                            match vault.upsert(doc).await {
-                                Ok(()) => {
-                                    eprintln!(
-                                        "[OSMOzzz Daemon] Indexé : {}",
-                                        doc.url
-                                    );
-                                }
-                                Err(OsmozzError::Storage(e)) if e.contains("duplicate") => {
-                                    // Déjà présent en base, pas grave
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "[OSMOzzz Daemon] Erreur upsert {}: {}",
-                                        doc.url, e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        eprintln!("[OSMOzzz Daemon] Watcher arrêté.");
-                        break;
-                    }
-                }
-            }
             _ = tokio::signal::ctrl_c() => {
                 eprintln!("\n[OSMOzzz Daemon] Arrêt propre (Ctrl+C).");
                 break;

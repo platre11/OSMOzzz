@@ -369,6 +369,8 @@ pub struct ConfigResponse {
     pub figma:    ConnectorStatus,
     pub reddit:   ConnectorStatus,
     pub calendly: ConnectorStatus,
+    pub n8n:      ConnectorStatus,
+    pub shopify:  ConnectorStatus,
 }
 
 fn osmozzz_dir() -> Option<std::path::PathBuf> {
@@ -429,6 +431,8 @@ pub async fn get_config() -> impl IntoResponse {
         figma:    connector_status("figma.toml",    "team_id"),
         reddit:   connector_status("reddit.toml",   "username"),
         calendly: connector_status("calendly.toml", ""),
+        n8n:      connector_status("n8n.toml",      "api_url"),
+        shopify:  connector_status("shopify.toml",  "shop_domain"),
     })
 }
 
@@ -2375,6 +2379,46 @@ pub async fn post_config_calendly(Json(body): Json<CalendlyConfigBody>) -> impl 
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("calendly.toml", &content) {
         Ok(_)  => ApiResponse::ok("Calendly configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/n8n ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct N8nConfigBody {
+    pub api_url: String,
+    pub api_key: String,
+}
+
+pub async fn post_config_n8n(Json(body): Json<N8nConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "api_url = \"{}\"\napi_key = \"{}\"\n",
+        esc(&body.api_url),
+        esc(&body.api_key),
+    );
+    match write_config("n8n.toml", &content) {
+        Ok(_)  => ApiResponse::ok("n8n configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/shopify ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ShopifyConfigBody {
+    pub shop_domain: String,
+    pub access_token: String,
+}
+
+pub async fn post_config_shopify(Json(body): Json<ShopifyConfigBody>) -> impl IntoResponse {
+    let content = format!(
+        "shop_domain = \"{}\"\naccess_token = \"{}\"\n",
+        esc(&body.shop_domain),
+        esc(&body.access_token),
+    );
+    match write_config("shopify.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Shopify configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
 }

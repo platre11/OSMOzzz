@@ -767,4 +767,23 @@ ORT_DYLIB_PATH=/opt/homebrew/lib/libonnxruntime.dylib   # OBLIGATOIRE pour osmoz
 
 ### À faire 🔲
 
-- Nouveaux connecteurs : Zendesk, Salesforce, Monday.com, Datadog, PagerDuty, Shopify, Google Drive/Sheets, Confluence, Mailchimp, Calendly
+#### Nouveaux connecteurs à implémenter
+
+| Connecteur | Type | Notes |
+|---|---|---|
+| **Airtable** | Connector natif | Déjà harvester — ajouter actions complètes |
+| **Base44** | Connector natif | Plateforme no-code FR |
+| **Calendly** | Connector natif | Rendez-vous & planning |
+| **Canva** | Connector natif | Design — REST API officielle |
+| **ClickUp** | Connector natif | Gestion de projet |
+| **Cloudinary** | Connector natif | Gestion médias & images |
+| **Postman** | MCP Proxy | API testing & collections |
+| **Slack** | Connector natif | Déjà harvester — ajouter actions (send, create channel…) |
+| **WordPress** | Connector natif | REST API WP — posts, pages, médias |
+| **n8n** | Connector natif | Automation workflows — déclencher des flows |
+| **Contrôle Chrome** | Connecteur natif macOS | CDP (Chrome DevTools Protocol) — onglets, navigation, screenshots |
+| **Contrôle Mac** | Connecteur natif macOS | AppleScript / Accessibility API — apps, fenêtres, clavier |
+| **Notes (R/W)** | Connecteur natif macOS | Déjà en lecture — ajouter création/modification via AppleScript |
+| **WhatsApp Business** | Connector natif | API Cloud officielle Meta |
+| **Shopify** | Connector natif | E-commerce — commandes, produits, clients |
+| **Salesforce** | Connector natif | CRM enterprise — contacts, opportunités, leads |

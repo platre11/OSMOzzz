@@ -8,6 +8,8 @@
 /// CENTRALEMENT dans le dispatcher de mcp.rs, après le retour du connecteur.
 pub mod calendly;
 pub mod cloudflare;
+pub mod shopify;
+pub mod n8n;
 pub mod discord;
 pub mod figma;
 pub mod github;
@@ -53,9 +55,11 @@ pub fn all_tools() -> Vec<Value> {
     tools.extend(slack::tools());
     tools.extend(reddit::tools());
     tools.extend(calendly::tools());
+    tools.extend(n8n::tools());
     tools.extend(supabase::tools());
     tools.extend(cloudflare::tools());
     tools.extend(github::tools());
+    tools.extend(shopify::tools());
     tools
 }
 
@@ -81,8 +85,10 @@ pub async fn handle(name: &str, args: &Value) -> Option<Result<String, String>> 
     if name.starts_with("slack_")     { return Some(slack::handle(name, args).await); }
     if name.starts_with("reddit_")    { return Some(reddit::handle(name, args).await); }
     if name.starts_with("calendly_")  { return Some(calendly::handle(name, args).await); }
+    if name.starts_with("n8n_")       { return Some(n8n::handle(name, args).await); }
     if name.starts_with("supabase_")    { return Some(supabase::handle(name, args).await); }
     if name.starts_with("cloudflare_") { return Some(cloudflare::handle(name, args).await); }
     if name.starts_with("github_")     { return Some(github::handle(name, args).await); }
+    if name.starts_with("shopify_")    { return Some(shopify::handle(name, args).await); }
     None
 }

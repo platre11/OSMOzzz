@@ -78,6 +78,8 @@ export interface ConfigData {
   figma:    ConnectorStatus
   reddit:   ConnectorStatus
   calendly: ConnectorStatus
+  n8n:      ConnectorStatus
+  shopify:  ConnectorStatus
 }
 
 export interface ContactItem {
@@ -328,6 +330,14 @@ export const api = {
 
   saveCalendly: async (token: string) => {
     await axios.post(`${BASE}/config/calendly`, { token })
+  },
+
+  saveN8n: async (api_url: string, api_key: string) => {
+    await axios.post(`${BASE}/config/n8n`, { api_url, api_key })
+  },
+
+  saveShopify: async (shop_domain: string, access_token: string) => {
+    await axios.post(`${BASE}/config/shopify`, { shop_domain, access_token })
   },
 
   open: async (url: string): Promise<void> => {

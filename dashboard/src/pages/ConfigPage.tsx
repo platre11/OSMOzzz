@@ -304,8 +304,8 @@ type ConnectorId =
   | 'gmail' | 'notion' | 'github' | 'linear' | 'jira'
   | 'supabase' | 'cloudflare' | 'sentry' | 'gitlab'
   | 'vercel' | 'railway' | 'render' | 'google' | 'stripe'
-  | 'hubspot' | 'posthog' | 'resend' | 'discord' | 'twilio' | 'figma'
-  | 'reddit' | 'calendly'
+  | 'hubspot' | 'posthog' | 'resend' | 'slack' | 'discord' | 'twilio' | 'figma'
+  | 'reddit' | 'calendly' | 'n8n' | 'shopify'
 
 interface ConnectorDef {
   id: ConnectorId
@@ -331,11 +331,14 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'hubspot', name: 'HubSpot',          desc: 'CRM & deals' },
   { id: 'posthog', name: 'PostHog',          desc: 'Analytics & feature flags' },
   { id: 'resend',  name: 'Resend',           desc: 'Envoi d\'emails' },
+  { id: 'slack',    name: 'Slack',    desc: 'Messages & channels' },
   { id: 'discord',  name: 'Discord',  desc: 'Serveurs & messages' },
   { id: 'twilio',   name: 'Twilio',   desc: 'SMS & appels' },
   { id: 'figma',    name: 'Figma',    desc: 'Design & composants' },
   { id: 'reddit',   name: 'Reddit',   desc: 'Posts, commentaires & subreddits' },
   { id: 'calendly', name: 'Calendly', desc: 'Rendez-vous & planning' },
+  { id: 'n8n',      name: 'n8n',      desc: 'Automation & workflows' },
+  { id: 'shopify',  name: 'Shopify',  desc: 'E-commerce & commandes' },
 ]
 
 // ─── Modal forms ──────────────────────────────────────────────────────────────
@@ -1236,11 +1239,14 @@ const FORM_MAP: Record<ConnectorId, React.ComponentType<ModalFormProps>> = {
   hubspot: HubspotForm,
   posthog: PosthogForm,
   resend:  ResendForm,
+  slack:    SlackForm,
   discord:  DiscordForm,
   twilio:   TwilioForm,
   figma:    FigmaForm,
   reddit:   RedditForm,
   calendly: CalendlyForm,
+  n8n:      N8nForm,
+  shopify:  ShopifyForm,
 }
 
 function RedditForm({ status, onClose, onSaved }: ModalFormProps) {
@@ -1294,6 +1300,52 @@ function RedditForm({ status, onClose, onSaved }: ModalFormProps) {
   )
 }
 
+function SlackForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [token, setToken] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [channels, setChannels] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveSlack(token, teamId, channels),
+    onSuccess: () => { setOk(true); setToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Slack</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Bot Token</FieldLabel>
+            <ExternalLink href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Créer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="xoxb-xxxxxxxxxx-xxxxxxxxxx-xxxxxxxxxxxxxxxx" />
+          <FieldHint>Apps → OAuth & Permissions → Bot User OAuth Token</FieldHint>
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Team ID (optionnel)</FieldLabel>
+          <Input type="text" value={teamId} onChange={e => setTeamId(e.target.value)} placeholder="TXXXXXXXX" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldLabel>Channels à indexer (optionnel, séparés par virgule)</FieldLabel>
+          <Input type="text" value={channels} onChange={e => setChannels(e.target.value)} placeholder="general, dev, random" />
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Slack configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
 function CalendlyForm({ status, onClose, onSaved }: ModalFormProps) {
   const qc = useQueryClient()
   const [token, setToken] = useState('')
@@ -1323,6 +1375,89 @@ function CalendlyForm({ status, onClose, onSaved }: ModalFormProps) {
         {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Calendly configuré !</SuccessBanner>}
         {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
         <SaveButton onClick={() => mut.mutate()} disabled={!token || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function N8nForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [apiUrl, setApiUrl] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveN8n(apiUrl, apiKey),
+    onSuccess: () => { setOk(true); setApiKey(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>n8n</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? '✓ Configuré' : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldLabel>URL de l'instance</FieldLabel>
+          <Input type="text" value={apiUrl} onChange={e => setApiUrl(e.target.value)} placeholder="http://localhost:5678" />
+          <FieldHint>URL de ton instance n8n (self-hosted ou cloud)</FieldHint>
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>API Key</FieldLabel>
+            <ExternalLink href="https://docs.n8n.io/api/authentication/" target="_blank" rel="noreferrer">Doc ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="n8n_api_xxxxxxxxxxxxxxxx" />
+          <FieldHint>Settings → API → Create API Key</FieldHint>
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> n8n configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!apiUrl || !apiKey || mut.isPending}>
+          <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
+        </SaveButton>
+      </ModalBody>
+    </>
+  )
+}
+
+function ShopifyForm({ status, onClose, onSaved }: ModalFormProps) {
+  const qc = useQueryClient()
+  const [domain, setDomain] = useState('')
+  const [token, setToken] = useState('')
+  const [ok, setOk] = useState(false)
+  const mut = useMutation({
+    mutationFn: () => api.saveShopify(domain, token),
+    onSuccess: () => { setOk(true); setToken(''); qc.invalidateQueries({ queryKey: ['config'] }); setTimeout(() => { setOk(false); onSaved() }, 2500) },
+  })
+  return (
+    <>
+      <ModalHeader>
+        <ModalTitle>Shopify</ModalTitle>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ModalStatus $ok={status?.configured}>{status?.configured ? `✓ ${status.display ?? 'Configuré'}` : 'Non configuré'}</ModalStatus>
+          <CloseButton onClick={onClose}><icons.X size={14} /></CloseButton>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <FieldGroup>
+          <FieldLabel>Domaine de la boutique</FieldLabel>
+          <Input type="text" value={domain} onChange={e => setDomain(e.target.value)} placeholder="ma-boutique.myshopify.com" />
+        </FieldGroup>
+        <FieldGroup>
+          <FieldRow>
+            <FieldLabel>Access Token</FieldLabel>
+            <ExternalLink href="https://admin.shopify.com/store/settings/apps/development" target="_blank" rel="noreferrer">Créer ↗</ExternalLink>
+          </FieldRow>
+          <Input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+          <FieldHint>Apps → Develop apps → Create an app → Admin API access token</FieldHint>
+        </FieldGroup>
+        {ok && <SuccessBanner><icons.CheckCircle2 size={15} /> Shopify configuré !</SuccessBanner>}
+        {mut.isError && <ErrorBanner>Erreur : {String(mut.error)}</ErrorBanner>}
+        <SaveButton onClick={() => mut.mutate()} disabled={!domain || !token || mut.isPending}>
           <icons.Save size={14} />{mut.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
         </SaveButton>
       </ModalBody>

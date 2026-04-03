@@ -568,7 +568,7 @@ export default function HomePage() {
               'Gmail','Notion','GitHub','GitLab','Linear','Jira','Slack',
               'Supabase','Sentry','Cloudflare','Vercel','Railway','Render',
               'Google Calendar','Stripe','HubSpot','PostHog','Resend',
-              'Discord','Twilio','Figma','Airtable','Trello','Todoist',
+              'Discord','Twilio','Figma','Airtable','Trello','Todoist','n8n','Shopify',
             ].map(name => (
               <SourceCard key={name}><span>{name}</span></SourceCard>
             ))}
