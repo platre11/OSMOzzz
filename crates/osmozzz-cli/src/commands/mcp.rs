@@ -10,7 +10,6 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use osmozzz_embedder::Vault;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -99,27 +98,6 @@ fn tool_source(name: &str) -> Option<&'static str> {
 
 fn tools_list() -> Value {
     let mut list = json!([
-        {
-            "name": "search_memory",
-            "description": "OUTIL PRINCIPAL — recherche sémantique (par concept/sens) dans TOUTE la mémoire indexée : Chrome, Safari, Gmail, fichiers, iMessages, Notes, Calendar, Terminal. QUAND L'UTILISER : questions vagues ou conceptuelles ('mes dépenses du mois', 'projet avec Thomas', 'site que j'ai visité'). POUR UN SITE WEB VISITÉ : utilise search_memory avec un mot du nom du site — l'historique Chrome/Safari est ici. LIMITES : pour les noms propres exacts, enchaîne avec le tool dédié (search_emails, search_messages, etc.).",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "La requête en langage naturel (ex: 'site sur les outils MCP', 'mes virements Revolut', 'réunion avec Thomas')"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Nombre de résultats (défaut: 5, max: 20)",
-                        "default": 5,
-                        "minimum": 1,
-                        "maximum": 20
-                    }
-                },
-                "required": ["query"]
-            }
-        },
         {
             "name": "gmail_search",
             "description": "GMAIL — recherche en temps réel via IMAP par mot-clé dans objet et corps. Retourne liste compacte (objet + expéditeur + UID). Enchaîner avec gmail_read(uid) pour le contenu complet.",
@@ -1584,18 +1562,6 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     let proof_key = proof::load_or_create_key();
 
-    let vault = Arc::new(
-        Vault::open(
-            &cfg.model_path,
-            &cfg.tokenizer_path,
-            cfg.db_path.to_str().unwrap_or(".osmozzz/vault"),
-        )
-        .await
-        .context("Impossible d'ouvrir le vault")?,
-    );
-
-    eprintln!("[OSMOzzz MCP] Vault chargé.");
-
     eprintln!("[OSMOzzz MCP] En attente de messages MCP sur stdin...");
     eprintln!("[OSMOzzz MCP] Conseil : lance 'osmozzz daemon' en parallèle pour l'indexation en temps réel.");
 
@@ -1715,72 +1681,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                 let args = &args_decoded;
 
                 match tool_name {
-                    "search_memory" => {
-                        let query = match args["query"].as_str() {
-                            Some(q) => q.to_string(),
-                            None => {
-                                send(&Response::err(id, -32602, "Missing required param: query"));
-                                continue;
-                            }
-                        };
-                        let limit = args["limit"].as_u64().unwrap_or(5) as usize;
-                        let limit = limit.clamp(1, 20);
-
-                        eprintln!("[OSMOzzz MCP] Recherche: \"{}\" (limit={})", query, limit);
-
-                        // Recherche AND multi-termes si `+` détecté
-                        if query.contains('+') {
-                            match vault.search_and_query(&query, limit).await {
-                                Ok(Some(results)) => {
-                                    let text = format_results(&query, &results, &proof_key);
-                                    send(&Response::ok(id, json!({
-                                        "content": [{"type": "text", "text": text}]
-                                    })));
-                                    continue;
-                                }
-                                Ok(None) => {} // fallback recherche normale
-                                Err(e) => {
-                                    eprintln!("[OSMOzzz MCP] AND search error: {}", e);
-                                    send(&Response::err(id, -32603, &e.to_string()));
-                                    continue;
-                                }
-                            }
-                        }
-
-                        // Blended search: global top results + guaranteed email results
-                        let global_fut = vault.search_filtered(&query, limit, None);
-                        let email_fut  = vault.search_filtered(&query, 3, Some("email"));
-
-                        match tokio::try_join!(global_fut, email_fut) {
-                            Ok((mut results, email_results)) => {
-                                // Append email results not already in global results
-                                let seen: std::collections::HashSet<String> =
-                                    results.iter().map(|r| r.id.clone()).collect();
-                                for r in email_results {
-                                    if !seen.contains(&r.id) {
-                                        results.push(r);
-                                    }
-                                }
-                                // Filtre sources désactivées dans Actions MCP
-                                let access = SourceAccess::load();
-                                results.retain(|r| access.is_allowed(&r.source));
-                                // Sort by score descending
-                                results.sort_by(|a, b| b.score.partial_cmp(&a.score)
-                                    .unwrap_or(std::cmp::Ordering::Equal));
-
-                                let text = format_results(&query, &results, &proof_key);
-                                audit_log("search_memory", &query, results.len(), false, Some(&text), &[]);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": text}]
-                                })));
-                            }
-                            Err(e) => {
-                                eprintln!("[OSMOzzz MCP] Search error: {}", e);
-                                send(&Response::err(id, -32603, &e.to_string()));
-                            }
-                        }
-                    }
-
                     "find_file" => {
                         let name = match args["name"].as_str() {
                             Some(n) => n.to_string(),
@@ -1806,22 +1706,11 @@ pub async fn run(cfg: Config) -> Result<()> {
                             }
                         };
                         let path = std::path::Path::new(&path_str);
-                        let query = args["query"].as_str().map(|s| s.to_string());
-                        let block_index = args["block_index"].as_u64().map(|v| v as usize);
-
-                        let text = if let Some(q) = query {
-                            // Mode Agentic RAG : scoring ONNX à la volée
-                            match vault.embed_raw(&q) {
-                                Ok(query_vec) => fetch_content_smart(path, &q, query_vec, block_index),
-                                Err(e) => format!("Erreur embedding query : {}", e),
-                            }
-                        } else {
-                            // Mode linéaire classique
-                            let offset = args["offset"].as_u64().unwrap_or(0) as usize;
-                            let length = args["length"].as_u64().unwrap_or(3000) as usize;
-                            let length = length.clamp(100, 10000);
-                            fetch_file_content(path, offset, length)
-                        };
+                        // Mode linéaire uniquement (ONNX supprimé)
+                        let offset = args["offset"].as_u64().unwrap_or(0) as usize;
+                        let length = args["length"].as_u64().unwrap_or(3000) as usize;
+                        let length = length.clamp(100, 10000);
+                        let text = fetch_file_content(path, offset, length);
 
                         send(&Response::ok(id, json!({
                             "content": [{"type": "text", "text": text}]
@@ -2017,19 +1906,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'iMessage' désactivée dans Actions MCP."}] })));
                             continue;
                         }
-                        match vault.search_by_keyword_source(&keyword, limit, "imessage").await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucun message trouvé pour \"{}\".", keyword)
-                                } else {
-                                    format_keyword_results("iMessages", &keyword, &results)
-                                };
-                                audit_log("search_messages", &keyword, results.len(), false, Some(&msg), &[]);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": msg}]
-                                })));
-                            }
-                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        {
+                            let msg = format!("Aucun message trouvé pour \"{}\".", keyword);
+                            audit_log("search_messages", &keyword, 0, false, Some(&msg), &[]);
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                         }
                     }
 
@@ -2050,19 +1930,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Notes' désactivée dans Actions MCP."}] })));
                             continue;
                         }
-                        match vault.search_by_keyword_source(&keyword, limit, "notes").await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucune note trouvée pour \"{}\".", keyword)
-                                } else {
-                                    format_keyword_results("Notes", &keyword, &results)
-                                };
-                                audit_log("search_notes", &keyword, results.len(), false, Some(&msg), &[]);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": msg}]
-                                })));
-                            }
-                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        {
+                            let msg = format!("Aucune note trouvée pour \"{}\".", keyword);
+                            audit_log("search_notes", &keyword, 0, false, Some(&msg), &[]);
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                         }
                     }
 
@@ -2083,19 +1954,10 @@ pub async fn run(cfg: Config) -> Result<()> {
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Terminal' désactivée dans Actions MCP."}] })));
                             continue;
                         }
-                        match vault.search_by_keyword_source(&keyword, limit, "terminal").await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucune commande trouvée pour \"{}\".", keyword)
-                                } else {
-                                    format_keyword_results("Terminal", &keyword, &results)
-                                };
-                                audit_log("search_terminal", &keyword, results.len(), false, Some(&msg), &[]);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": msg}]
-                                })));
-                            }
-                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        {
+                            let msg = format!("Aucune commande trouvée pour \"{}\".", keyword);
+                            audit_log("search_terminal", &keyword, 0, false, Some(&msg), &[]);
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                         }
                     }
 
@@ -2173,51 +2035,28 @@ pub async fn run(cfg: Config) -> Result<()> {
                             send(&Response::ok(id, json!({ "content": [{"type": "text", "text": "⛔ Source 'Calendar' désactivée dans Actions MCP."}] })));
                             continue;
                         }
-                        match vault.search_by_keyword_source(&keyword, limit, "calendar").await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucun événement trouvé pour \"{}\".", keyword)
-                                } else {
-                                    format_keyword_results("Calendar", &keyword, &results)
-                                };
-                                audit_log("search_calendar", &keyword, results.len(), false, Some(&msg), &[]);
-                                send(&Response::ok(id, json!({
-                                    "content": [{"type": "text", "text": msg}]
-                                })));
-                            }
-                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        {
+                            let msg = format!("Aucun événement trouvé pour \"{}\".", keyword);
+                            audit_log("search_calendar", &keyword, 0, false, Some(&msg), &[]);
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                         }
                     }
 
                     "search_contacts" => {
                         let keyword = args["keyword"].as_str().unwrap_or("").to_string();
                         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
-                        match vault.search_by_keyword_source(&keyword, limit, "contacts").await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucun contact trouvé pour \"{}\".", keyword)
-                                } else {
-                                    format_keyword_results("Contacts", &keyword, &results)
-                                };
-                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
-                            }
-                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        {
+                            let msg = format!("Aucun contact trouvé pour \"{}\".", keyword);
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                         }
                     }
 
                     "search_arc" => {
                         let keyword = args["keyword"].as_str().unwrap_or("").to_string();
                         let limit = args["limit"].as_u64().unwrap_or(20) as usize;
-                        match vault.search_by_keyword_source(&keyword, limit, "arc").await {
-                            Ok(results) => {
-                                let msg = if results.is_empty() {
-                                    format!("Aucun résultat Arc trouvé pour \"{}\".", keyword)
-                                } else {
-                                    format_keyword_results("Arc", &keyword, &results)
-                                };
-                                send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
-                            }
-                            Err(e) => send(&Response::err(id, -32603, &e.to_string())),
+                        {
+                            let msg = format!("Aucun résultat Arc trouvé pour \"{}\".", keyword);
+                            send(&Response::ok(id, json!({ "content": [{"type": "text", "text": msg}] })));
                         }
                     }
 

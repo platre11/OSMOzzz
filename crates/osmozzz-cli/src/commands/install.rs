@@ -48,11 +48,6 @@ fn install_macos() -> Result<()> {
     <string>{log}</string>
     <key>StandardErrorPath</key>
     <string>{log}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>ORT_DYLIB_PATH</key>
-        <string>/opt/homebrew/lib/libonnxruntime.dylib</string>
-    </dict>
 </dict>
 </plist>
 "#,

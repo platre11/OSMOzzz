@@ -532,10 +532,7 @@ const MCP_CONFIGS: Record<McpClient, { file: string; code: string }> = {
   "mcpServers": {
     "osmozzz": {
       "command": "/usr/local/bin/osmozzz",
-      "args": ["mcp"],
-      "env": {
-        "ORT_DYLIB_PATH": "/opt/homebrew/lib/libonnxruntime.dylib"
-      }
+      "args": ["mcp"]
     }
   }
 }`,
@@ -546,10 +543,7 @@ const MCP_CONFIGS: Record<McpClient, { file: string; code: string }> = {
   "mcpServers": {
     "osmozzz": {
       "command": "/usr/local/bin/osmozzz",
-      "args": ["mcp"],
-      "env": {
-        "ORT_DYLIB_PATH": "/opt/homebrew/lib/libonnxruntime.dylib"
-      }
+      "args": ["mcp"]
     }
   }
 }`,
@@ -560,10 +554,7 @@ const MCP_CONFIGS: Record<McpClient, { file: string; code: string }> = {
   "mcpServers": {
     "osmozzz": {
       "command": "/usr/local/bin/osmozzz",
-      "args": ["mcp"],
-      "env": {
-        "ORT_DYLIB_PATH": "/opt/homebrew/lib/libonnxruntime.dylib"
-      }
+      "args": ["mcp"]
     }
   }
 }`,
@@ -575,10 +566,7 @@ const MCP_CONFIGS: Record<McpClient, { file: string; code: string }> = {
     "osmozzz": {
       "command": {
         "path": "/usr/local/bin/osmozzz",
-        "args": ["mcp"],
-        "env": {
-          "ORT_DYLIB_PATH": "/opt/homebrew/lib/libonnxruntime.dylib"
-        }
+        "args": ["mcp"]
       }
     }
   }
@@ -784,8 +772,7 @@ export default function DocsPage() {
               <DocH2>Installation</DocH2>
               <DocP>
                 Téléchargez le fichier <InlineCode>.pkg</InlineCode> et double-cliquez dessus.
-                L'installeur place le binaire dans <InlineCode>/usr/local/bin/osmozzz</InlineCode> et
-                copie la librairie ONNX Runtime nécessaire.
+                L'installeur place le binaire dans <InlineCode>/usr/local/bin/osmozzz</InlineCode>.
               </DocP>
               <StepList>
                 <StepItem>

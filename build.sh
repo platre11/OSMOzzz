@@ -31,13 +31,5 @@ cp "$WORKSPACE/target/debug/osmozzz" ~/.cargo/bin/osmozzz
 # Re-signe le binaire (macOS 26 rejette les binaires avec flag linker-signed de cargo)
 codesign --force --sign - ~/.cargo/bin/osmozzz
 
-# ── 4. Copie les modèles dans ~/.osmozzz/models/ (fonctionne après reboot) ────
-mkdir -p ~/.osmozzz/models
-if [ -f "$WORKSPACE/models/all-MiniLM-L6-v2.onnx" ]; then
-    cp "$WORKSPACE/models/all-MiniLM-L6-v2.onnx" ~/.osmozzz/models/
-    cp "$WORKSPACE/models/tokenizer.json" ~/.osmozzz/models/
-    echo "[build] Modèles copiés dans ~/.osmozzz/models/"
-fi
-
-# ── 5. Kill le daemon actif (l'utilisateur relance manuellement) ──────────────
+# ── 4. Kill le daemon actif (l'utilisateur relance manuellement) ──────────────
 pkill -f "osmozzz daemon" 2>/dev/null && echo "[build] Daemon stoppé — relance: osmozzz daemon" || echo "[build] Done — relance: osmozzz daemon"

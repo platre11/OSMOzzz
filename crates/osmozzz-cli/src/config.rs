@@ -18,26 +18,8 @@ impl Config {
         let data_dir = home.join(".osmozzz");
         let db_path = data_dir.join("vault");
 
-        // 1. ~/.osmozzz/models/ (prioritaire — fonctionne après reboot)
-        // 2. workspace/models/ (fallback dev — remonte les ancêtres du binaire)
-        let osmozzz_models = data_dir.join("models");
-
-        let models_dir = if osmozzz_models.join("all-MiniLM-L6-v2.onnx").exists() {
-            osmozzz_models
-        } else {
-            let exe_dir = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_else(|| PathBuf::from("."));
-            exe_dir
-                .ancestors()
-                .find(|p| p.join("models").join("all-MiniLM-L6-v2.onnx").exists())
-                .map(|p| p.join("models"))
-                .unwrap_or(osmozzz_models)
-        };
-
-        let model_path = models_dir.join("all-MiniLM-L6-v2.onnx");
-        let tokenizer_path = models_dir.join("tokenizer.json");
+        let model_path = PathBuf::new();
+        let tokenizer_path = PathBuf::new();
 
         let socket_path = data_dir.join("osmozzz.sock");
 

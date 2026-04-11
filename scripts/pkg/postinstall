@@ -12,15 +12,7 @@ USER_UID=$(id -u "$REAL_USER")
 
 echo "[OSMOzzz] Installation pour l'utilisateur: $REAL_USER"
 
-# ── 1. Copier les modèles dans ~/.osmozzz/models/ ─────────────────────────────
-MODELS_DEST="$REAL_HOME/.osmozzz/models"
-sudo -u "$REAL_USER" mkdir -p "$MODELS_DEST"
-cp /Library/OSMOzzz/models/all-MiniLM-L6-v2.onnx "$MODELS_DEST/"
-cp /Library/OSMOzzz/models/tokenizer.json "$MODELS_DEST/"
-chown -R "$REAL_USER" "$REAL_HOME/.osmozzz"
-echo "[OSMOzzz] Modèles installés dans ~/.osmozzz/models/"
-
-# ── 2. Créer le LaunchAgent (démarrage automatique au login) ──────────────────
+# ── 1. Créer le LaunchAgent (démarrage automatique au login) ──────────────────
 LAUNCH_AGENTS="$REAL_HOME/Library/LaunchAgents"
 sudo -u "$REAL_USER" mkdir -p "$LAUNCH_AGENTS"
 PLIST="$LAUNCH_AGENTS/com.osmozzz.daemon.plist"
@@ -45,11 +37,6 @@ cat > "$PLIST" << EOF
     <string>$REAL_HOME/.osmozzz/daemon.log</string>
     <key>StandardErrorPath</key>
     <string>$REAL_HOME/.osmozzz/daemon.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>ORT_DYLIB_PATH</key>
-        <string>/usr/local/lib/libonnxruntime.dylib</string>
-    </dict>
 </dict>
 </plist>
 EOF
@@ -57,11 +44,11 @@ EOF
 chown "$REAL_USER" "$PLIST"
 echo "[OSMOzzz] LaunchAgent créé"
 
-# ── 3. Démarrer le daemon maintenant ──────────────────────────────────────────
+# ── 2. Démarrer le daemon maintenant ──────────────────────────────────────────
 launchctl asuser "$USER_UID" launchctl load -w "$PLIST" 2>/dev/null || true
 echo "[OSMOzzz] Daemon démarré"
 
-# ── 4. Ouvrir le dashboard dans le navigateur (2s pour laisser le daemon s'init)
+# ── 3. Ouvrir le dashboard dans le navigateur (2s pour laisser le daemon s'init)
 sleep 2
 sudo -u "$REAL_USER" open "http://localhost:7878" 2>/dev/null || true
 

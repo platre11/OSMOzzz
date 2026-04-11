@@ -1,9 +1,7 @@
 ; OSMOzzz Windows Installer
 ; Built with NSIS (Nullsoft Scriptable Install System)
 ; Mirrors the macOS .pkg behaviour:
-;   - installs binary + DLL to Program Files\OSMOzzz\
-;   - copies ONNX models to %USERPROFILE%\.osmozzz\models\
-;   - sets ORT_DYLIB_PATH system env var
+;   - installs binary to Program Files\OSMOzzz\
 ;   - registers auto-start at login (HKCU Run key)
 ;   - creates Start Menu shortcuts
 ;   - registers in Add/Remove Programs with a clean uninstaller
@@ -55,27 +53,14 @@ ShowInstDetails show
 ; ── Install ───────────────────────────────────────────────────────────────────
 Section "OSMOzzz" SecMain
 
-    ; 1. Binary + DLL → Program Files\OSMOzzz\
+    ; 1. Binary → Program Files\OSMOzzz\
     SetOutPath "$INSTDIR"
     File "${DIST_DIR}\osmozzz.exe"
-    File "${DIST_DIR}\onnxruntime.dll"
 
-    ; 2. ONNX models → %USERPROFILE%\.osmozzz\models\  (mirrors macOS postinstall)
-    CreateDirectory "$PROFILE\.osmozzz\models"
-    SetOutPath "$PROFILE\.osmozzz\models"
-    File "${DIST_DIR}\models\all-MiniLM-L6-v2.onnx"
-    File "${DIST_DIR}\models\tokenizer.json"
-
-    ; 3. ORT_DYLIB_PATH — system-wide, broadcast to running processes
-    WriteRegExpandStr HKLM \
-        "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
-        "ORT_DYLIB_PATH" "$INSTDIR\onnxruntime.dll"
-    SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
-
-    ; 4. Auto-start daemon at Windows login (current user, no UAC prompt)
+    ; 2. Auto-start daemon at Windows login (current user, no UAC prompt)
     WriteRegStr HKCU "${RUN_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_EXE}" daemon'
 
-    ; 5. Start Menu shortcuts
+    ; 3. Start Menu shortcuts
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"
     CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
         "$INSTDIR\${APP_EXE}" "daemon"
@@ -84,7 +69,7 @@ Section "OSMOzzz" SecMain
     CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" \
         "$INSTDIR\uninstall.exe"
 
-    ; 6. Add/Remove Programs entry
+    ; 4. Add/Remove Programs entry
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr   HKLM "${UNINSTALL_KEY}" "DisplayName"     "${APP_NAME}"
     WriteRegStr   HKLM "${UNINSTALL_KEY}" "UninstallString"  '"$INSTDIR\uninstall.exe"'
@@ -104,7 +89,6 @@ Section "Uninstall"
     ExecWait 'taskkill /F /IM ${APP_EXE}' $0
 
     Delete "$INSTDIR\${APP_EXE}"
-    Delete "$INSTDIR\onnxruntime.dll"
     Delete "$INSTDIR\uninstall.exe"
     RMDir  "$INSTDIR"
 
@@ -114,9 +98,6 @@ Section "Uninstall"
     RMDir  "$SMPROGRAMS\${APP_NAME}"
 
     DeleteRegValue HKCU "${RUN_KEY}" "${APP_NAME}"
-    DeleteRegValue HKLM \
-        "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
-        "ORT_DYLIB_PATH"
     DeleteRegKey HKLM "${UNINSTALL_KEY}"
 
 SectionEnd

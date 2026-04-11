@@ -24,32 +24,19 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: brew install onnxruntime protobuf
-
-      - name: Download ONNX model
-        run: |
-          mkdir -p models
-          curl -L "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx" \
-            -o models/all-MiniLM-L6-v2.onnx
-          curl -L "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json" \
-            -o models/tokenizer.json
+        run: brew install protobuf
 
       - name: Build frontend
         run: cd dashboard && npm ci && npm run build
 
       - name: Build binary
-        env:
-          ORT_DYLIB_PATH: /opt/homebrew/lib/libonnxruntime.dylib
         run: |
           touch crates/osmozzz-api/src/server.rs
           cargo build --release -p osmozzz-cli
 
       - name: Import signing certificates
         run: |
-          # Certificat Developer ID Application (pour codesign binaires)
           echo "${{ secrets.APPLE_APP_CERT_P12 }}" | base64 --decode > app_certificate.p12
-
-          # Certificat Developer ID Installer (pour productsign .pkg)
           echo "${{ secrets.APPLE_CERTIFICATE_P12 }}" | base64 --decode > installer_certificate.p12
 
           security create-keychain -p "temp-keychain" build.keychain
@@ -88,40 +75,19 @@ jobs:
 
       - name: Build PKG installer
         run: |
-          # ── Structure du payload ───────────────────────────────────────────
           mkdir -p pkg-root/usr/local/bin
-          mkdir -p pkg-root/usr/local/lib
-          mkdir -p pkg-root/Library/OSMOzzz/models
 
-          cp target/release/osmozzz          pkg-root/usr/local/bin/osmozzz
-          cp /opt/homebrew/lib/libonnxruntime.dylib pkg-root/usr/local/lib/libonnxruntime.dylib
-          cp models/all-MiniLM-L6-v2.onnx    pkg-root/Library/OSMOzzz/models/
-          cp models/tokenizer.json            pkg-root/Library/OSMOzzz/models/
-
+          cp target/release/osmozzz pkg-root/usr/local/bin/osmozzz
           chmod +x pkg-root/usr/local/bin/osmozzz
           chmod +x scripts/pkg/postinstall
 
-          # ── Corriger le RPATH de la dylib dans le binaire ─────────────────
-          install_name_tool \
-            -change /opt/homebrew/lib/libonnxruntime.dylib \
-                    /usr/local/lib/libonnxruntime.dylib \
-            pkg-root/usr/local/bin/osmozzz
-
-          # ── Signer la dylib avec Developer ID Application ─────────────────
-          codesign --force --options runtime --timestamp \
-            --sign "${{ secrets.APPLE_SIGN_IDENTITY }}" \
-            pkg-root/usr/local/lib/libonnxruntime.dylib
-
-          # ── Signer le binaire avec hardened runtime + entitlements ────────
           codesign --force --options runtime --timestamp \
             --entitlements entitlements.plist \
             --sign "${{ secrets.APPLE_SIGN_IDENTITY }}" \
             pkg-root/usr/local/bin/osmozzz
 
-          # ── Vérification ──────────────────────────────────────────────────
           codesign --verify --deep --strict --verbose=2 pkg-root/usr/local/bin/osmozzz
 
-          # ── Construire le .pkg ────────────────────────────────────────────
           pkgbuild \
             --root pkg-root \
             --scripts scripts/pkg \
@@ -184,24 +150,6 @@ jobs:
       - name: Install dependencies
         run: choco install protoc nsis --no-progress -y
 
-      - name: Download ONNX Runtime
-        run: |
-          $version = "1.20.1"
-          Invoke-WebRequest `
-            -Uri "https://github.com/microsoft/onnxruntime/releases/download/v${version}/onnxruntime-win-x64-${version}.zip" `
-            -OutFile onnxruntime.zip
-          Expand-Archive onnxruntime.zip -DestinationPath onnxruntime-dist
-
-      - name: Download ONNX model
-        run: |
-          New-Item -ItemType Directory -Force models | Out-Null
-          Invoke-WebRequest `
-            -Uri "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx" `
-            -OutFile models/all-MiniLM-L6-v2.onnx
-          Invoke-WebRequest `
-            -Uri "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json" `
-            -OutFile models/tokenizer.json
-
       - name: Build frontend
         run: |
           Set-Location dashboard
@@ -210,21 +158,14 @@ jobs:
 
       - name: Build binary
         run: |
-          $env:ORT_DYLIB_PATH = "$env:GITHUB_WORKSPACE\onnxruntime-dist\onnxruntime-win-x64-1.20.1\lib\onnxruntime.dll"
           (Get-Item "crates/osmozzz-api/src/server.rs").LastWriteTime = Get-Date
           cargo build --release -p osmozzz-cli
 
       - name: Package release
         run: |
-          # Assemble dist-windows/
           New-Item -ItemType Directory dist-windows | Out-Null
-          New-Item -ItemType Directory dist-windows/models | Out-Null
           Copy-Item target/release/osmozzz.exe dist-windows/
-          Copy-Item onnxruntime-dist/onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll dist-windows/
-          Copy-Item models/all-MiniLM-L6-v2.onnx dist-windows/models/
-          Copy-Item models/tokenizer.json dist-windows/models/
 
-          # Build NSIS installer
           $version = ("${{ github.ref_name }}").TrimStart('v')
           $distDir = (Resolve-Path dist-windows).Path
           & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$version /DDIST_DIR=$distDir scripts\windows\installer.nsi
