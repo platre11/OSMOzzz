@@ -128,6 +128,28 @@ pub async fn run(_cfg: Config) -> Result<()> {
                 }
             });
             eprintln!("[OSMOzzz Daemon] P2P démarré (port {})", DEFAULT_P2P_PORT);
+
+            // Reconnexion automatique toutes les 30s pour les peers connus hors ligne
+            let reconnect_node = node.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    let connected = reconnect_node.connected_peer_ids().await;
+                    let known = reconnect_node.store.all();
+                    for peer in known {
+                        if !connected.contains(&peer.peer_id) {
+                            if let Some(addr) = peer.addresses.first() {
+                                let n = reconnect_node.clone();
+                                let a = addr.clone();
+                                tokio::spawn(async move {
+                                    let _ = n.connect_to_peer(&a).await;
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+
             Some(node)
         }
         Err(e) => {

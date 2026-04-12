@@ -1165,15 +1165,26 @@ pub async fn post_network_connect(
     };
     match p2p.accept_invite(&body.link, &body.display_name) {
         Ok(peer) => {
-            // Tente la connexion TCP en arrière-plan
+            // Tente la connexion en arrière-plan avec retry automatique
             let node = p2p.clone();
             let address = peer.addresses.first().cloned().unwrap_or_default();
             tokio::spawn(async move {
-                if !address.is_empty() {
-                    if let Err(e) = node.connect_to_peer(&address).await {
-                        tracing::warn!("[P2P] Connexion sortante échouée : {}", e);
+                if address.is_empty() { return; }
+                for attempt in 1..=5 {
+                    match node.clone().connect_to_peer(&address).await {
+                        Ok(_) => {
+                            tracing::info!("[P2P] Connexion établie (tentative {})", attempt);
+                            return;
+                        }
+                        Err(e) => {
+                            tracing::warn!("[P2P] Tentative {}/5 échouée : {}", attempt, e);
+                            if attempt < 5 {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(3 * attempt)).await;
+                            }
+                        }
                     }
                 }
+                tracing::warn!("[P2P] Connexion impossible après 5 tentatives");
             });
             ApiResponse::ok("Peer ajouté — connexion en cours".to_string()).into_response()
         }
