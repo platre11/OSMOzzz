@@ -45,11 +45,15 @@ chown "$REAL_USER" "$PLIST"
 echo "[OSMOzzz] LaunchAgent créé"
 
 # ── 2. Démarrer le daemon maintenant ──────────────────────────────────────────
+# macOS Ventura+ : bootstrap/bootout remplacent load/unload
+launchctl bootout "gui/$USER_UID/com.osmozzz.daemon" 2>/dev/null || true
+launchctl bootstrap "gui/$USER_UID" "$PLIST" 2>/dev/null || \
 launchctl asuser "$USER_UID" launchctl load -w "$PLIST" 2>/dev/null || true
 echo "[OSMOzzz] Daemon démarré"
 
-# ── 3. Ouvrir le dashboard dans le navigateur (2s pour laisser le daemon s'init)
-sleep 2
+# ── 3. Ouvrir le dashboard dans le navigateur (3s pour laisser le daemon s'init)
+sleep 3
+launchctl asuser "$USER_UID" sudo -u "$REAL_USER" open "http://localhost:7878" 2>/dev/null || \
 sudo -u "$REAL_USER" open "http://localhost:7878" 2>/dev/null || true
 
 echo "[OSMOzzz] Installation terminée — dashboard: http://localhost:7878"
