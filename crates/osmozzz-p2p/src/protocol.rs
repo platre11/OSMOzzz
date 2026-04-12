@@ -28,6 +28,15 @@ pub enum Message {
     /// Réponse info
     Info(PeerInfo),
 
+    /// Synchronisation des permissions — envoyé juste après Welcome/Hello
+    /// pour informer le peer de ce qu'on lui autorise sur notre machine.
+    PermissionsSync {
+        /// Sources autorisées (ex: ["email", "notes", "github"])
+        allowed_sources: Vec<String>,
+        /// Tools autorisés avec leur mode (ex: {"linear": "auto", "jira": "require"})
+        tool_permissions: std::collections::HashMap<String, String>,
+    },
+
     /// Erreur protocolaire
     Error { code: String, message: String },
 }

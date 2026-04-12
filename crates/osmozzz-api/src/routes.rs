@@ -1218,6 +1218,29 @@ pub async fn get_network_permissions(
     }
 }
 
+/// GET /api/network/granted-permissions/:peer_id
+/// Retourne ce que le peer nous autorise à faire sur SA machine.
+pub async fn get_network_granted_permissions(
+    State(state): State<AppState>,
+    axum::extract::Path(peer_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return axum::Json(serde_json::json!({"error": "P2P non initialisé"})).into_response();
+    };
+    match p2p.store.get(&peer_id) {
+        Some(peer) => {
+            let granted = peer.peer_granted_to_me.as_ref().map(|p| {
+                serde_json::json!({
+                    "allowed_sources": p.allowed_source_names(),
+                    "tool_permissions": p.tool_permissions.iter().map(|(k,v)| (k.clone(), format!("{:?}", v).to_lowercase())).collect::<std::collections::HashMap<_,_>>()
+                })
+            }).unwrap_or(serde_json::json!(null));
+            axum::Json(serde_json::json!({"ok": true, "data": granted})).into_response()
+        }
+        None => axum::Json(serde_json::json!({"error": "Peer introuvable"})).into_response(),
+    }
+}
+
 pub async fn post_network_permissions(
     State(state): State<AppState>,
     axum::extract::Path(peer_id): axum::extract::Path<String>,
@@ -1239,7 +1262,11 @@ pub async fn post_network_permissions(
         tool_permissions: existing_tool_perms,
     };
     match p2p.store.update_permissions(&peer_id, perms) {
-        Ok(_) => ApiResponse::ok("Permissions mises à jour".to_string()).into_response(),
+        Ok(_) => {
+            // Push immédiat si le peer est connecté — pas besoin de reconnexion
+            p2p.push_permissions_to_peer(&peer_id).await;
+            ApiResponse::ok("Permissions mises à jour".to_string()).into_response()
+        }
         Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
     }
 }
@@ -1319,7 +1346,11 @@ pub async fn post_network_tool_permissions(
         })
         .collect();
     match p2p.store.update_tool_permissions(&peer_id, perms) {
-        Ok(_)  => ApiResponse::ok("Permissions outils mises à jour".to_string()).into_response(),
+        Ok(_) => {
+            // Push immédiat si le peer est connecté — révocation de tool effective immédiatement
+            p2p.push_permissions_to_peer(&peer_id).await;
+            ApiResponse::ok("Permissions outils mises à jour".to_string()).into_response()
+        }
         Err(e) => ApiResponse::<String>::err(e.to_string()).into_response(),
     }
 }

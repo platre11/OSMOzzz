@@ -12,7 +12,11 @@ pub struct KnownPeer {
     pub display_name: String,
     pub addresses: Vec<String>,   // tickets iroh base64 (incluent relay + adresses directes)
     pub public_key_hex: String,
+    /// Ce que MOI j'autorise ce peer à faire sur MA machine
     pub permissions: PeerPermissions,
+    /// Ce que CE PEER m'autorise à faire sur SA machine (reçu via PermissionsSync)
+    #[serde(default)]
+    pub peer_granted_to_me: Option<PeerPermissions>,
     pub connected: bool,
     pub last_seen: Option<i64>,   // timestamp unix
 }
@@ -85,6 +89,15 @@ impl PeerStore {
         let mut file = self.load_file();
         if let Some(peer) = file.peers.get_mut(peer_id) {
             peer.permissions = perms;
+        }
+        self.save_file(&file)
+    }
+
+    /// Stocke les permissions que le peer nous a accordées (reçu via PermissionsSync).
+    pub fn update_peer_granted(&self, peer_id: &str, granted: PeerPermissions) -> Result<()> {
+        let mut file = self.load_file();
+        if let Some(peer) = file.peers.get_mut(peer_id) {
+            peer.peer_granted_to_me = Some(granted);
         }
         self.save_file(&file)
     }

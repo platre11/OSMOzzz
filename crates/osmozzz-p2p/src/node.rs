@@ -193,6 +193,15 @@ impl P2pNode {
                         peer_id: peer_id.clone(),
                         display_name,
                     }).await;
+                    // Envoyer nos permissions au peer juste après le handshake
+                    let my_perms = self.get_permissions(&peer_id);
+                    let tool_map: std::collections::HashMap<String, String> = my_perms.tool_permissions.iter()
+                        .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
+                        .collect();
+                    let _ = send_msg(&mut send, &crate::protocol::Message::PermissionsSync {
+                        allowed_sources: my_perms.allowed_source_names(),
+                        tool_permissions: tool_map,
+                    }).await;
                 }
                 Message::Error { message, .. } => {
                     return Err(anyhow::anyhow!("Peer a refusé : {}", message));
@@ -239,6 +248,55 @@ impl P2pNode {
                                 peer_id: peer_id.clone(),
                                 display_name,
                             }).await;
+                            // Envoyer nos permissions au peer juste après le Welcome
+                            let my_perms = self.get_permissions(&peer_id);
+                            let tool_map: std::collections::HashMap<String, String> = my_perms.tool_permissions.iter()
+                                .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
+                                .collect();
+                            let _ = send_msg(&mut send, &Message::PermissionsSync {
+                                allowed_sources: my_perms.allowed_source_names(),
+                                tool_permissions: tool_map,
+                            }).await;
+                        }
+
+                        Message::PermissionsSync { allowed_sources, tool_permissions } => {
+                            use crate::permissions::{PeerPermissions, SharedSource, ToolAccessMode};
+                            let sources: Vec<SharedSource> = allowed_sources.iter()
+                                .filter_map(|s| match s.as_str() {
+                                    "email" => Some(SharedSource::Email),
+                                    "imessage" => Some(SharedSource::IMessage),
+                                    "notes" => Some(SharedSource::Notes),
+                                    "calendar" => Some(SharedSource::Calendar),
+                                    "terminal" => Some(SharedSource::Terminal),
+                                    "file" => Some(SharedSource::File),
+                                    "notion" => Some(SharedSource::Notion),
+                                    "github" => Some(SharedSource::Github),
+                                    "linear" => Some(SharedSource::Linear),
+                                    "jira" => Some(SharedSource::Jira),
+                                    "slack" => Some(SharedSource::Slack),
+                                    "trello" => Some(SharedSource::Trello),
+                                    "todoist" => Some(SharedSource::Todoist),
+                                    "gitlab" => Some(SharedSource::Gitlab),
+                                    "airtable" => Some(SharedSource::Airtable),
+                                    "obsidian" => Some(SharedSource::Obsidian),
+                                    _ => None,
+                                }).collect();
+                            let tool_perms: std::collections::HashMap<String, ToolAccessMode> = tool_permissions.iter()
+                                .map(|(k, v)| {
+                                    let mode = match v.as_str() {
+                                        "require" => ToolAccessMode::Require,
+                                        "disabled" => ToolAccessMode::Disabled,
+                                        _ => ToolAccessMode::Auto,
+                                    };
+                                    (k.clone(), mode)
+                                }).collect();
+                            let granted = PeerPermissions {
+                                allowed_sources: sources,
+                                max_results_per_query: 10,
+                                tool_permissions: tool_perms,
+                            };
+                            self.store.update_peer_granted(&peer_id, granted).ok();
+                            info!("[P2P] Permissions reçues de {}", &peer_id[..8.min(peer_id.len())]);
                         }
 
                         Message::Search(req) => {
@@ -461,6 +519,28 @@ impl P2pNode {
         self.store.get(peer_id).map(|p| p.permissions).unwrap_or_default()
     }
 
+    /// Pousse immédiatement les nouvelles permissions vers un peer connecté.
+    /// Appelé dès que l'utilisateur modifie les permissions dans le dashboard,
+    /// sans attendre une reconnexion — critique pour la sécurité.
+    pub async fn push_permissions_to_peer(&self, peer_id: &str) {
+        let connections = self.connections.read().await;
+        if let Some(tx) = connections.get(peer_id) {
+            let my_perms = self.get_permissions(peer_id);
+            let tool_map: std::collections::HashMap<String, String> = my_perms
+                .tool_permissions
+                .iter()
+                .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
+                .collect();
+            let msg = Message::PermissionsSync {
+                allowed_sources: my_perms.allowed_source_names(),
+                tool_permissions: tool_map,
+            };
+            if tx.send(msg).await.is_err() {
+                warn!("[P2P] push_permissions_to_peer: channel fermé pour {}", &peer_id[..16.min(peer_id.len())]);
+            }
+        }
+    }
+
     /// Génère un lien d'invitation iroh — fonctionne sur tous les réseaux.
     /// Contient : EndpointId + adresses directes + URL relay n0.computer.
     /// Format : osmozzz://invite/<base64_json_EndpointAddr>
@@ -488,6 +568,7 @@ impl P2pNode {
             addresses: vec![encoded.to_string()],
             public_key_hex: peer_id.clone(),
             permissions: PeerPermissions::default(),
+            peer_granted_to_me: None,
             connected: false,
             last_seen: None,
         };

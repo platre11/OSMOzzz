@@ -583,6 +583,20 @@ fn tools_list() -> Value {
         }
     }));
     list.as_array_mut().unwrap().push(json!({
+        "name": "get_peer_permissions",
+        "description": "P2P — Retourne ce qu'un pair t'autorise à utiliser sur son Mac (sources et tools accessibles). Utiliser pour savoir quels tools appeler avec call_peer_tool.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "peer_id": {
+                    "type": "string",
+                    "description": "L'identifiant du pair (obtenu via list_connected_peers)"
+                }
+            },
+            "required": ["peer_id"]
+        }
+    }));
+    list.as_array_mut().unwrap().push(json!({
         "name": "osmozzz_resume_action",
         "description": "OSMOZZZ 🔄 — Reprend une action après approbation dans le dashboard OSMOzzz. \
             Appelle ce tool avec l'action_id fourni lors d'une demande de validation manuelle. \
@@ -2424,6 +2438,41 @@ pub async fn run(cfg: Config) -> Result<()> {
                             Err(e) => {
                                 send(&Response::err(id, -32603, &format!("Impossible de joindre le daemon OSMOzzz : {e}")));
                             }
+                        }
+                    }
+
+                    "get_peer_permissions" => {
+                        let peer_id = match args.get("peer_id").and_then(|v| v.as_str()) {
+                            Some(p) => p.to_string(),
+                            None => {
+                                send(&Response::err(id, -32602, "Paramètre requis : peer_id"));
+                                continue;
+                            }
+                        };
+                        let client = reqwest::Client::new();
+                        let url = format!("http://127.0.0.1:7878/api/network/granted-permissions/{}", peer_id);
+                        match client.get(&url).send().await {
+                            Ok(resp) => {
+                                let text = resp.text().await.unwrap_or_default();
+                                let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                                let data = parsed.get("data");
+                                let msg = match data {
+                                    Some(serde_json::Value::Null) | None => {
+                                        "Permissions pas encore synchronisées — le pair doit être connecté et avoir partagé ses permissions.".to_string()
+                                    }
+                                    Some(v) => {
+                                        let sources = v.get("allowed_sources").and_then(|a| a.as_array())
+                                            .map(|arr| arr.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
+                                            .unwrap_or_else(|| "aucune".to_string());
+                                        let tools = v.get("tool_permissions").and_then(|t| t.as_object())
+                                            .map(|obj| obj.iter().map(|(k, v)| format!("{}: {}", k, v.as_str().unwrap_or("auto"))).collect::<Vec<_>>().join(", "))
+                                            .unwrap_or_else(|| "tous en auto".to_string());
+                                        format!("Ce que le pair t'autorise :\n• Sources : {}\n• Tools : {}", sources, tools)
+                                    }
+                                };
+                                send(&Response::ok(id, json!({"content":[{"type":"text","text": msg}]})));
+                            }
+                            Err(e) => send(&Response::err(id, -32603, &format!("Erreur : {e}"))),
                         }
                     }
 

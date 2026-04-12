@@ -94,6 +94,7 @@ pub async fn start_server(
         .route("/network/connect", post(routes::post_network_connect))
         .route("/network/peers/:peer_id", delete(routes::delete_network_peer))
         .route("/network/permissions/:peer_id", get(routes::get_network_permissions).post(routes::post_network_permissions))
+        .route("/network/granted-permissions/:peer_id", get(routes::get_network_granted_permissions))
         .route("/network/history", get(routes::get_network_history))
         .route("/network/identity", get(routes::get_network_identity))
         .route("/network/tool-permissions/:peer_id", get(routes::get_network_tool_permissions).post(routes::post_network_tool_permissions))
