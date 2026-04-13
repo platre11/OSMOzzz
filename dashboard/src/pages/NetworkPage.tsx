@@ -418,13 +418,9 @@ function IdentitySection() {
 
 // ─── Labels lisibles pour chaque tool/connecteur ─────────────────────────────
 
+// Uniquement les connecteurs cloud — les outils locaux (notes, fichiers, iMessage…)
+// ne sont pas partagés via P2P.
 const TOOL_LABELS: { id: string; label: string }[] = [
-  { id: 'memory',     label: 'Mémoire'      },
-  { id: 'gmail',      label: 'Gmail'        },
-  { id: 'imessage',   label: 'iMessage'     },
-  { id: 'notes',      label: 'Notes'        },
-  { id: 'files',      label: 'Fichiers'     },
-  { id: 'calendar',   label: 'Calendrier'   },
   { id: 'github',     label: 'GitHub'       },
   { id: 'notion',     label: 'Notion'       },
   { id: 'slack',      label: 'Slack'        },
@@ -447,8 +443,8 @@ const TOOL_LABELS: { id: string; label: string }[] = [
   { id: 'gcal',       label: 'Google Cal'   },
 ]
 
-// Tools de base toujours disponibles (pas besoin de .toml)
-const BASE_TOOLS = ['memory', 'gmail', 'imessage', 'notes', 'files', 'calendar']
+// Aucun tool local de base — uniquement les connecteurs cloud configurés
+const BASE_TOOLS: string[] = []
 
 const PeerSection = styled.div`
   padding: 16px 20px 18px;
@@ -602,7 +598,15 @@ function PeerCardItem({ peer, selected, onSelect }: {
       })
     : null
 
-  const theirTools: string[] = []
+  // Ce que le peer nous autorise à utiliser sur son Mac (reçu via PermissionsSync)
+  const { data: grantedPerms = {} } = useQuery({
+    queryKey: ['peer-granted-permissions', peer.peer_id],
+    queryFn: () => api.getPeerGrantedPermissions(peer.peer_id),
+    refetchInterval: peer.connected ? 10_000 : false,
+  })
+  const theirTools = Object.entries(grantedPerms)
+    .filter(([, mode]) => mode !== 'disabled')
+    .map(([id]) => id)
 
   return (
     <PeerCard $selected={selected}>

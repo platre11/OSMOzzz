@@ -447,6 +447,14 @@ export const api = {
     return r.data.data
   },
 
+  getPeerGrantedPermissions: async (peer_id: string): Promise<ToolPermissions> => {
+    const r = await axios.get(`${BASE}/network/granted-permissions/${peer_id}`)
+    const data = r.data.data
+    if (!data) return {}
+    // Retourne les tool_permissions (ce que le peer nous autorise)
+    return data.tool_permissions ?? {}
+  },
+
   getPeerToolPermissions: async (peer_id: string): Promise<ToolPermissions> => {
     const r = await axios.get(`${BASE}/network/tool-permissions/${peer_id}`)
     return r.data.data ?? {}
