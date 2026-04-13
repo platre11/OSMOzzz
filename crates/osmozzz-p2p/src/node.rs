@@ -25,6 +25,8 @@ pub const DEFAULT_P2P_PORT: u16 = 47474;
 pub enum P2pEvent {
     PeerConnected { peer_id: String, display_name: String },
     PeerDisconnected { peer_id: String },
+    /// Permissions reçues ou mises à jour via PermissionsSync — le dashboard doit se rafraîchir.
+    PermissionsUpdated { peer_id: String },
     QueryReceived { peer_id: String, peer_name: String, query: String },
     /// Mode "Auto" — le daemon doit exécuter le tool et renvoyer le résultat.
     ToolCallAuto {
@@ -291,6 +293,9 @@ impl P2pNode {
                             };
                             self.store.update_peer_granted(&peer_id, granted).ok();
                             info!("[P2P] Permissions reçues de {}", &peer_id[..8.min(peer_id.len())]);
+                            let _ = self.event_tx.send(P2pEvent::PermissionsUpdated {
+                                peer_id: peer_id.clone(),
+                            }).await;
                         }
 
                         Message::Search(req) => {

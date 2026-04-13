@@ -22,4 +22,6 @@ pub struct AppState {
     pub action_queue: Arc<ActionQueue>,
     /// File d'approbation dédiée aux demandes P2P (séparée de action_queue qui est locale Claude)
     pub p2p_action_queue: Arc<ActionQueue>,
+    /// Bus SSE — notifie le dashboard quand les permissions P2P changent (peer_id en payload)
+    pub network_tx: tokio::sync::broadcast::Sender<String>,
 }

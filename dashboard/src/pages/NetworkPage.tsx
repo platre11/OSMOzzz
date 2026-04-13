@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import styled from 'styled-components'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -608,11 +608,21 @@ function PeerCardItem({ peer, selected, onSelect }: {
   const { data: grantedPerms = {} } = useQuery({
     queryKey: ['peer-granted-permissions', peer.peer_id],
     queryFn: () => api.getPeerGrantedPermissions(peer.peer_id),
-    refetchInterval: peer.connected ? 10_000 : false,
   })
+
+  // SSE — invalidation instantanée dès que le peer envoie un PermissionsSync
+  useEffect(() => {
+    const es = new EventSource('/api/network/stream')
+    es.addEventListener('permissions_updated', (e: MessageEvent) => {
+      if (e.data === peer.peer_id) {
+        qc.invalidateQueries({ queryKey: ['peer-granted-permissions', peer.peer_id] })
+      }
+    })
+    return () => es.close()
+  }, [peer.peer_id, qc])
   const theirTools = Object.entries(grantedPerms)
     .filter(([, mode]) => mode !== 'disabled')
-    .map(([id]) => id)
+    .map(([id, mode]) => ({ id, mode: mode as ToolAccessMode }))
 
   return (
     <PeerCard $selected={selected}>
@@ -728,9 +738,10 @@ function PeerCardItem({ peer, selected, onSelect }: {
             </PeerSectionTitle>
             {theirTools.length > 0 ? (
               <ToolGrid>
-                {theirTools.map(id => (
-                  <ToolChip key={id} $mode="auto" $readonly>
+                {theirTools.map(({ id, mode }) => (
+                  <ToolChip key={id} $mode={mode} $readonly>
                     <ToolChipName>{labelFor(id)}</ToolChipName>
+                    <ToolChipMode>· {MODE_STYLE[mode].label}</ToolChipMode>
                   </ToolChip>
                 ))}
               </ToolGrid>

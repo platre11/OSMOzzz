@@ -21,6 +21,8 @@ pub async fn run(_cfg: Config) -> Result<()> {
     let action_queue = Arc::new(osmozzz_api::ActionQueue::new());
     // Queue dédiée aux approbations P2P (demandes de peers — page Réseau)
     let p2p_action_queue = Arc::new(osmozzz_api::ActionQueue::new());
+    // Canal SSE pour notifier le dashboard des changements de permissions P2P
+    let (network_tx, _) = tokio::sync::broadcast::channel::<String>(32);
 
     // Initialiser le nœud P2P
     let (p2p_event_tx, mut p2p_event_rx) = tokio::sync::mpsc::channel::<P2pEvent>(64);
@@ -38,11 +40,16 @@ pub async fn run(_cfg: Config) -> Result<()> {
             let my_display_name = display_name.clone();
             let aq = Arc::clone(&p2p_action_queue);
             let event_node = node.clone();
+            let network_tx_events = network_tx.clone();
             tokio::spawn(async move {
                 while let Some(event) = p2p_event_rx.recv().await {
                     match event {
                         P2pEvent::PeerConnected { display_name, .. } => {
                             eprintln!("[P2P] {} connecté", display_name);
+                        }
+                        P2pEvent::PermissionsUpdated { peer_id } => {
+                            // Notifie le dashboard SSE — mise à jour instantanée côté UI
+                            let _ = network_tx_events.send(peer_id);
                         }
                         P2pEvent::PeerDisconnected { peer_id } => {
                             eprintln!("[P2P] Peer {} déconnecté — reconnexion dans 3s…", &peer_id[..8.min(peer_id.len())]);
@@ -180,8 +187,9 @@ pub async fn run(_cfg: Config) -> Result<()> {
     let dashboard_p2p = p2p_node.clone();
     let dashboard_queue = Arc::clone(&action_queue);
     let dashboard_p2p_queue = Arc::clone(&p2p_action_queue);
+    let dashboard_network_tx = network_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = osmozzz_api::start_server(dashboard_vault, dashboard_p2p, dashboard_queue, dashboard_p2p_queue, DASHBOARD_PORT).await {
+        if let Err(e) = osmozzz_api::start_server(dashboard_vault, dashboard_p2p, dashboard_queue, dashboard_p2p_queue, dashboard_network_tx, DASHBOARD_PORT).await {
             eprintln!("[OSMOzzz Daemon] Dashboard erreur: {}", e);
         }
     });

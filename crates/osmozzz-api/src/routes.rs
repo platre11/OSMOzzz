@@ -2486,6 +2486,23 @@ pub async fn get_network_p2p_stream(
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
+/// GET /api/network/stream — SSE push quand les permissions P2P changent
+/// Le dashboard s'abonne et invalide le cache React Query à la réception.
+pub async fn get_network_stream(
+    State(state): State<AppState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.network_tx.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|result| {
+        let event = result.ok().map(|peer_id| {
+            Ok(Event::default()
+                .event("permissions_updated")
+                .data(peer_id))
+        });
+        async move { event }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 /// POST /api/network/p2p-actions/:id/approve
 pub async fn post_network_p2p_approve(
     State(state): State<AppState>,

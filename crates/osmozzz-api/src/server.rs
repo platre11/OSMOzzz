@@ -22,6 +22,7 @@ pub async fn start_server(
     p2p: Option<Arc<P2pNode>>,
     action_queue: Arc<ActionQueue>,
     p2p_action_queue: Arc<ActionQueue>,
+    network_tx: tokio::sync::broadcast::Sender<String>,
     port: u16,
 ) -> Result<()> {
     let state = AppState {
@@ -30,6 +31,7 @@ pub async fn start_server(
         index_progress: Arc::new(std::sync::Mutex::new(Default::default())),
         action_queue,
         p2p_action_queue,
+        network_tx,
     };
 
     let cors = CorsLayer::new()
@@ -99,6 +101,7 @@ pub async fn start_server(
         .route("/network/identity", get(routes::get_network_identity))
         .route("/network/tool-permissions/:peer_id", get(routes::get_network_tool_permissions).post(routes::post_network_tool_permissions))
         .route("/network/connected-peers", get(routes::get_network_connected_peers))
+        .route("/network/stream", get(routes::get_network_stream))
         .route("/network/call-peer-tool", post(routes::post_network_call_peer_tool))
         .route("/network/simulate", post(routes::post_network_simulate))
         .route("/network/p2p-pending", get(routes::get_network_p2p_pending))
