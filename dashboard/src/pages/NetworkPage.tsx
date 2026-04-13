@@ -575,15 +575,21 @@ function PeerCardItem({ peer, selected, onSelect }: {
   const myToolIds = [...BASE_TOOLS, ...configured]
 
   const cycleMode = (id: string) => {
-    const current = (draft ?? savedPerms)[id] as ToolAccessMode | undefined ?? 'auto'
+    const current = (draft ?? savedPerms)[id] as ToolAccessMode | undefined ?? 'disabled'
     const idx = MODE_CYCLE.indexOf(current)
     const next = MODE_CYCLE[(idx + 1) % MODE_CYCLE.length]
     setDraft(prev => ({ ...(prev ?? savedPerms), [id]: next }))
   }
 
+  // Construit l'état complet explicite (tous les tools, disabled par défaut)
+  const buildFullState = (): Record<string, ToolAccessMode> =>
+    myToolIds.reduce((acc, id) => {
+      acc[id] = ((draft ?? savedPerms)[id] as ToolAccessMode | undefined) ?? 'disabled'
+      return acc
+    }, {} as Record<string, ToolAccessMode>)
+
   const applyChanges = () => {
-    if (!draft) return
-    permsMut.mutate(draft)
+    permsMut.mutate(buildFullState())
   }
 
   const cancelChanges = () => setDraft(null)
@@ -654,7 +660,7 @@ function PeerCardItem({ peer, selected, onSelect }: {
             </PeerSectionTitle>
             <ToolGrid>
               {myToolIds.map(id => {
-                const mode = (displayed[id] as ToolAccessMode | undefined) ?? 'auto'
+                const mode = (displayed[id] as ToolAccessMode | undefined) ?? 'disabled'
                 return (
                   <ToolChip
                     key={id}

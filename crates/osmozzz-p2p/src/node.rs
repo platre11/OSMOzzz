@@ -195,12 +195,9 @@ impl P2pNode {
                     }).await;
                     // Envoyer nos permissions au peer juste après le handshake
                     let my_perms = self.get_permissions(&peer_id);
-                    let tool_map: std::collections::HashMap<String, String> = my_perms.tool_permissions.iter()
-                        .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
-                        .collect();
                     let _ = send_msg(&mut send, &crate::protocol::Message::PermissionsSync {
                         allowed_sources: my_perms.allowed_source_names(),
-                        tool_permissions: tool_map,
+                        tool_permissions: self.build_tool_sync_map(&peer_id),
                     }).await;
                 }
                 Message::Error { message, .. } => {
@@ -250,12 +247,9 @@ impl P2pNode {
                             }).await;
                             // Envoyer nos permissions au peer juste après le Welcome
                             let my_perms = self.get_permissions(&peer_id);
-                            let tool_map: std::collections::HashMap<String, String> = my_perms.tool_permissions.iter()
-                                .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
-                                .collect();
                             let _ = send_msg(&mut send, &Message::PermissionsSync {
                                 allowed_sources: my_perms.allowed_source_names(),
-                                tool_permissions: tool_map,
+                                tool_permissions: self.build_tool_sync_map(&peer_id),
                             }).await;
                         }
 
@@ -519,6 +513,27 @@ impl P2pNode {
         self.store.get(peer_id).map(|p| p.permissions).unwrap_or_default()
     }
 
+    /// Construit le map tool_permissions complet pour PermissionsSync.
+    /// Les connecteurs non configurés sont explicitement marqués "disabled"
+    /// pour que le peer sache qu'il n'a pas accès (et non que le sync n'a pas eu lieu).
+    fn build_tool_sync_map(&self, peer_id: &str) -> std::collections::HashMap<String, String> {
+        const ALL_CONNECTORS: &[&str] = &[
+            "github", "notion", "slack", "linear", "jira", "gitlab",
+            "supabase", "vercel", "railway", "render", "stripe", "hubspot",
+            "discord", "resend", "twilio", "figma", "posthog", "sentry",
+            "cloudflare", "gcal",
+        ];
+        let perms = self.get_permissions(peer_id);
+        let mut map: std::collections::HashMap<String, String> = perms.tool_permissions.iter()
+            .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
+            .collect();
+        // Remplit les connecteurs non configurés avec "disabled" explicitement
+        for c in ALL_CONNECTORS {
+            map.entry(c.to_string()).or_insert_with(|| "disabled".to_string());
+        }
+        map
+    }
+
     /// Pousse immédiatement les nouvelles permissions vers un peer connecté.
     /// Appelé dès que l'utilisateur modifie les permissions dans le dashboard,
     /// sans attendre une reconnexion — critique pour la sécurité.
@@ -526,14 +541,9 @@ impl P2pNode {
         let connections = self.connections.read().await;
         if let Some(tx) = connections.get(peer_id) {
             let my_perms = self.get_permissions(peer_id);
-            let tool_map: std::collections::HashMap<String, String> = my_perms
-                .tool_permissions
-                .iter()
-                .map(|(k, v)| (k.clone(), format!("{:?}", v).to_lowercase()))
-                .collect();
             let msg = Message::PermissionsSync {
                 allowed_sources: my_perms.allowed_source_names(),
-                tool_permissions: tool_map,
+                tool_permissions: self.build_tool_sync_map(peer_id),
             };
             if tx.send(msg).await.is_err() {
                 warn!("[P2P] push_permissions_to_peer: channel fermé pour {}", &peer_id[..16.min(peer_id.len())]);

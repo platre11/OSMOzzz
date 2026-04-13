@@ -37,6 +37,7 @@ pub async fn run(_cfg: Config) -> Result<()> {
             let my_peer_id = node.identity.id.clone();
             let my_display_name = display_name.clone();
             let aq = Arc::clone(&p2p_action_queue);
+            let event_node = node.clone();
             tokio::spawn(async move {
                 while let Some(event) = p2p_event_rx.recv().await {
                     match event {
@@ -44,7 +45,18 @@ pub async fn run(_cfg: Config) -> Result<()> {
                             eprintln!("[P2P] {} connecté", display_name);
                         }
                         P2pEvent::PeerDisconnected { peer_id } => {
-                            eprintln!("[P2P] Peer {} déconnecté", &peer_id[..8.min(peer_id.len())]);
+                            eprintln!("[P2P] Peer {} déconnecté — reconnexion dans 3s…", &peer_id[..8.min(peer_id.len())]);
+                            // Reconnexion immédiate après changement de réseau (WiFi → 4G, etc.)
+                            let n = event_node.clone();
+                            let pid = peer_id.clone();
+                            tokio::spawn(async move {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                                if let Some(peer) = n.store.get(&pid) {
+                                    if let Some(addr) = peer.addresses.first() {
+                                        let _ = n.connect_to_peer(addr).await;
+                                    }
+                                }
+                            });
                         }
                         P2pEvent::QueryReceived { peer_name, query, .. } => {
                             eprintln!("[P2P] {} a cherché : \"{}\"", peer_name, query);
@@ -129,11 +141,11 @@ pub async fn run(_cfg: Config) -> Result<()> {
             });
             eprintln!("[OSMOzzz Daemon] P2P démarré (port {})", DEFAULT_P2P_PORT);
 
-            // Reconnexion automatique toutes les 30s pour les peers connus hors ligne
+            // Reconnexion automatique toutes les 10s pour les peers connus hors ligne
             let reconnect_node = node.clone();
             tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                     let connected = reconnect_node.connected_peer_ids().await;
                     let known = reconnect_node.store.all();
                     for peer in known {
