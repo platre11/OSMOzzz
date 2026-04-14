@@ -447,6 +447,10 @@ export const api = {
     return r.data.data
   },
 
+  resyncPermissions: async (): Promise<void> => {
+    await axios.post(`${BASE}/network/resync`)
+  },
+
   getPeerGrantedPermissions: async (peer_id: string): Promise<ToolPermissions> => {
     const r = await axios.get(`${BASE}/network/granted-permissions/${peer_id}`)
     const data = r.data.data

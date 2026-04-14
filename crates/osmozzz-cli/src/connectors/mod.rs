@@ -6,6 +6,7 @@
 ///
 /// La couche sécurité (sanitize_proxy_response + audit_log) est appliquée
 /// CENTRALEMENT dans le dispatcher de mcp.rs, après le retour du connecteur.
+pub mod browser;
 pub mod calendly;
 pub mod cloudflare;
 pub mod shopify;
@@ -60,6 +61,7 @@ pub fn all_tools() -> Vec<Value> {
     tools.extend(cloudflare::tools());
     tools.extend(github::tools());
     tools.extend(shopify::tools());
+    tools.extend(browser::tools());
     tools
 }
 
@@ -90,5 +92,6 @@ pub async fn handle(name: &str, args: &Value) -> Option<Result<String, String>> 
     if name.starts_with("cloudflare_") { return Some(cloudflare::handle(name, args).await); }
     if name.starts_with("github_")     { return Some(github::handle(name, args).await); }
     if name.starts_with("shopify_")    { return Some(shopify::handle(name, args).await); }
+    if name.starts_with("browser_")   { return Some(browser::handle(name, args).await); }
     None
 }

@@ -556,6 +556,15 @@ impl P2pNode {
         }
     }
 
+    /// Pousse les permissions vers TOUS les peers actuellement connectés.
+    /// Appelé quand l'utilisateur configure un nouveau connecteur.
+    pub async fn push_permissions_to_all_peers(&self) {
+        let peer_ids: Vec<String> = self.connections.read().await.keys().cloned().collect();
+        for peer_id in peer_ids {
+            self.push_permissions_to_peer(&peer_id).await;
+        }
+    }
+
     /// Génère un lien d'invitation iroh — fonctionne sur tous les réseaux.
     /// Contient : EndpointId + adresses directes + URL relay n0.computer.
     /// Format : osmozzz://invite/<base64_json_EndpointAddr>

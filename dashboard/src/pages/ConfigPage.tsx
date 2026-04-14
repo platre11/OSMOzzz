@@ -1533,7 +1533,7 @@ export default function ConfigPage() {
               id={open}
               status={statusOf(open)}
               onClose={() => setOpen(null)}
-              onSaved={() => setOpen(null)}
+              onSaved={() => { setOpen(null); api.resyncPermissions().catch(() => {}) }}
             />
           </Modal>
         </Overlay>

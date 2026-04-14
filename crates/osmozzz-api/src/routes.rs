@@ -1300,6 +1300,18 @@ pub async fn get_network_identity(State(state): State<AppState>) -> impl IntoRes
     }).into_response()
 }
 
+// ─── POST /api/network/resync ─────────────────────────────────────────────────
+/// Pousse immédiatement les permissions vers tous les peers connectés.
+/// Appelé automatiquement depuis le dashboard après chaque config de connecteur.
+
+pub async fn post_network_resync(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(p2p) = &state.p2p else {
+        return ApiResponse::<String>::err("P2P non initialisé").into_response();
+    };
+    p2p.push_permissions_to_all_peers().await;
+    ApiResponse::ok("Resync envoyé à tous les peers connectés".to_string()).into_response()
+}
+
 // ─── Permissions tools par peer ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -2461,6 +2473,28 @@ pub async fn post_config_shopify(Json(body): Json<ShopifyConfigBody>) -> impl In
     );
     match write_config("shopify.toml", &content) {
         Ok(_)  => ApiResponse::ok("Shopify configuré".to_string()).into_response(),
+        Err(e) => ApiResponse::<String>::err(e).into_response(),
+    }
+}
+
+// ─── POST /api/config/browser ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct BrowserConfigBody {
+    #[serde(default)]
+    pub browser: String,
+    #[serde(default)]
+    pub headless: bool,
+}
+
+pub async fn post_config_browser(Json(body): Json<BrowserConfigBody>) -> impl IntoResponse {
+    let browser = if body.browser.is_empty() { "chrome".to_string() } else { esc(&body.browser) };
+    let content = format!(
+        "browser = \"{}\"\nheadless = {}\n",
+        browser, body.headless,
+    );
+    match write_config("browser.toml", &content) {
+        Ok(_)  => ApiResponse::ok("Browser configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
     }
 }

@@ -41,6 +41,50 @@ Puis **Cmd+Shift+R** dans le navigateur sur `localhost:7878`.
 
 ---
 
+## ⚠️ ÉTAT ACTUEL DU CODE — DÉSACTIVATIONS TEMPORAIRES INTENTIONNELLES
+
+Ces éléments sont **volontairement désactivés** par le développeur. Ne jamais tenter de les réactiver ou de les "corriger" sans demande explicite.
+
+### 1. LanceDB / ONNX — DÉSACTIVÉ (osmozzz-embedder est un stub)
+
+`osmozzz-embedder` ne fait **rien** en ce moment :
+- `vault.upsert()` → no-op
+- `vault.search()` → retourne toujours `Ok(vec![])`
+- `vault.count_source()` → retourne toujours `Ok(0)`
+
+→ **Conséquence :** `GET /api/search`, `GET /api/recent`, et tous les tools MCP de type `search_*` qui passent par le vault retournent des résultats vides. C'est intentionnel.
+
+### 2. Harvesters cloud — DÉSACTIVÉS (code mort temporaire)
+
+Ces 10 harvesters existent dans `osmozzz-harvester/src/` mais **ne sont pas déclarés dans `lib.rs`** → inaccessibles :
+`airtable.rs`, `github.rs`, `gitlab.rs`, `jira.rs`, `linear.rs`, `notion.rs`, `obsidian.rs`, `slack.rs`, `todoist.rs`, `trello.rs`
+
+→ Ne pas les rajouter dans `lib.rs` sans demande explicite.
+
+### 3. Harvesters locaux macOS — DÉSACTIVÉS
+
+Ces harvesters existent et sont exportés mais **ne sont plus appelés** :
+- `ArcHarvester` (arc.rs)
+- `ContactsHarvester` (contacts.rs)
+
+Les harvesters macOS suivants (iMessage, Calendar, Notes, Safari) sont compilés mais **les tools MCP correspondants (`search_messages`, `search_notes`, `search_calendar`, `search_arc`) retournent vide** car ils passent par le vault stub.
+
+→ **Le daemon ne lance AUCUN harvester en boucle.** Il est uniquement serveur REST + P2P.
+
+### 4. Ce qui fonctionne RÉELLEMENT aujourd'hui
+
+| Fonctionnel ✅ | Désactivé ❌ |
+|---|---|
+| 27 connecteurs natifs MCP (~600 tools) | Recherche sémantique (LanceDB stub) |
+| Dashboard 5 pages | Indexation locale (vault no-op) |
+| P2P mesh (Iroh + permissions + SSE) | Harvesters cloud (pas dans lib.rs) |
+| ActionQueue + approbation dashboard | iMessage/Calendar/Notes search |
+| Gmail SMTP (envoi) | Arc, Contacts harvesters |
+| Filesystem (find_file, fetch_content, list_directory) | osmozzz-bridge (20K, rôle flou) |
+| Audit log, privacy filter | splitter, watcher modules |
+
+---
+
 ## Vision
 
 OSMOzzz est une source de données centrale, locale et privée, conçue pour collaborer avec tout client IA compatible MCP.
