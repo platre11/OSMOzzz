@@ -27,5 +27,7 @@ pdf-extract = { workspace = true }
 lettre = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
+imap = { workspace = true }
+native-tls = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }

@@ -447,6 +447,92 @@ fn write_config(filename: &str, content: &str) -> Result<(), String> {
 
 fn esc(s: &str) -> String { s.replace('"', "\\\"") }
 
+// ─── Validation des credentials (avant sauvegarde) ───────────────────────────
+
+fn validation_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .user_agent("osmozzz/1.0")
+        .build()
+        .unwrap_or_default()
+}
+
+/// GET + Bearer → Ok si 2xx, Err sinon
+async fn test_bearer(url: &str, token: &str) -> Result<(), String> {
+    let s = validation_client().get(url).bearer_auth(token)
+        .send().await.map_err(|e| format!("Connexion impossible : {}", e))?.status();
+    if s.is_success() { Ok(()) }
+    else if s.as_u16() == 401 || s.as_u16() == 403 { Err("Token invalide ou accès refusé".into()) }
+    else { Err(format!("HTTP {} — vérifiez vos credentials", s)) }
+}
+
+/// GET + header custom (Private-Token, X-Shopify-Access-Token, etc.)
+async fn test_custom_header(url: &str, header: &str, value: &str) -> Result<(), String> {
+    let s = validation_client().get(url).header(header, value)
+        .send().await.map_err(|e| format!("Connexion impossible : {}", e))?.status();
+    if s.is_success() { Ok(()) }
+    else if s.as_u16() == 401 || s.as_u16() == 403 { Err("Token invalide ou accès refusé".into()) }
+    else { Err(format!("HTTP {} — vérifiez vos credentials", s)) }
+}
+
+/// GET + Basic auth
+async fn test_basic(url: &str, user: &str, pass: &str) -> Result<(), String> {
+    let s = validation_client().get(url).basic_auth(user, Some(pass))
+        .send().await.map_err(|e| format!("Connexion impossible : {}", e))?.status();
+    if s.is_success() { Ok(()) }
+    else if s.as_u16() == 401 || s.as_u16() == 403 { Err("Credentials invalides".into()) }
+    else { Err(format!("HTTP {} — vérifiez vos credentials", s)) }
+}
+
+/// IMAP login test (Gmail / Google Calendar — App Password obligatoire)
+fn test_imap(host: &str, username: &str, password: &str) -> Result<(), String> {
+    use native_tls::TlsConnector;
+    let tls = TlsConnector::builder().build().map_err(|e| e.to_string())?;
+    let client = imap::connect((host, 993), host, &tls)
+        .map_err(|e| format!("Connexion IMAP impossible : {}", e))?;
+    let mut session = client.login(username, password)
+        .map_err(|(_, _)| "Login échoué — utilisez un App Password Google (16 caractères) depuis myaccount.google.com/apppasswords".to_string())?;
+    session.logout().ok();
+    Ok(())
+}
+
+/// Slack auth.test
+async fn test_slack(token: &str) -> Result<(), String> {
+    let r = validation_client().post("https://slack.com/api/auth.test").bearer_auth(token)
+        .send().await.map_err(|e| format!("Connexion impossible : {}", e))?;
+    let json: serde_json::Value = r.json().await.map_err(|e| e.to_string())?;
+    if json["ok"].as_bool().unwrap_or(false) { Ok(()) }
+    else { Err(json["error"].as_str().unwrap_or("Token invalide").to_string()) }
+}
+
+/// Trello — key + token en query params
+async fn test_trello(api_key: &str, token: &str) -> Result<(), String> {
+    let url = format!("https://api.trello.com/1/members/me?key={}&token={}", api_key, token);
+    let s = validation_client().get(&url)
+        .send().await.map_err(|e| format!("Connexion impossible : {}", e))?.status();
+    if s.is_success() { Ok(()) } else { Err("API key ou token Trello invalide".into()) }
+}
+
+/// Reddit — password flow OAuth2
+async fn test_reddit(client_id: &str, client_secret: &str, username: &str, password: &str) -> Result<(), String> {
+    let r = validation_client()
+        .post("https://www.reddit.com/api/v1/access_token")
+        .basic_auth(client_id, Some(client_secret))
+        .header("User-Agent", "osmozzz/1.0")
+        .form(&[("grant_type", "password"), ("username", username), ("password", password)])
+        .send().await.map_err(|e| format!("Connexion impossible : {}", e))?;
+    let json: serde_json::Value = r.json().await.map_err(|e| e.to_string())?;
+    if json.get("access_token").is_some() { Ok(()) }
+    else { Err(json["error"].as_str().unwrap_or("Credentials Reddit invalides").to_string()) }
+}
+
+/// Obsidian — vérifie que le dossier vault existe
+fn test_obsidian_path(vault_path: &str) -> Result<(), String> {
+    let expanded = shellexpand::tilde(vault_path).into_owned();
+    if std::path::Path::new(&expanded).is_dir() { Ok(()) }
+    else { Err(format!("Chemin introuvable : {}", vault_path)) }
+}
+
 // ─── POST /api/config/gmail ──────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -456,10 +542,11 @@ pub struct GmailConfigBody {
 }
 
 pub async fn post_config_gmail(Json(body): Json<GmailConfigBody>) -> impl IntoResponse {
-    let content = format!(
-        "username = \"{}\"\napp_password = \"{}\"\n",
-        esc(&body.username), esc(&body.app_password)
-    );
+    let u = body.username.clone(); let p = body.app_password.clone();
+    if let Err(e) = tokio::task::spawn_blocking(move || test_imap("imap.gmail.com", &u, &p)).await.unwrap_or(Err("Erreur interne".into())) {
+        return ApiResponse::<String>::err(format!("Gmail : {}", e)).into_response();
+    }
+    let content = format!("username = \"{}\"\napp_password = \"{}\"\n", esc(&body.username), esc(&body.app_password));
     match write_config("gmail.toml", &content) {
         Ok(_)  => ApiResponse::ok("Gmail configuré".to_string()).into_response(),
         Err(e) => ApiResponse::<String>::err(e).into_response(),
@@ -472,6 +559,11 @@ pub async fn post_config_gmail(Json(body): Json<GmailConfigBody>) -> impl IntoRe
 pub struct NotionConfigBody { pub token: String }
 
 pub async fn post_config_notion(Json(body): Json<NotionConfigBody>) -> impl IntoResponse {
+    if let Err(e) = validation_client().get("https://api.notion.com/v1/users/me")
+        .bearer_auth(&body.token).header("Notion-Version", "2022-06-28")
+        .send().await.map_err(|e| e.to_string()).and_then(|r| if r.status().is_success() { Ok(()) } else { Err("Token invalide".into()) }) {
+        return ApiResponse::<String>::err(format!("Notion : {}", e)).into_response();
+    }
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("notion.toml", &content) {
         Ok(_)  => ApiResponse::ok("Notion configuré".to_string()).into_response(),
@@ -488,6 +580,9 @@ pub struct GithubConfigBody {
 }
 
 pub async fn post_config_github(Json(body): Json<GithubConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.github.com/user", &body.token).await {
+        return ApiResponse::<String>::err(format!("GitHub : {}", e)).into_response();
+    }
     let repos: Vec<String> = body.repos
         .split(',')
         .map(|s| format!("\"{}\"", esc(s.trim())))
@@ -510,6 +605,9 @@ pub async fn post_config_github(Json(body): Json<GithubConfigBody>) -> impl Into
 pub struct LinearConfigBody { pub api_key: String }
 
 pub async fn post_config_linear(Json(body): Json<LinearConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.linear.app/graphql", &body.api_key).await {
+        return ApiResponse::<String>::err(format!("Linear : {}", e)).into_response();
+    }
     let content = format!("api_key = \"{}\"\n", esc(&body.api_key));
     match write_config("linear.toml", &content) {
         Ok(_)  => ApiResponse::ok("Linear configuré".to_string()).into_response(),
@@ -527,6 +625,10 @@ pub struct JiraConfigBody {
 }
 
 pub async fn post_config_jira(Json(body): Json<JiraConfigBody>) -> impl IntoResponse {
+    let url = format!("{}/rest/api/3/myself", body.base_url.trim_end_matches('/'));
+    if let Err(e) = test_basic(&url, &body.email, &body.token).await {
+        return ApiResponse::<String>::err(format!("Jira : {}", e)).into_response();
+    }
     let base_url = if body.base_url.starts_with("http") {
         body.base_url.clone()
     } else {
@@ -552,6 +654,9 @@ pub struct SlackConfigBody {
 }
 
 pub async fn post_config_slack(Json(body): Json<SlackConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_slack(&body.token).await {
+        return ApiResponse::<String>::err(format!("Slack : {}", e)).into_response();
+    }
     let channels: Vec<String> = body.channels
         .split(',')
         .map(|s| format!("\"{}\"", esc(s.trim())))
@@ -578,6 +683,9 @@ pub struct TrelloConfigBody {
 }
 
 pub async fn post_config_trello(Json(body): Json<TrelloConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_trello(&body.api_key, &body.token).await {
+        return ApiResponse::<String>::err(format!("Trello : {}", e)).into_response();
+    }
     let content = format!(
         "api_key = \"{}\"\ntoken = \"{}\"\n",
         esc(&body.api_key), esc(&body.token)
@@ -594,6 +702,9 @@ pub async fn post_config_trello(Json(body): Json<TrelloConfigBody>) -> impl Into
 pub struct TodoistConfigBody { pub token: String }
 
 pub async fn post_config_todoist(Json(body): Json<TodoistConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.todoist.com/rest/v2/projects", &body.token).await {
+        return ApiResponse::<String>::err(format!("Todoist : {}", e)).into_response();
+    }
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("todoist.toml", &content) {
         Ok(_)  => ApiResponse::ok("Todoist configuré".to_string()).into_response(),
@@ -613,6 +724,11 @@ pub struct GitlabConfigBody {
 }
 
 pub async fn post_config_gitlab(Json(body): Json<GitlabConfigBody>) -> impl IntoResponse {
+    let base_url = if body.base_url.is_empty() { "https://gitlab.com".to_string() } else { body.base_url.clone() };
+    let url = format!("{}/api/v4/user", base_url.trim_end_matches('/'));
+    if let Err(e) = test_custom_header(&url, "PRIVATE-TOKEN", &body.token).await {
+        return ApiResponse::<String>::err(format!("GitLab : {}", e)).into_response();
+    }
     let base_url = if body.base_url.is_empty() {
         "https://gitlab.com".to_string()
     } else {
@@ -642,6 +758,9 @@ pub struct AirtableConfigBody {
 }
 
 pub async fn post_config_airtable(Json(body): Json<AirtableConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.airtable.com/v0/meta/bases", &body.token).await {
+        return ApiResponse::<String>::err(format!("Airtable : {}", e)).into_response();
+    }
     let bases: Vec<String> = body.bases
         .split(',')
         .map(|s| format!("\"{}\"", esc(s.trim())))
@@ -667,6 +786,9 @@ pub struct CloudflareConfigBody {
 }
 
 pub async fn post_config_cloudflare(Json(body): Json<CloudflareConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.cloudflare.com/client/v4/user", &body.api_token).await {
+        return ApiResponse::<String>::err(format!("Cloudflare : {}", e)).into_response();
+    }
     let content = format!(
         "api_token  = \"{}\"\naccount_id = \"{}\"\n",
         esc(&body.api_token),
@@ -688,6 +810,11 @@ pub struct SentryConfigBody {
 }
 
 pub async fn post_config_sentry(Json(body): Json<SentryConfigBody>) -> impl IntoResponse {
+    let host = if body.host.is_empty() { "https://sentry.io".to_string() } else { body.host.clone() };
+    let url = format!("{}/api/0/", host.trim_end_matches('/'));
+    if let Err(e) = test_bearer(&url, &body.token).await {
+        return ApiResponse::<String>::err(format!("Sentry : {}", e)).into_response();
+    }
     let mut content = format!("token = \"{}\"\n", esc(&body.token));
     if !body.host.is_empty() {
         content.push_str(&format!("host = \"{}\"\n", esc(&body.host)));
@@ -704,6 +831,9 @@ pub async fn post_config_sentry(Json(body): Json<SentryConfigBody>) -> impl Into
 pub struct ObsidianConfigBody { pub vault_path: String }
 
 pub async fn post_config_obsidian(Json(body): Json<ObsidianConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_obsidian_path(&body.vault_path) {
+        return ApiResponse::<String>::err(format!("Obsidian : {}", e)).into_response();
+    }
     let content = format!("vault_path = \"{}\"\n", esc(&body.vault_path));
     match write_config("obsidian.toml", &content) {
         Ok(_)  => ApiResponse::ok("Obsidian configuré".to_string()).into_response(),
@@ -720,6 +850,9 @@ pub struct SupabaseConfigBody {
 }
 
 pub async fn post_config_supabase(Json(body): Json<SupabaseConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.supabase.com/v1/projects", &body.access_token).await {
+        return ApiResponse::<String>::err(format!("Supabase : {}", e)).into_response();
+    }
     let mut content = format!("access_token = \"{}\"\n", esc(&body.access_token));
     if let Some(ref pid) = body.project_id {
         if !pid.is_empty() {
@@ -2215,6 +2348,9 @@ pub struct VercelConfigBody {
 }
 
 pub async fn post_config_vercel(Json(body): Json<VercelConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.vercel.com/v2/user", &body.token).await {
+        return ApiResponse::<String>::err(format!("Vercel : {}", e)).into_response();
+    }
     let mut content = format!("token = \"{}\"\n", esc(&body.token));
     if !body.team_id.is_empty() {
         content.push_str(&format!("team_id = \"{}\"\n", esc(&body.team_id)));
@@ -2233,6 +2369,9 @@ pub struct RailwayConfigBody {
 }
 
 pub async fn post_config_railway(Json(body): Json<RailwayConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://backboard.railway.app/graphql/v2", &body.token).await {
+        return ApiResponse::<String>::err(format!("Railway : {}", e)).into_response();
+    }
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("railway.toml", &content) {
         Ok(_)  => ApiResponse::ok("Railway configuré".to_string()).into_response(),
@@ -2248,6 +2387,9 @@ pub struct RenderConfigBody {
 }
 
 pub async fn post_config_render(Json(body): Json<RenderConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.render.com/v1/owners?limit=1", &body.token).await {
+        return ApiResponse::<String>::err(format!("Render : {}", e)).into_response();
+    }
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("render.toml", &content) {
         Ok(_)  => ApiResponse::ok("Render configuré".to_string()).into_response(),
@@ -2264,6 +2406,10 @@ pub struct GoogleConfigBody {
 }
 
 pub async fn post_config_google(Json(body): Json<GoogleConfigBody>) -> impl IntoResponse {
+    let u = body.username.clone(); let p = body.app_password.clone();
+    if let Err(e) = tokio::task::spawn_blocking(move || test_imap("imap.gmail.com", &u, &p)).await.unwrap_or(Err("Erreur interne".into())) {
+        return ApiResponse::<String>::err(format!("Google Calendar : {}", e)).into_response();
+    }
     let content = format!(
         "username     = \"{}\"\napp_password = \"{}\"\n",
         esc(&body.username),
@@ -2283,6 +2429,9 @@ pub struct StripeConfigBody {
 }
 
 pub async fn post_config_stripe(Json(body): Json<StripeConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.stripe.com/v1/account", &body.secret_key).await {
+        return ApiResponse::<String>::err(format!("Stripe : {}", e)).into_response();
+    }
     let content = format!("secret_key = \"{}\"\n", esc(&body.secret_key));
     match write_config("stripe.toml", &content) {
         Ok(_)  => ApiResponse::ok("Stripe configuré".to_string()).into_response(),
@@ -2296,6 +2445,9 @@ pub async fn post_config_stripe(Json(body): Json<StripeConfigBody>) -> impl Into
 pub struct HubspotConfigBody { pub token: String }
 
 pub async fn post_config_hubspot(Json(body): Json<HubspotConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.hubapi.com/crm/v3/owners?limit=1", &body.token).await {
+        return ApiResponse::<String>::err(format!("HubSpot : {}", e)).into_response();
+    }
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("hubspot.toml", &content) {
         Ok(_)  => ApiResponse::ok("HubSpot configuré".to_string()).into_response(),
@@ -2314,6 +2466,11 @@ pub struct PosthogConfigBody {
 }
 
 pub async fn post_config_posthog(Json(body): Json<PosthogConfigBody>) -> impl IntoResponse {
+    let host = if body.host.is_empty() { "https://app.posthog.com".to_string() } else { body.host.clone() };
+    let url = format!("{}/api/users/@me/", host.trim_end_matches('/'));
+    if let Err(e) = test_bearer(&url, &body.api_key).await {
+        return ApiResponse::<String>::err(format!("PostHog : {}", e)).into_response();
+    }
     let mut content = format!("api_key    = \"{}\"\nproject_id = \"{}\"\n", esc(&body.api_key), esc(&body.project_id));
     if !body.host.is_empty() {
         content.push_str(&format!("host = \"{}\"\n", esc(&body.host)));
@@ -2330,6 +2487,9 @@ pub async fn post_config_posthog(Json(body): Json<PosthogConfigBody>) -> impl In
 pub struct ResendConfigBody { pub api_key: String }
 
 pub async fn post_config_resend(Json(body): Json<ResendConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.resend.com/api-keys", &body.api_key).await {
+        return ApiResponse::<String>::err(format!("Resend : {}", e)).into_response();
+    }
     let content = format!("api_key = \"{}\"\n", esc(&body.api_key));
     match write_config("resend.toml", &content) {
         Ok(_)  => ApiResponse::ok("Resend configuré".to_string()).into_response(),
@@ -2347,6 +2507,9 @@ pub struct DiscordConfigBody {
 }
 
 pub async fn post_config_discord(Json(body): Json<DiscordConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_custom_header("https://discord.com/api/v10/users/@me", "Authorization", &format!("Bot {}", body.bot_token)).await {
+        return ApiResponse::<String>::err(format!("Discord : {}", e)).into_response();
+    }
     let mut content = format!("bot_token = \"{}\"\n", esc(&body.bot_token));
     if !body.guild_id.is_empty() {
         content.push_str(&format!("guild_id = \"{}\"\n", esc(&body.guild_id)));
@@ -2368,6 +2531,10 @@ pub struct TwilioConfigBody {
 }
 
 pub async fn post_config_twilio(Json(body): Json<TwilioConfigBody>) -> impl IntoResponse {
+    let url = format!("https://api.twilio.com/2010-04-01/Accounts/{}.json", body.account_sid);
+    if let Err(e) = test_basic(&url, &body.account_sid, &body.auth_token).await {
+        return ApiResponse::<String>::err(format!("Twilio : {}", e)).into_response();
+    }
     let mut content = format!("account_sid = \"{}\"\nauth_token  = \"{}\"\n", esc(&body.account_sid), esc(&body.auth_token));
     if !body.from_number.is_empty() {
         content.push_str(&format!("from_number = \"{}\"\n", esc(&body.from_number)));
@@ -2388,6 +2555,9 @@ pub struct FigmaConfigBody {
 }
 
 pub async fn post_config_figma(Json(body): Json<FigmaConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_custom_header("https://api.figma.com/v1/me", "X-Figma-Token", &body.token).await {
+        return ApiResponse::<String>::err(format!("Figma : {}", e)).into_response();
+    }
     let mut content = format!("token = \"{}\"\n", esc(&body.token));
     if !body.team_id.is_empty() {
         content.push_str(&format!("team_id = \"{}\"\n", esc(&body.team_id)));
@@ -2409,6 +2579,9 @@ pub struct RedditConfigBody {
 }
 
 pub async fn post_config_reddit(Json(body): Json<RedditConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_reddit(&body.client_id, &body.client_secret, &body.username, &body.password).await {
+        return ApiResponse::<String>::err(format!("Reddit : {}", e)).into_response();
+    }
     let content = format!(
         "client_id     = \"{}\"\nclient_secret = \"{}\"\nusername      = \"{}\"\npassword      = \"{}\"\n",
         esc(&body.client_id),
@@ -2430,6 +2603,9 @@ pub struct CalendlyConfigBody {
 }
 
 pub async fn post_config_calendly(Json(body): Json<CalendlyConfigBody>) -> impl IntoResponse {
+    if let Err(e) = test_bearer("https://api.calendly.com/users/me", &body.token).await {
+        return ApiResponse::<String>::err(format!("Calendly : {}", e)).into_response();
+    }
     let content = format!("token = \"{}\"\n", esc(&body.token));
     match write_config("calendly.toml", &content) {
         Ok(_)  => ApiResponse::ok("Calendly configuré".to_string()).into_response(),
@@ -2446,6 +2622,10 @@ pub struct N8nConfigBody {
 }
 
 pub async fn post_config_n8n(Json(body): Json<N8nConfigBody>) -> impl IntoResponse {
+    let url = format!("{}/api/v1/workflows?limit=1", body.api_url.trim_end_matches('/'));
+    if let Err(e) = test_custom_header(&url, "X-N8N-API-KEY", &body.api_key).await {
+        return ApiResponse::<String>::err(format!("n8n : {}", e)).into_response();
+    }
     let content = format!(
         "api_url = \"{}\"\napi_key = \"{}\"\n",
         esc(&body.api_url),
@@ -2466,6 +2646,11 @@ pub struct ShopifyConfigBody {
 }
 
 pub async fn post_config_shopify(Json(body): Json<ShopifyConfigBody>) -> impl IntoResponse {
+    let domain = body.shop_domain.trim_end_matches('/');
+    let url = format!("https://{}/admin/api/2024-01/shop.json", domain);
+    if let Err(e) = test_custom_header(&url, "X-Shopify-Access-Token", &body.access_token).await {
+        return ApiResponse::<String>::err(format!("Shopify : {}", e)).into_response();
+    }
     let content = format!(
         "shop_domain = \"{}\"\naccess_token = \"{}\"\n",
         esc(&body.shop_domain),
