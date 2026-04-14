@@ -1530,6 +1530,13 @@ pub async fn get_configured_connectors() -> impl IntoResponse {
         ("discord.toml",    "discord"),
         ("twilio.toml",     "twilio"),
         ("figma.toml",      "figma"),
+        ("calendly.toml",   "calendly"),
+        ("n8n.toml",        "n8n"),
+        ("shopify.toml",    "shopify"),
+        ("reddit.toml",     "reddit"),
+        ("trello.toml",     "trello"),
+        ("todoist.toml",    "todoist"),
+        ("airtable.toml",   "airtable"),
     ];
     let configured: Vec<String> = mapping.iter()
         .filter(|(file, _)| home.join(file).exists())

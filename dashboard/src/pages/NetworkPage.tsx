@@ -441,6 +441,13 @@ const TOOL_LABELS: { id: string; label: string }[] = [
   { id: 'sentry',     label: 'Sentry'       },
   { id: 'cloudflare', label: 'Cloudflare'   },
   { id: 'gcal',       label: 'Google Cal'   },
+  { id: 'calendly',   label: 'Calendly'     },
+  { id: 'n8n',        label: 'n8n'          },
+  { id: 'shopify',    label: 'Shopify'      },
+  { id: 'reddit',     label: 'Reddit'       },
+  { id: 'trello',     label: 'Trello'       },
+  { id: 'todoist',    label: 'Todoist'      },
+  { id: 'airtable',   label: 'Airtable'     },
 ]
 
 // Aucun tool local de base — uniquement les connecteurs cloud configurés
