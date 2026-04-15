@@ -8,6 +8,7 @@
 /// CENTRALEMENT dans le dispatcher de mcp.rs, après le retour du connecteur.
 pub mod browser;
 pub mod calendly;
+pub mod gmail;
 pub mod cloudflare;
 pub mod shopify;
 pub mod n8n;
@@ -62,6 +63,7 @@ pub fn all_tools() -> Vec<Value> {
     tools.extend(github::tools());
     tools.extend(shopify::tools());
     tools.extend(browser::tools());
+    tools.extend(gmail::tools());
     tools
 }
 
@@ -93,5 +95,6 @@ pub async fn handle(name: &str, args: &Value) -> Option<Result<String, String>> 
     if name.starts_with("github_")     { return Some(github::handle(name, args).await); }
     if name.starts_with("shopify_")    { return Some(shopify::handle(name, args).await); }
     if name.starts_with("browser_")   { return Some(browser::handle(name, args).await); }
+    if name.starts_with("gmail_")     { return Some(gmail::handle(name, args).await); }
     None
 }
