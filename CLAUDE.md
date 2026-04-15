@@ -205,26 +205,61 @@ Claude → OSMOzzz MCP (Rust) → connector natif Rust (reqwest) → API cloud
 | **Config**     | `~/.osmozzz/*.toml`     | `~/.osmozzz/*.toml`                | `~/.osmozzz/*.toml`         |
 | **Fichiers**   | `osmozzz-harvester/src/`| `osmozzz-cli/src/mcp_proxy/`       | `osmozzz-cli/src/connectors/`|
 
-### Pattern pour ajouter un nouveau Connector Natif
+### ⚠️ CHECKLIST COMPLÈTE — Ajouter un nouveau Connector Natif
 
-1. Créer `crates/osmozzz-cli/src/connectors/nom.rs` :
+**8 endroits à modifier. Oublier l'un = bug silencieux (connecteur invisible en P2P ou permissions cassées).**
+
+#### Rust (5 fichiers)
+
+1. **Créer** `crates/osmozzz-cli/src/connectors/nom.rs` :
    - `pub fn tools() -> Vec<Value>` — déclare les tools JSON Schema
-   - `pub async fn handle(tool: &str, args: &Value, token: &str) -> Result<String>` — dispatch + appels API
+   - `pub async fn handle(tool: &str, args: &Value) -> Result<String, String>` — dispatch + appels API
    - `pub fn load_config() -> Option<NomConfig>` — lit `~/.osmozzz/nom.toml`
-2. Déclarer `pub mod nom;` dans `connectors/mod.rs`
-3. Ajouter le dispatch dans `mcp.rs` : `tool_name.starts_with("nom_")` → `connectors::nom::handle()`
-4. Ajouter les tools dans la liste retournée par `list_tools()` dans `mcp.rs`
-5. Ajouter `POST /api/config/nom` dans `routes.rs`
-6. Ajouter `if name.starts_with("nom_") { return Some("nom"); }` dans la fn `source_for_tool()` de `mcp.rs`
-7. Ajouter card dans le dashboard (ConfigPage)
+
+2. **`connectors/mod.rs`** — 3 endroits dans ce fichier :
+   - `pub mod nom;` — déclaration du module
+   - `tools.extend(nom::tools());` dans `all_tools()`
+   - `if name.starts_with("nom_") { return Some(nom::handle(name, args).await); }` dans `handle()`
+
+3. **`mcp.rs`** — 2 endroits dans ce fichier :
+   - `if name.starts_with("nom_") { return Some("nom"); }` dans `tool_source()`
+   - `tools.extend(connectors::all_tools());` est déjà global — rien à faire si `all_tools()` est mis à jour
+
+4. **`routes.rs`** — 2 endroits dans ce fichier :
+   - Ajouter `("nom.toml", "nom")` dans le mapping de `get_configured_connectors()`
+   - Ajouter la fonction `pub async fn post_config_nom(...)` (validation + écriture `nom.toml`)
+
+5. **`server.rs`** — 1 ligne :
+   - `.route("/config/nom", post(routes::post_config_nom))`
+
+#### P2P (1 fichier)
+
+6. **`crates/osmozzz-p2p/src/node.rs`** — 1 ligne :
+   - Ajouter `"nom"` dans `ALL_CONNECTORS` de `build_tool_sync_map()`
+   - ⚠️ Sans ça, le connecteur n'apparaît JAMAIS dans la card permissions des peers
+
+#### Dashboard (2 fichiers)
+
+7. **`dashboard/src/pages/NetworkPage.tsx`** — 1 ligne :
+   - Ajouter `{ id: 'nom', label: 'Nom' }` dans `TOOL_LABELS`
+   - ⚠️ Sans ça, le connecteur s'affiche comme son ID brut dans la card P2P
+
+8. **`dashboard/src/pages/ConfigPage.tsx`** — 1 entrée :
+   - Ajouter `{ id: 'nom', name: 'Nom', desc: 'Description courte' }` dans `CONNECTORS`
+   - Ajouter le composant form `NomForm` si besoin d'une UI de configuration
+
+---
 
 ### Pattern pour ajouter un nouveau MCP Proxy
 
 1. Créer `crates/osmozzz-cli/src/mcp_proxy/nom.rs` (charger config TOML + appeler `LazyProxy::new()`)
 2. Déclarer `pub mod nom;` dans `mod.rs`
 3. Ajouter `if let Some(p) = nom::lazy() { proxies.push(p); }` dans `start_all_proxies()`
-4. Ajouter `POST /api/config/nom` dans `routes.rs`
-5. Ajouter card dans le dashboard (ConfigPage)
+4. Ajouter `("nom.toml", "nom")` dans `get_configured_connectors()` de `routes.rs`
+5. Ajouter `.route("/config/nom", post(routes::post_config_nom))` dans `server.rs`
+6. Ajouter `"nom"` dans `ALL_CONNECTORS` de `node.rs`
+7. Ajouter `{ id: 'nom', label: 'Nom' }` dans `TOOL_LABELS` de `NetworkPage.tsx`
+8. Ajouter card dans `ConfigPage.tsx`
 
 ---
 
