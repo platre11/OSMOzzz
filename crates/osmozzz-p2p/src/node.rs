@@ -318,6 +318,15 @@ impl P2pNode {
                             let perms = self.get_permissions(&peer_id);
                             let results = self.execute_search(&req.query, req.limit, &perms).await;
 
+                            let search_data = if results.is_empty() {
+                                None
+                            } else {
+                                let preview: Vec<String> = results.iter().take(5).map(|r| {
+                                    format!("[{}] {}: {}", r.source, r.title.as_deref().unwrap_or(""), &r.content[..r.content.len().min(300)])
+                                }).collect();
+                                let full = preview.join("\n---\n");
+                                Some(if full.len() > 4096 { full[..4096].to_string() } else { full })
+                            };
                             self.history.append(&QueryHistoryEntry {
                                 ts: chrono::Utc::now().timestamp(),
                                 peer_id: peer_id.clone(),
@@ -326,6 +335,7 @@ impl P2pNode {
                                 results_count: results.len(),
                                 blocked: false,
                                 kind: "search".to_string(),
+                                data: search_data,
                             }).ok();
 
                             send_msg(&mut send, &Message::SearchResult(SearchResponse {
@@ -354,16 +364,8 @@ impl P2pNode {
                                 .cloned()
                                 .unwrap_or(ToolAccessMode::Auto);
 
-                            // Log l'appel dans query_history.jsonl (séparé de audit.jsonl)
-                            self.history.append(&QueryHistoryEntry {
-                                ts: chrono::Utc::now().timestamp(),
-                                peer_id: peer_id.clone(),
-                                peer_name: peer_name.clone(),
-                                query: req.tool_name.clone(),
-                                results_count: 0,
-                                blocked: mode == ToolAccessMode::Disabled,
-                                kind: "tool_call".to_string(),
-                            }).ok();
+                            // Garde le tool_name pour le log (req sera moved dans le match)
+                            let tool_name_for_log = req.tool_name.clone();
 
                             let response = match mode {
                                 ToolAccessMode::Disabled => {
@@ -427,8 +429,9 @@ impl P2pNode {
                                         result_tx,
                                     }).await;
 
+                                    // Timeout 60s — IMAP/HTTP lents peuvent prendre jusqu'à ~45s
                                     match tokio::time::timeout(
-                                        tokio::time::Duration::from_secs(30),
+                                        tokio::time::Duration::from_secs(60),
                                         result_rx,
                                     ).await {
                                         Ok(Ok(result)) => Message::ToolResult(result),
@@ -438,11 +441,41 @@ impl P2pNode {
                                             peer_name: whoami_name(),
                                             tool_name: req.tool_name,
                                             result: None,
-                                            error: Some("Délai d'exécution dépassé (30s)".into()),
+                                            error: Some("Délai d'exécution dépassé (60s)".into()),
                                         }),
                                     }
                                 }
                             };
+
+                            // Log APRÈS avoir le résultat — results_count reflète la réalité
+                            let (results_count, blocked, tool_data) = match &response {
+                                Message::ToolResult(r) => {
+                                    let is_blocked = r.error.as_deref()
+                                        .map(|e| e.contains("refusé"))
+                                        .unwrap_or(false);
+                                    let raw = r.result.as_deref().unwrap_or("");
+                                    let has_result = !raw.is_empty();
+                                    let data = if has_result && !is_blocked {
+                                        let truncated = &raw[..raw.len().min(4096)];
+                                        Some(truncated.to_string())
+                                    } else {
+                                        None
+                                    };
+                                    (if has_result { 1 } else { 0 }, is_blocked, data)
+                                }
+                                _ => (0, false, None),
+                            };
+                            self.history.append(&QueryHistoryEntry {
+                                ts: chrono::Utc::now().timestamp(),
+                                peer_id: peer_id.clone(),
+                                peer_name: peer_name.clone(),
+                                query: tool_name_for_log,
+                                results_count,
+                                blocked,
+                                kind: "tool_call".to_string(),
+                                data: tool_data,
+                            }).ok();
+
                             send_msg(&mut send, &response).await?;
                         }
 

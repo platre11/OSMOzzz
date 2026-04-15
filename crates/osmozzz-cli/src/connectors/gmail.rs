@@ -124,7 +124,8 @@ fn imap_read(uid: &str) -> Result<String, String> {
     let creds = load_creds()?;
     let mut session = imap_connect(&creds)?;
     session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
-    let messages = session.uid_fetch(uid, "ENVELOPE BODY[]")
+    // BODY.PEEK[TEXT] = texte brut uniquement, sans pièces jointes, sans marquer comme lu
+    let messages = session.uid_fetch(uid, "ENVELOPE BODY.PEEK[TEXT]")
         .map_err(|e| format!("Erreur FETCH : {e}"))?;
     let msg = messages.iter().next().ok_or("Email introuvable.")?;
     let mut out = String::new();
@@ -132,7 +133,16 @@ fn imap_read(uid: &str) -> Result<String, String> {
     out.push_str("─────────────────────────────────────\n");
     if let Some(body) = msg.body() {
         let body_str = std::str::from_utf8(body).unwrap_or("(corps non lisible)");
-        out.push_str(&extract_plain_text(body_str));
+        let text = extract_plain_text(body_str);
+        // Limite à 30KB — évite les timeouts P2P sur les gros emails avec pièces jointes
+        const MAX_BYTES: usize = 30_000;
+        if text.len() > MAX_BYTES {
+            let truncated: String = text.chars().take(MAX_BYTES / 4).collect();
+            out.push_str(&truncated);
+            out.push_str("\n\n[... contenu tronqué à 30KB — email trop volumineux ...]");
+        } else {
+            out.push_str(&text);
+        }
     }
     let _ = session.logout();
     Ok(out)

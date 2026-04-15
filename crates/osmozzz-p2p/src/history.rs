@@ -16,6 +16,9 @@ pub struct QueryHistoryEntry {
     /// "search" | "tool_call" — défaut "search" pour compatibilité ascendante
     #[serde(default = "default_kind")]
     pub kind: String,
+    /// Contenu brut du résultat (tronqué à 4 Ko) — None si bloqué ou vide
+    #[serde(default)]
+    pub data: Option<String>,
 }
 
 fn default_kind() -> String {

@@ -143,6 +143,8 @@ export interface QueryHistoryEntry {
   blocked: boolean
   /** "search" | "tool_call" — les anciennes entrées sont "search" par défaut */
   kind: string
+  /** Contenu brut du résultat (tronqué à 4 Ko) — undefined si bloqué ou vide */
+  data?: string
 }
 
 export const ALL_SOURCES = [

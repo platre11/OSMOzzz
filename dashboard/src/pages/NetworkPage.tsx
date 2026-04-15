@@ -864,7 +864,7 @@ function P2pFluxSection({ peerFilter }: { peerFilter?: { id: string; name: strin
     query: e.kind === 'search' ? `"${e.query}"` : '',
     results: e.results_count,
     blocked: e.blocked,
-    data: undefined,
+    data: e.data,
   })
 
   return (
