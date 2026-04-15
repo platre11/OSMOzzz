@@ -210,9 +210,19 @@ impl P2pNode {
         }
 
         // Boucle principale de messages
+        let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        ping_interval.tick().await; // Skip premier tick immédiat
         loop {
             line.clear();
             tokio::select! {
+                // Keepalive : ping toutes les 30s pour détecter les connexions mortes
+                _ = ping_interval.tick() => {
+                    if send_msg(&mut send, &Message::Ping).await.is_err() {
+                        warn!("[P2P] Keepalive échoué pour {}… — connexion perdue", &peer_id[..8.min(peer_id.len())]);
+                        break;
+                    }
+                    continue;
+                }
                 n = reader.read_line(&mut line) => {
                     if n? == 0 { break; }
                     let msg: Message = match serde_json::from_str(line.trim()) {

@@ -2719,10 +2719,17 @@ pub async fn get_network_stream(
 ) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
     let rx = state.network_tx.subscribe();
     let stream = BroadcastStream::new(rx).filter_map(|result| {
-        let event = result.ok().map(|peer_id| {
-            Ok(Event::default()
-                .event("permissions_updated")
-                .data(peer_id))
+        let event = result.ok().map(|msg| {
+            let (event_type, data) = if let Some(id) = msg.strip_prefix("disconnect:") {
+                ("peer_disconnected", id.to_string())
+            } else if let Some(id) = msg.strip_prefix("connect:") {
+                ("peer_connected", id.to_string())
+            } else if let Some(id) = msg.strip_prefix("permissions:") {
+                ("permissions_updated", id.to_string())
+            } else {
+                ("permissions_updated", msg)
+            };
+            Ok(Event::default().event(event_type).data(data))
         });
         async move { event }
     });

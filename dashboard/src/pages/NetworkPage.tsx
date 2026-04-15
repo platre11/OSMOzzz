@@ -966,6 +966,7 @@ const TabBadge = styled.span`
 export default function NetworkPage() {
   const [tab, setTab] = useState<'reseau' | 'flux'>('reseau')
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null)
+  const qc = useQueryClient()
 
   const { data: peersReal = [], isLoading } = useQuery({
     queryKey: ['network-peers'],
@@ -978,6 +979,15 @@ export default function NetworkPage() {
     queryFn: api.getP2pPending,
     refetchInterval: 5000,
   })
+
+  // SSE — mise à jour instantanée du statut connecté/déconnecté
+  useEffect(() => {
+    const es = new EventSource('/api/network/stream')
+    const refresh = () => qc.invalidateQueries({ queryKey: ['network-peers'] })
+    es.addEventListener('peer_connected', refresh)
+    es.addEventListener('peer_disconnected', refresh)
+    return () => es.close()
+  }, [qc])
 
   const nowTs = Math.floor(Date.now() / 1000)
   const pendingCount = (p2pPending as ActionRequest[]).filter(a => a.expires_at > nowTs).length

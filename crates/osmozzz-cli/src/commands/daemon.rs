@@ -44,15 +44,19 @@ pub async fn run(_cfg: Config) -> Result<()> {
             tokio::spawn(async move {
                 while let Some(event) = p2p_event_rx.recv().await {
                     match event {
-                        P2pEvent::PeerConnected { display_name, .. } => {
+                        P2pEvent::PeerConnected { display_name, peer_id } => {
                             eprintln!("[P2P] {} connecté", display_name);
+                            // Notifie le dashboard — mise à jour instantanée du statut
+                            let _ = network_tx_events.send(format!("connect:{}", peer_id));
                         }
                         P2pEvent::PermissionsUpdated { peer_id } => {
                             // Notifie le dashboard SSE — mise à jour instantanée côté UI
-                            let _ = network_tx_events.send(peer_id);
+                            let _ = network_tx_events.send(format!("permissions:{}", peer_id));
                         }
                         P2pEvent::PeerDisconnected { peer_id } => {
                             eprintln!("[P2P] Peer {} déconnecté — reconnexion dans 3s…", &peer_id[..8.min(peer_id.len())]);
+                            // Notifie le dashboard — statut déconnecté immédiat
+                            let _ = network_tx_events.send(format!("disconnect:{}", peer_id));
                             // Reconnexion immédiate après changement de réseau (WiFi → 4G, etc.)
                             let n = event_node.clone();
                             let pid = peer_id.clone();
