@@ -1522,6 +1522,7 @@ pub async fn get_configured_connectors() -> impl IntoResponse {
         ("vercel.toml",     "vercel"),
         ("railway.toml",    "railway"),
         ("render.toml",     "render"),
+        ("gmail.toml",      "gmail"),
         ("google.toml",     "gcal"),
         ("stripe.toml",     "stripe"),
         ("hubspot.toml",    "hubspot"),
@@ -1537,6 +1538,7 @@ pub async fn get_configured_connectors() -> impl IntoResponse {
         ("trello.toml",     "trello"),
         ("todoist.toml",    "todoist"),
         ("airtable.toml",   "airtable"),
+        ("browser.toml",    "browser"),
     ];
     let configured: Vec<String> = mapping.iter()
         .filter(|(file, _)| home.join(file).exists())

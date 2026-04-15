@@ -536,7 +536,8 @@ impl P2pNode {
             "github", "notion", "slack", "linear", "jira", "gitlab",
             "supabase", "vercel", "railway", "render", "stripe", "hubspot",
             "discord", "resend", "twilio", "figma", "posthog", "sentry",
-            "cloudflare", "gcal",
+            "cloudflare", "gcal", "gmail", "calendly", "airtable", "trello",
+            "todoist", "n8n", "shopify", "reddit", "browser",
         ];
         let perms = self.get_permissions(peer_id);
         let mut map: std::collections::HashMap<String, String> = perms.tool_permissions.iter()
