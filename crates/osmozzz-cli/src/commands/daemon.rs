@@ -16,6 +16,63 @@ use crate::config::Config;
 
 const DASHBOARD_PORT: u16 = 7878;
 
+/// Applique les filtres de confidentialité du propriétaire sur tout résultat
+/// sortant vers un peer P2P — même logique que pour son propre Claude local.
+///
+/// Chaîne :
+///   1. PrivacyFilter (privacy.toml) — masque emails, téléphones, clés API
+///   2. Aliases (aliases.toml)       — remplace vrais noms par pseudonymes
+fn filter_p2p_output(text: &str) -> String {
+    use osmozzz_core::filter::{PrivacyConfig, PrivacyFilter};
+
+    // 1. Pare-feu de confidentialité
+    let cfg = PrivacyConfig::load();
+    let filtered = PrivacyFilter::from_config(&cfg).apply(text);
+
+    // 2. Alias d'identité (vrais noms → pseudonymes)
+    let aliases: Vec<(String, String)> = {
+        let path = match dirs_next::home_dir() {
+            Some(h) => h.join(".osmozzz/aliases.toml"),
+            None => return filtered,
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return filtered,
+        };
+        let t: toml::Value = match content.parse() {
+            Ok(v) => v,
+            Err(_) => return filtered,
+        };
+        let mut pairs: Vec<(String, String)> = vec![];
+        if let Some(table) = t.as_table() {
+            for (_group, entries) in table {
+                if let Some(arr) = entries.as_array() {
+                    for entry in arr {
+                        if let (Some(real), Some(alias)) = (
+                            entry.get("real").and_then(|v| v.as_str()),
+                            entry.get("alias").and_then(|v| v.as_str()),
+                        ) {
+                            pairs.push((real.to_string(), alias.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        // Trier par longueur décroissante pour éviter les substitutions partielles
+        pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        pairs
+    };
+
+    if aliases.is_empty() {
+        return filtered;
+    }
+    let mut result = filtered;
+    for (real, alias) in &aliases {
+        result = result.replace(real.as_str(), alias.as_str());
+    }
+    result
+}
+
 pub async fn run(_cfg: Config) -> Result<()> {
     // Créer la queue d'actions locale (Claude → dashboard, isolée du P2P)
     let action_queue = Arc::new(osmozzz_api::ActionQueue::new());
@@ -78,7 +135,7 @@ pub async fn run(_cfg: Config) -> Result<()> {
                             let my_name = my_display_name.clone();
                             tokio::spawn(async move {
                                 let (res_text, err_text) = match crate::connectors::handle(&tool_call.tool_name, &tool_call.params).await {
-                                    Some(Ok(text)) => (Some(text), None),
+                                    Some(Ok(text)) => (Some(filter_p2p_output(&text)), None),
                                     Some(Err(e)) => (None, Some(e)),
                                     None => (None, Some(format!("Tool '{}' non trouvé", tool_call.tool_name))),
                                 };
@@ -128,7 +185,7 @@ pub async fn run(_cfg: Config) -> Result<()> {
                                                 Approved => {
                                                     let result = event.action.execution_result
                                                         .unwrap_or_else(|| "Approuvé".to_string());
-                                                    let _ = result_tx.send(Some(result));
+                                                    let _ = result_tx.send(Some(filter_p2p_output(&result)));
                                                     return;
                                                 }
                                                 Rejected | Expired => {

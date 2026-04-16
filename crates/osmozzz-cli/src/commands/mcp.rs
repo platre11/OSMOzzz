@@ -1258,9 +1258,15 @@ fn gmail_imap_read(uid: &str) -> Result<String, String> {
     out.push_str("─────────────────────────────────────\n");
     if let Some(body) = msg.body() {
         let body_str = std::str::from_utf8(body).unwrap_or("(corps non lisible)");
-        // Extract plain text from MIME if possible
         let text = extract_plain_text(body_str);
-        out.push_str(&text);
+        const MAX_BYTES: usize = 30_000;
+        if text.len() > MAX_BYTES {
+            let truncated: String = text.chars().take(MAX_BYTES / 4).collect();
+            out.push_str(&truncated);
+            out.push_str("\n\n[... contenu tronqué — email trop volumineux ...]");
+        } else {
+            out.push_str(&text);
+        }
     }
     let _ = session.logout();
     Ok(out)

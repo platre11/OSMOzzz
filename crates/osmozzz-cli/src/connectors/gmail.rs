@@ -124,8 +124,8 @@ fn imap_read(uid: &str) -> Result<String, String> {
     let creds = load_creds()?;
     let mut session = imap_connect(&creds)?;
     session.select("INBOX").map_err(|e| format!("Erreur SELECT INBOX : {e}"))?;
-    // BODY.PEEK[TEXT] = texte brut uniquement, sans pièces jointes, sans marquer comme lu
-    let messages = session.uid_fetch(uid, "ENVELOPE BODY.PEEK[TEXT]")
+    // BODY.PEEK[] sans marquer comme lu — msg.body() ne fonctionne qu'avec BODY[] ou BODY.PEEK[]
+    let messages = session.uid_fetch(uid, "ENVELOPE BODY.PEEK[]")
         .map_err(|e| format!("Erreur FETCH : {e}"))?;
     let msg = messages.iter().next().ok_or("Email introuvable.")?;
     let mut out = String::new();
