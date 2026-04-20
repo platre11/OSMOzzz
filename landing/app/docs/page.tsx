@@ -625,6 +625,13 @@ const NAV_SECTIONS = [
       { id: 'mcp',            label: 'C\'est quoi MCP ?' },
       { id: 'privacy',        label: 'Confidentialité' },
       { id: 'tools',          label: 'Les connecteurs' },
+      { id: 'stack',          label: 'Stack technique' },
+    ],
+  },
+  {
+    label: 'Features à venir',
+    items: [
+      { id: 'p2p',            label: 'Réseau P2P' },
     ],
   },
 ]
@@ -929,6 +936,78 @@ export default function DocsPage() {
                 Cliquez sur un connecteur pour voir la liste de ses tools.
               </DocP>
               <ConnectorsTable />
+            </DocSection>
+
+            {/* ── STACK ──────────────────────────────────────────────────── */}
+            <DocSection id="stack">
+              <DocH2>Stack technique</DocH2>
+              <DocP>
+                OSMOzzz est entièrement écrit en <strong style={{ color: '#e8eaf0' }}>Rust</strong> —
+                un binaire unique sans runtime, sans Node.js, sans Python.
+                Le dashboard React est embarqué directement dans le binaire.
+              </DocP>
+              <ToolTable style={{ marginTop: 16 }}>
+                <thead>
+                  <tr>
+                    <Th>Composant</Th>
+                    <Th>Technologie</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ['Langage', 'Rust 2021'],
+                    ['Runtime async', 'Tokio'],
+                    ['API REST & dashboard', 'Axum'],
+                    ['Dashboard UI', 'React 18 + TypeScript + Vite'],
+                    ['Transport MCP', 'JSON-RPC 2.0 stdin/stdout'],
+                    ['Connecteurs natifs', 'reqwest (HTTP direct)'],
+                    ['Proxies MCP', 'Bun / bunx (subprocesses npm)'],
+                    ['Stockage config', 'TOML (~/.osmozzz/*.toml)'],
+                  ].map(([comp, tech]) => (
+                    <tr key={comp}>
+                      <Td style={{ color: '#e8eaf0', fontWeight: 600 }}>{comp}</Td>
+                      <Td><InlineCode>{tech}</InlineCode></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </ToolTable>
+            </DocSection>
+
+            <DocDivider />
+
+            {/* ── FEATURES À VENIR ───────────────────────────────────────── */}
+            <DocH1>Features à venir</DocH1>
+
+            <DocSection id="p2p">
+              <DocH2>Réseau P2P mesh</DocH2>
+              <DocP>
+                La prochaine grande fonctionnalité d'OSMOzzz : connecter plusieurs instances entre elles
+                en pair-à-pair. Votre IA pourra interroger les outils d'un collègue — ses emails,
+                son Linear, son Supabase — avec des permissions granulaires définies par chaque pair.
+              </DocP>
+              <DocP>
+                Chaque machine aura une identité cryptographique unique (Ed25519). Toutes les données
+                sortantes passeront par les filtres de confidentialité du propriétaire avant d'être
+                transmises. Le réseau est chiffré de bout en bout via{' '}
+                <strong style={{ color: '#e8eaf0' }}>iroh (QUIC)</strong>.
+              </DocP>
+              <StepList>
+                <StepItem>
+                  <StepBody>
+                    <strong>Permissions granulaires</strong> — chaque pair choisit connecteur par connecteur ce qu'il partage : automatique, validation manuelle, ou bloqué.
+                  </StepBody>
+                </StepItem>
+                <StepItem>
+                  <StepBody>
+                    <strong>Confidentialité bout en bout</strong> — alias d'identité et filtre de confidentialité appliqués sur toutes les données sortantes avant envoi au pair.
+                  </StepBody>
+                </StepItem>
+                <StepItem>
+                  <StepBody>
+                    <strong>Zéro configuration réseau</strong> — connexion via relay chiffré, fonctionne derrière NAT et firewall sans ouvrir de port.
+                  </StepBody>
+                </StepItem>
+              </StepList>
             </DocSection>
 
           </Content>
