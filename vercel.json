@@ -1,5 +1,6 @@
 {
   "installCommand": "cd landing && npm install",
   "buildCommand": "cd landing && npm run build",
-  "outputDirectory": "landing/out"
+  "outputDirectory": "landing/out",
+  "cleanUrls": true
 }
